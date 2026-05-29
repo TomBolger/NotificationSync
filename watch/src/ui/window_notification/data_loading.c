@@ -6,239 +6,103 @@
 #include "commons/bytes.h"
 #include "commons/math.h"
 #include "commons/connection/bucket_sync.h"
-#include "connection/notification_details_fetcher.h"
-#include "connection/packets.h"
 #include "ui/window_status.h"
 
 static BucketList* buckets;
-
+static NotificationListItem list_items[MAX_NOTIFICATION_ITEMS];
 static const uint32_t STORAGE_BUCKET_FLAGS_ID_MIN = 3000;
 
-static void apply_date_to_body()
+static bool is_real_notification_id(const uint8_t id)
 {
-    const time_t current_unix_time = time(NULL);
-    // gmtime only has one static variable. We must make a copy in order to process two different date objects
-    const tm current_time = *localtime(&current_unix_time);
-    const tm* receive_time = localtime(&window_notification_data.receive_time);
-
-    char* format_string;
-    if (current_time.tm_yday == receive_time->tm_yday && current_time.tm_year == receive_time->tm_year)
-    {
-        if (clock_is_24h_style())
-            format_string = "Received at %H:%M";
-        else
-            format_string = "Received at %I:%M %p";
-    }
-    else if (current_time.tm_year == receive_time->tm_year && receive_time->tm_yday == current_time.tm_yday - 1)
-    {
-        if (clock_is_24h_style())
-            format_string = "Received yesterday, at %H:%M";
-        else
-            format_string = "Received yesterday, at %I:%M %p";
-    }
-    else
-    {
-        if (clock_is_24h_style())
-            format_string = "Received on %b %d, %H:%M";
-        else
-            format_string = "Received on %b %d, %I:%M %p";
-    }
-
-    size_t position = strlen(window_notification_data.body_text);
-
-    // Insert two newlines
-    window_notification_data.body_text[position++] = '\n';
-    window_notification_data.body_text[position++] = '\n';
-
-    strftime(&window_notification_data.body_text[position], 39, format_string, receive_time);
+    return id != 1;
 }
 
-static void reload_data_for_current_bucket()
+static void parse_bucket(const uint8_t id, const enum DotState state, NotificationListItem* item)
 {
     uint8_t bucket_data[256];
+    memset(item, 0, sizeof(NotificationListItem));
+    item->bucket_id = id;
+    item->state = state;
 
-    if (window_notification_data.icon != NULL)
+    if (!bucket_sync_load_bucket(id, bucket_data))
     {
-        gbitmap_destroy(window_notification_data.icon);
-        window_notification_data.icon = NULL;
+        strcpy(item->app_name, "Loading");
+        strcpy(item->title, "Syncing notification");
+        strcpy(item->body, "");
+        return;
     }
 
-    if (!bucket_sync_load_bucket(window_notification_data.currently_selected_bucket, bucket_data))
-    {
-        // Bucket is not on the device yet. Show blank for now and wait for the buckets to load.
-        strcpy(window_notification_data.title_text, "");
-        strcpy(window_notification_data.subtitle_text, "");
-        strcpy(window_notification_data.body_text, "");
-    }
-    else
-    {
-        const uint8_t size = bucket_sync_get_bucket_size(window_notification_data.currently_selected_bucket);
+    item->receive_time = read_uint32_from_byte_array(bucket_data, 0);
+    uint8_t position = 4;
+    item->icon_id = bucket_data[position++];
+    item->color_id = bucket_data[position++];
 
-        window_notification_data.receive_time = read_uint32_from_byte_array(bucket_data, 0);
+    strncpy(item->app_name, (char*)&bucket_data[position], sizeof(item->app_name) - 1);
+    position += strlen(item->app_name) + 1;
 
-        uint8_t position = 4;
+    strncpy(item->title, (char*)&bucket_data[position], sizeof(item->title) - 1);
+    position += strlen(item->title) + 1;
 
-        window_notification_data.title_font = bucket_data[position++];
-        window_notification_data.subtitle_font = bucket_data[position++];
-        window_notification_data.body_font = bucket_data[position++];
-
-        strcpy(window_notification_data.title_text, (char*)&bucket_data[position]);
-        position += strlen(window_notification_data.title_text) + 1;
-        strcpy(window_notification_data.subtitle_text, (char*)&bucket_data[position]);
-        position += strlen(window_notification_data.subtitle_text) + 1;
-        const uint8_t body_bytes = size - position;
-        strncpy(window_notification_data.body_text, (char*)&bucket_data[position], body_bytes);
-        window_notification_data.body_text[body_bytes] = '\0';
-
-        notification_details_fetcher_fetch(window_notification_data.currently_selected_bucket);
-    }
-
-    apply_date_to_body();
-    window_notification_ui_redraw_scroller_content();
+    const uint8_t body_bytes = bucket_sync_get_bucket_size(id) - position;
+    strncpy(item->body, (char*)&bucket_data[position], MIN(body_bytes, sizeof(item->body) - 1));
 }
 
-static uint8_t get_bucket_flags(const uint8_t id)
+bool is_notification_unread(const uint8_t bucket_flags, const uint8_t id)
 {
-    for (int i = 0; i < buckets->count; i++)
-    {
-        if (buckets->data[i].id == id)
-        {
-            return buckets->data[i].flags;
-        }
-    }
-
-    return 0;
+    uint8_t on_watch_flags[] = {0};
+    persist_read_data(STORAGE_BUCKET_FLAGS_ID_MIN + id, on_watch_flags, 1);
+    return (bucket_flags & 0x01) != 0 && on_watch_flags[0] != 1;
 }
 
-void window_notification_data_select_bucket_on_index(const uint8_t target_index)
+static enum DotState state_for_bucket(const uint8_t id, const uint8_t flags)
 {
-    if (window_notification_data.currently_selected_bucket != 0)
+    if (is_notification_unread(flags, id))
     {
-        // Update dot as read when user moves away from it
-        const uint8_t previously_selected_bucket_index = window_notification_data.currently_selected_bucket_index;
-
-        if (window_notification_data.dot_states[previously_selected_bucket_index] == UNREAD)
-        {
-            const uint8_t flags = get_bucket_flags(window_notification_data.currently_selected_bucket);
-
-            // After user switches away from "unread" notification, it should change back to read or paused
-            if ((flags & 0x02) != 0)
-            {
-                window_notification_data.dot_states[previously_selected_bucket_index] = PAUSED;
-            }
-            else
-            {
-                window_notification_data.dot_states[previously_selected_bucket_index] = NORMAL;
-            }
-            window_notification_ui_on_bucket_list_updated();
-        }
+        return UNREAD;
     }
-
-    uint8_t index_without_settings = 0;
-
-    for (int i = 0; i < buckets->count; i++)
+    if ((flags & 0x02) != 0)
     {
-        const uint8_t id = buckets->data[i].id;
-
-        if (id != 1)
-        {
-            if (index_without_settings == target_index)
-            {
-                window_notification_data.currently_selected_bucket = id;
-                window_notification_data.currently_selected_bucket_index = target_index;
-                window_notification_data.num_actions = 0;
-
-                if (!close_after_sync && window_notification_data.dot_states[target_index] == UNREAD)
-                {
-                    // After user switches away from "unread" notification, we save to storage that user has seen it
-                    // But we should not change the UI yet, as just-read notification should still have the Ui
-
-                    // This should not happen if app is just open momentarily to sync the data, as user would not have the
-                    // change to read the notification, hence the close after sync check
-
-                    const uint8_t on_watch_flags[] = {1};
-                    persist_write_data(STORAGE_BUCKET_FLAGS_ID_MIN + id, on_watch_flags, 1);
-                }
-
-
-                reload_data_for_current_bucket();
-                window_notification_ui_on_bucket_selected();
-                window_notification_action_list_hide();
-                return;
-            }
-
-            index_without_settings++;
-        }
+        return PAUSED;
     }
-
-    // If target_index was out of bounds, just select current bucket
-    window_notification_data_select_bucket_on_index(window_notification_data.bucket_count - 1);
+    return NORMAL;
 }
 
 void notification_window_ingest_bucket_metadata()
 {
-    if (!idle_handler_has_user_interacted_since_app_start && launch_reason() == APP_LAUNCH_PHONE)
-    {
-        // Force switch to the new notification after app is opened due to new notification
-        window_notification_data.currently_selected_bucket = 0;
-        window_notification_data.currently_selected_bucket_index = 0;
-    }
-    uint8_t count_without_settings = 0;
-    int16_t current_bucket_index = -1;
-    for (int i = 0; i < buckets->count; i++)
+    uint8_t count = 0;
+    for (int i = 0; buckets != NULL && i < buckets->count && count < MAX_NOTIFICATION_ITEMS; i++)
     {
         const uint8_t id = buckets->data[i].id;
-        const uint8_t flags = buckets->data[i].flags;
-
-        if (is_notification_unread(flags, id))
+        if (!is_real_notification_id(id))
         {
-            window_notification_data.dot_states[count_without_settings] = UNREAD;
-        }
-        else if ((flags & 0x02) != 0)
-        {
-            window_notification_data.dot_states[count_without_settings] = PAUSED;
-        }
-        else
-        {
-            window_notification_data.dot_states[count_without_settings] = NORMAL;
+            continue;
         }
 
-        if (id == window_notification_data.currently_selected_bucket)
-        {
-            current_bucket_index = count_without_settings;
-        }
-
-        if (id != 1)
-        {
-            count_without_settings++;
-        }
+        const enum DotState state = state_for_bucket(id, buckets->data[i].flags);
+        parse_bucket(id, state, &list_items[count]);
+        window_notification_data.dot_states[count] = state;
+        count++;
     }
 
-    if (count_without_settings == 0)
+    if (count == 0)
     {
-        window_status_show_empty();
-
+        window_notification_ui_set_items(list_items, 0, false);
         return;
     }
 
-    window_notification_data.bucket_count = count_without_settings;
-    window_notification_ui_on_bucket_list_updated();
+    window_notification_ui_set_items(list_items, count, false);
+}
 
-    if (current_bucket_index != -1)
-    {
-        window_notification_data_select_bucket_on_index(current_bucket_index);
-    }
-    else
-    {
-        window_notification_data_select_bucket_on_index(window_notification_data.currently_selected_bucket_index);
-    }
+void window_notification_data_select_bucket_on_index(const uint8_t target_index)
+{
+    window_notification_data.currently_selected_bucket_index = target_index;
+    window_notification_ui_on_bucket_selected();
 }
 
 static void on_buckets_changed()
 {
     buckets = bucket_sync_get_bucket_list();
     notification_window_ingest_bucket_metadata();
-
     idle_handler_notify_notifications_updated();
 }
 
@@ -246,90 +110,58 @@ static void on_bucket_updated(const BucketMetadata bucket_metadata, void* contex
 {
     if (bucket_metadata.id == 1)
     {
-        // Settings update
         idle_handler_register_timers();
         return;
     }
 
-    const uint8_t new_notification_id = bucket_metadata.id;
-    persist_delete(new_notification_id + STORAGE_BUCKET_FLAGS_ID_MIN);
-
-
-    uint8_t count_without_settings = 0;
-    for (int i = 0; i < buckets->count; i++)
-    {
-        const uint8_t id = buckets->data[i].id;
-
-        if (id == new_notification_id)
-        {
-            const uint8_t flags = bucket_metadata.flags;
-
-            if ((flags & 0x01) != 0)
-            {
-                window_notification_data.dot_states[count_without_settings] = UNREAD;
-            }
-            else if ((flags & 0x02) != 0)
-            {
-                window_notification_data.dot_states[count_without_settings] = PAUSED;
-            }
-            else
-            {
-                window_notification_data.dot_states[count_without_settings] = NORMAL;
-            }
-            window_notification_ui_on_bucket_list_updated();
-            break;
-        }
-
-        if (id != 1)
-        {
-            count_without_settings++;
-        }
-    }
-
-    if (new_notification_id == window_notification_data.currently_selected_bucket)
-    {
-        reload_data_for_current_bucket();
-    }
+    persist_delete(bucket_metadata.id + STORAGE_BUCKET_FLAGS_ID_MIN);
+    on_buckets_changed();
 }
 
 void window_notification_data_receive_more_text(const uint8_t bucket_id, const uint8_t* data, const size_t data_size)
 {
-    if (window_notification_data.active == false || bucket_id != window_notification_data.currently_selected_bucket)
+    if (window_notification_data.active == false)
     {
         return;
     }
 
+    const bool is_current_bucket = bucket_id == window_notification_data.currently_selected_bucket;
     size_t position = 1;
     const uint8_t num_actions = data[0];
-    window_notification_data.num_actions = num_actions;
+    if (is_current_bucket)
+    {
+        window_notification_data.num_actions = num_actions;
+    }
     for (int i = 0; i < num_actions; i++)
     {
-        window_notification_data.actions[i].id = data[position++];
-        const char* action_title = strcpy(window_notification_data.actions[i].text, (char*)&data[position]);
-        window_notification_data.actions[i].voice = false;
+        const uint8_t action_id = data[position++];
+        const char* action_title = (char*)&data[position];
+        if (is_current_bucket)
+        {
+            strcpy(window_notification_data.actions[i].text, action_title);
+        }
         position += strlen(action_title) + 1;
+        if (is_current_bucket)
+        {
+            window_notification_data.actions[i].id = action_id;
+            window_notification_data.actions[i].voice = false;
+        }
     }
 
     const size_t icon_bytes_length = read_uint16_from_byte_array(data, position);
-    position += 2;
-
-    if (window_notification_data.icon != NULL)
-    {
-        gbitmap_destroy(window_notification_data.icon);
-        window_notification_data.icon = NULL;
-    }
-    if (icon_bytes_length != 0)
-    {
-        window_notification_data.icon = gbitmap_create_from_png_data(&data[position], icon_bytes_length);
-        position += icon_bytes_length;
-    }
+    position += 2 + icon_bytes_length;
 
     const size_t max_text_size = MIN(MAX_BODY_TEXT_SIZE, data_size - position);
+    window_notification_ui_cache_body_for_bucket(bucket_id, (char*)&data[position], max_text_size);
+    if (!is_current_bucket)
+    {
+        return;
+    }
+
     strncpy(window_notification_data.body_text, (char*)&data[position], max_text_size);
     window_notification_data.body_text[max_text_size] = '\0';
-
-    apply_date_to_body();
-    window_notification_ui_redraw_scroller_content();
+    window_notification_ui_cache_current_body();
+    window_notification_ui_redraw();
 }
 
 void window_notification_data_receive_show_submenu(const uint8_t* data, const size_t data_size)
@@ -342,7 +174,7 @@ void window_notification_data_receive_show_submenu(const uint8_t* data, const si
 
     const uint8_t menu_id = data[1];
     const uint8_t num_actions = data[2];
-    size_t position = 2;
+    size_t position = 3;
     window_notification_data.num_submenu_actions = num_actions;
     for (int i = 0; i < num_actions; i++)
     {
@@ -359,7 +191,6 @@ void window_notification_data_receive_show_submenu(const uint8_t* data, const si
     else
     {
         window_notification_data.currently_displayed_menu_id = menu_id;
-
         window_notification_action_list_show();
     }
 }
@@ -367,6 +198,7 @@ void window_notification_data_receive_show_submenu(const uint8_t* data, const si
 static void on_bucket_deleted(const uint8_t bucket_id)
 {
     persist_delete(bucket_id + STORAGE_BUCKET_FLAGS_ID_MIN);
+    window_notification_ui_on_bucket_deleted(bucket_id);
 }
 
 void window_notification_data_app_started()
@@ -379,18 +211,12 @@ void window_notification_data_init()
     on_buckets_changed();
     bucket_sync_set_bucket_list_change_callback(on_buckets_changed);
     bucket_sync_set_bucket_data_change_callback(on_bucket_updated, NULL);
+    bucket_sync_register_bucket_deleted_callback(on_bucket_deleted);
 }
 
 void window_notification_data_deinit()
 {
     bucket_sync_set_bucket_list_change_callback(NULL);
     bucket_sync_clear_bucket_data_change_callback(on_bucket_updated, NULL);
-}
-
-bool is_notification_unread(const uint8_t bucket_flags, const uint8_t id)
-{
-    uint8_t on_watch_flags[] = {0};
-    persist_read_data(STORAGE_BUCKET_FLAGS_ID_MIN + id, on_watch_flags, 1);
-
-    return (bucket_flags & 0x01) != 0 && on_watch_flags[0] != 1;
+    bucket_sync_register_bucket_deleted_callback(NULL);
 }

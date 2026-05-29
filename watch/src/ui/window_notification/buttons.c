@@ -1,46 +1,30 @@
 #include "buttons.h"
 
 #include "action_list.h"
-#include "data_loading.h"
 #include "idle_handler.h"
+#include "window_notification.h"
 #include "connection/packets.h"
-#include "ui/window_preferences.h"
 
-const int32_t SINGLE_SCROLL_HEIGHT = 32;
+// PebbleOS source: src/fw/services/timeline/swap_layer.c
+#define SCROLL_REPEAT_MS 200
 
-// ReSharper disable once CppParameterMayBeConst
-static void button_up_single(ClickRecognizerRef recognizer, void* context)
+static void open_action_list_callback(void* context)
 {
-    idle_handler_notify_user_interacted();
-
-    if (window_notification_data.menu_displayed)
-    {
-        window_notification_action_list_move_up();
-    }
-    else
-    {
-        window_notification_ui_scroll_by(SINGLE_SCROLL_HEIGHT, click_recognizer_is_repeating(recognizer));
-    }
-}
-
-// ReSharper disable once CppParameterMayBeConst
-static void button_down_single(ClickRecognizerRef recognizer, void* context)
-{
-    idle_handler_notify_user_interacted();
-
-    if (window_notification_data.menu_displayed)
-    {
-        window_notification_action_list_move_down();
-    }
-    else
-    {
-        window_notification_ui_scroll_by(-SINGLE_SCROLL_HEIGHT, click_recognizer_is_repeating(recognizer));
-    }
+    (void)context;
+    window_notification_action_list_show();
 }
 
 static void button_select_single(ClickRecognizerRef recognizer, void* context)
 {
+    (void)recognizer;
+    (void)context;
     idle_handler_notify_user_interacted();
+
+    if (!window_notification_data.detail_open)
+    {
+        window_notification_ui_open_selected_detail();
+        return;
+    }
 
     if (window_notification_data.num_actions == 0)
     {
@@ -55,17 +39,30 @@ static void button_select_single(ClickRecognizerRef recognizer, void* context)
     else
     {
         window_notification_data.currently_displayed_menu_id = 0;
-        window_notification_action_list_show();
+        app_timer_register(1, open_action_list_callback, NULL);
     }
 }
 
 static void button_back_single(ClickRecognizerRef recognizer, void* context)
 {
+    (void)recognizer;
+    (void)context;
     idle_handler_notify_user_interacted();
 
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_hide();
+    }
+    else if (window_notification_data.detail_open)
+    {
+        if (window_notification_ui_should_exit_detail_on_back())
+        {
+            send_close_me();
+        }
+        else
+        {
+            window_notification_ui_close_detail();
+        }
     }
     else
     {
@@ -73,77 +70,49 @@ static void button_back_single(ClickRecognizerRef recognizer, void* context)
     }
 }
 
-static void button_back_double(ClickRecognizerRef recognizer, void* context)
+static void button_up_repeating(ClickRecognizerRef recognizer, void* context)
+{
+    if (!click_recognizer_is_repeating(recognizer))
+    {
+        return;
+    }
+
+    idle_handler_notify_user_interacted();
+    window_notification_ui_scroll_detail_up(recognizer, context);
+}
+
+static void button_down_repeating(ClickRecognizerRef recognizer, void* context)
+{
+    if (!click_recognizer_is_repeating(recognizer))
+    {
+        return;
+    }
+
+    idle_handler_notify_user_interacted();
+    window_notification_ui_scroll_detail_down(recognizer, context);
+}
+
+static void button_up_raw(ClickRecognizerRef recognizer, void* context)
 {
     idle_handler_notify_user_interacted();
-
-    window_preferences_show();
+    window_notification_ui_scroll_detail_up(recognizer, context);
 }
 
-static void button_up_repeating(const ClickRecognizerRef recognizer, void* context)
+static void button_down_raw(ClickRecognizerRef recognizer, void* context)
 {
-    if (click_recognizer_is_repeating(recognizer))
-    {
-        button_up_single(recognizer, context);
-    }
+    idle_handler_notify_user_interacted();
+    window_notification_ui_scroll_detail_down(recognizer, context);
 }
 
-static void button_down_repeating(const ClickRecognizerRef recognizer, void* context)
+void window_notification_buttons_config(void* context)
 {
-    if (click_recognizer_is_repeating(recognizer))
+    if (window_notification_data.detail_open)
     {
-        button_down_single(recognizer, context);
+        window_raw_click_subscribe(BUTTON_ID_UP, button_up_raw, NULL, context);
+        window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, button_up_repeating);
+        window_raw_click_subscribe(BUTTON_ID_DOWN, button_down_raw, NULL, context);
+        window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, button_down_repeating);
     }
-}
-
-static void button_up_multi(const ClickRecognizerRef recognizer, void* context)
-{
-    if (window_notification_data.menu_displayed)
-    {
-        return;
-    }
-
-    if (window_notification_data.currently_selected_bucket_index > 0)
-    {
-        window_notification_data_select_bucket_on_index(window_notification_data.currently_selected_bucket_index - 1);
-    }
-    else
-    {
-        window_notification_data_select_bucket_on_index(window_notification_data.bucket_count - 1);
-    }
-}
-
-static void button_down_multi(const ClickRecognizerRef recognizer, void* context)
-{
-    if (window_notification_data.menu_displayed)
-    {
-        return;
-    }
-
-    if (window_notification_data.currently_selected_bucket_index < window_notification_data.bucket_count - 1)
-    {
-        window_notification_data_select_bucket_on_index(window_notification_data.currently_selected_bucket_index + 1);
-    }
-    else
-    {
-        window_notification_data_select_bucket_on_index(0);
-    }
-}
-
-void window_notification_buttons_config()
-{
-    window_multi_click_subscribe(BUTTON_ID_UP, 2, 2, 150, false, button_up_multi);
-    window_multi_click_subscribe(BUTTON_ID_DOWN, 2, 2, 150, false, button_down_multi);
-
-    window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, button_up_repeating);
-    window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, button_down_repeating);
-
-    // regular button single click action is delayed since the watch is waiting to determine whether we hold the button
-    // or not. This is not necessary in our case, so we can just use "button down" event instead
-    window_raw_click_subscribe(BUTTON_ID_UP, button_up_single, NULL, NULL);
-    window_raw_click_subscribe(BUTTON_ID_DOWN, button_down_single, NULL, NULL);
-
     window_single_click_subscribe(BUTTON_ID_SELECT, button_select_single);
     window_single_click_subscribe(BUTTON_ID_BACK, button_back_single);
-    window_multi_click_subscribe(BUTTON_ID_BACK, 2, 2, 150, true, button_back_double);
 }

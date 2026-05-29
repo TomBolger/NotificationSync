@@ -1,6 +1,5 @@
 package com.matejdro.pebblenotificationcenter.bluetooth
 
-import android.graphics.drawable.Drawable
 import com.matejdro.pebble.bluetooth.common.PacketQueue
 import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionScope
 import com.matejdro.pebble.bluetooth.common.util.LimitingStringEncoder
@@ -63,20 +62,7 @@ class NotificationDetailsPusherImpl(
                buffer.writeUByte(0u)
             }
 
-            val iconData = notification?.systemData?.iconDrawable?.let { icon ->
-               drawableExtractor.convertIconDrawableToBitmapBytes(
-                  icon as Drawable,
-                  ICON_SIZE_PIXELS,
-                  ICON_SIZE_PIXELS,
-                  colorWatch
-               )
-            }
-            if (iconData != null) {
-               buffer.writeUShort(iconData.size.toUShort())
-               buffer.write(iconData)
-            } else {
-               buffer.writeUShort(0u)
-            }
+            buffer.writeUShort(0u)
 
             val packetBeforeText = mapOf(
                0u to PebbleDictionaryItem.UInt8(5u),
@@ -143,7 +129,6 @@ class NotificationDetailsPusherImpl(
 
 private const val MAX_ACTIONS_TO_SEND = 20
 private const val MAX_ACTIONS_TEXT_BYTES = 20
-private const val ICON_SIZE_PIXELS = 32
 
 interface NotificationDetailsPusher {
    fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)

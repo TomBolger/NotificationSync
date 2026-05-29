@@ -1,17 +1,13 @@
 #pragma once
+#include <pebble.h>
 #include <stdint.h>
 
 #include "ui/layers/dots.h"
-#include "ui/layers/status_bar.h"
 
 #define MAX_BODY_TEXT_SIZE 4000
-
-typedef struct
-{
-    char* text;
-    GFont font;
-    GRect bounds;
-} TextParameters;
+#define MAX_NOTIFICATION_ITEMS 30
+#define MAX_NOTIFICATION_TITLE 64
+#define MAX_NOTIFICATION_SNIPPET 160
 
 typedef struct
 {
@@ -22,22 +18,32 @@ typedef struct
 
 typedef struct
 {
+    uint8_t bucket_id;
+    time_t receive_time;
+    uint8_t icon_id;
+    uint8_t color_id;
+    enum DotState state;
+    char app_name[MAX_NOTIFICATION_TITLE];
+    char title[MAX_NOTIFICATION_TITLE];
+    char body[MAX_NOTIFICATION_SNIPPET];
+} NotificationListItem;
+
+typedef struct
+{
     bool active;
+    bool detail_open;
+    bool using_dummy_data;
 
     uint8_t currently_selected_bucket;
     int16_t currently_selected_bucket_index;
     uint8_t bucket_count;
-    enum DotState dot_states[14];
+    enum DotState dot_states[MAX_NOTIFICATION_ITEMS];
 
-    uint8_t title_font;
-    char title_text[21];
-    uint8_t subtitle_font;
-    char subtitle_text[21];
-    uint8_t body_font;
-    // Include + 40 for the date and the null character
+    uint8_t icon_id;
+    uint8_t color_id;
+    char title_text[MAX_NOTIFICATION_TITLE];
+    char subtitle_text[MAX_NOTIFICATION_TITLE];
     char body_text[MAX_BODY_TEXT_SIZE + 40];
-    GBitmap* icon;
-
     time_t receive_time;
 
     uint8_t num_actions;
@@ -52,7 +58,17 @@ typedef struct
 extern NotificationWindowData window_notification_data;
 
 void window_notification_show();
-void window_notification_ui_redraw_scroller_content();
+void window_notification_ui_set_items(const NotificationListItem* items, uint8_t count, bool using_dummy_data);
+void window_notification_ui_redraw();
+void window_notification_ui_cache_current_body();
+void window_notification_ui_cache_body_for_bucket(uint8_t bucket_id, const char* body, size_t body_size);
 void window_notification_ui_on_bucket_selected();
 void window_notification_ui_on_bucket_list_updated();
-void window_notification_ui_scroll_by(int16_t amount, bool repeating);
+void window_notification_ui_on_bucket_deleted(uint8_t bucket_id);
+void window_notification_ui_open_phone_launch_detail(uint8_t bucket_id);
+void window_notification_ui_open_selected_detail();
+bool window_notification_ui_should_exit_detail_on_back(void);
+void window_notification_ui_close_detail();
+void window_notification_ui_scroll_detail_up(ClickRecognizerRef recognizer, void* context);
+void window_notification_ui_scroll_detail_down(ClickRecognizerRef recognizer, void* context);
+GColor window_notification_ui_get_primary_color();

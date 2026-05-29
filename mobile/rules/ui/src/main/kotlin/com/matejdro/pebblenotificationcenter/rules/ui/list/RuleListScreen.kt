@@ -1,383 +1,274 @@
 package com.matejdro.pebblenotificationcenter.rules.ui.list
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Badge
+import androidx.compose.material3.ElevatedAssistChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.ui.LocalNavAnimatedContentScope
-import com.matejdro.pebblenotificationcenter.navigation.instructions.OpenScreenOrReplaceExistingType
-import com.matejdro.pebblenotificationcenter.navigation.keys.RuleDetailsScreenKey
+import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.matejdro.pebblenotificationcenter.navigation.keys.RuleListScreenKey
-import com.matejdro.pebblenotificationcenter.navigation.util.rememberNavigationPopup
-import com.matejdro.pebblenotificationcenter.navigation.util.trigger
-import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
-import com.matejdro.pebblenotificationcenter.rules.RuleMetadata
 import com.matejdro.pebblenotificationcenter.rules.ui.R
-import com.matejdro.pebblenotificationcenter.rules.ui.details.appPickingDialog
-import com.matejdro.pebblenotificationcenter.rules.ui.dialogs.NameEntryScreenKey
-import com.matejdro.pebblenotificationcenter.ui.animations.LocalSharedTransitionScope
 import com.matejdro.pebblenotificationcenter.ui.components.ProgressErrorSuccessScaffold
-import com.matejdro.pebblenotificationcenter.ui.debugging.FullScreenPreviews
-import com.matejdro.pebblenotificationcenter.ui.debugging.PreviewTheme
-import com.matejdro.pebblenotificationcenter.ui.lists.ReorderableListContainer
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import si.inova.kotlinova.compose.components.itemsWithDivider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import si.inova.kotlinova.compose.flow.collectAsStateWithLifecycleAndBlinkingPrevention
-import si.inova.kotlinova.core.activity.requireActivity
-import si.inova.kotlinova.navigation.navigator.Navigator
-import si.inova.kotlinova.navigation.screenkeys.ScreenKey
+import si.inova.kotlinova.core.time.TimeProvider
 import si.inova.kotlinova.navigation.screens.InjectNavigationScreen
 import si.inova.kotlinova.navigation.screens.Screen
-import com.matejdro.pebblenotificationcenter.sharedresources.R as sharedR
+import java.time.format.FormatStyle
 
 @InjectNavigationScreen
 class RuleListScreen(
    private val viewModel: RuleListViewModel,
-   private val navigator: Navigator,
-   private val backstack: StateFlow<List<ScreenKey>>,
+   private val timeProvider: TimeProvider,
 ) : Screen<RuleListScreenKey>() {
-   @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
    @Composable
    override fun Content(key: RuleListScreenKey) {
       val stateOutcome = viewModel.uiState.collectAsStateWithLifecycleAndBlinkingPrevention()
-
-      val addDialog = navigator.rememberNavigationPopup(
-         navigationKey = { _: Unit, resultKey -> NameEntryScreenKey(getString(R.string.new_rule), resultKey) },
-         onResult = { name ->
-            if (name !is NameEntryScreenKey.Result.Text) {
-               return@rememberNavigationPopup
-            }
-
-            if (!name.text.isBlank()) {
-               viewModel.addRule(name.text)
-            }
-         }
-      )
-
-      var isNextQuickAddMute by rememberSaveable { mutableStateOf(false) }
-      val appPickerDialog = appPickingDialog(
-         navigator,
-         { pkg, channels ->
-            if (isNextQuickAddMute) {
-               viewModel.addRuleWithAppMute(pkg, channels)
-            } else {
-               viewModel.addRuleWithAppHide(pkg, channels)
-            }
-         },
-      )
-
-      val lastDetailsFlow = remember {
-         backstack
-            .map { list -> list.filterIsInstance<RuleDetailsScreenKey>().lastOrNull() }
-      }
-
-      val selectedDetailsKey = lastDetailsFlow.collectAsStateWithLifecycle(null).value
-      val windowSizeClass = calculateWindowSizeClass(LocalContext.current.requireActivity())
-      // Do not highlight selected item in the phone mode
-      val selectedRuleId = selectedDetailsKey?.id.takeIf {
-         windowSizeClass.widthSizeClass != WindowWidthSizeClass.Compact
-      }
 
       ProgressErrorSuccessScaffold(
          stateOutcome::value,
          errorProgressModifier = Modifier.safeDrawingPadding()
       ) { state ->
          RuleListScreenContent(
-            state,
-            selectedRuleId,
-            addEmptyRule = { addDialog.trigger() },
-            addHideRule = {
-               isNextQuickAddMute = false
-               appPickerDialog.trigger(false)
-            },
-            addMuteRule = {
-               isNextQuickAddMute = true
-               appPickerDialog.trigger(false)
-            },
-            setOrder = viewModel::reorder,
-            openDetails = { id ->
-               navigator.navigate(
-                  OpenScreenOrReplaceExistingType(RuleDetailsScreenKey(id))
-               )
-            }
+            state = state,
+            timeProvider = timeProvider,
+            setAllEnabled = viewModel::setAllEnabled,
+            setAppEnabled = viewModel::setAppEnabled,
          )
       }
    }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun RuleListScreenContent(
    state: RuleListState,
-   selectedRuleId: Int?,
-   addMuteRule: () -> Unit,
-   addHideRule: () -> Unit,
-   addEmptyRule: () -> Unit,
-   setOrder: (Int, Int) -> Unit,
-   openDetails: (Int) -> Unit,
-   addButtonsShown: Boolean = false,
-) = with(LocalSharedTransitionScope.current) {
-   Scaffold(
-      Modifier.fillMaxSize(),
-      contentWindowInsets = WindowInsets(),
-      floatingActionButton = {
-         AddButtons(
-            addMuteRule,
-            addHideRule,
-            addEmptyRule,
-            addButtonsShown
+   timeProvider: TimeProvider,
+   setAllEnabled: (Boolean) -> Unit,
+   setAppEnabled: (NotificationAppState, Boolean) -> Unit,
+) {
+   var notifiedOnly by remember { mutableStateOf(true) }
+   val visibleApps = remember(state.apps, notifiedOnly) {
+      if (notifiedOnly) {
+         state.apps.filter { it.notificationCount > 0 || it.ruleId != null }
+      } else {
+         state.apps
+      }
+   }
+
+   LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(
+         top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding(),
+         bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 12.dp,
+      ),
+   ) {
+      item {
+         Column(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 8.dp)) {
+            Text(
+               text = stringResource(R.string.notifications),
+               style = MaterialTheme.typography.headlineLarge,
+               modifier = Modifier.semantics { heading() },
+            )
+            Text(
+               text = stringResource(R.string.showing_apps_count, visibleApps.size),
+               color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+         }
+      }
+
+      item {
+         Row(
+            modifier = Modifier
+               .fillMaxWidth()
+               .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+         ) {
+            ElevatedAssistChip(
+               onClick = { notifiedOnly = !notifiedOnly },
+               label = { Text(stringResource(R.string.notified_only)) },
+               colors = AssistChipDefaults.elevatedAssistChipColors(
+                  containerColor = if (notifiedOnly) {
+                     MaterialTheme.colorScheme.primaryContainer
+                  } else {
+                     MaterialTheme.colorScheme.background
+                  }
+               ),
+            )
+         }
+      }
+
+      item {
+         ListItem(
+            headlineContent = {
+               Text(
+                  text = stringResource(R.string.all_apps),
+                  fontSize = 17.sp,
+                  fontWeight = FontWeight.Medium,
+               )
+            },
+            supportingContent = {
+               Text(
+                  text = if (state.defaultEnabled) stringResource(R.string.shown) else stringResource(R.string.muted),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+               )
+            },
+            trailingContent = {
+               Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  TextButton(onClick = { setAllEnabled(false) }) {
+                     Text(stringResource(R.string.mute_all))
+                  }
+                  TextButton(onClick = { setAllEnabled(true) }) {
+                     Text(stringResource(R.string.enable_all))
+                  }
+               }
+            },
+            shadowElevation = 0.dp,
+         )
+         HorizontalDivider()
+      }
+
+      items(
+         items = visibleApps,
+         key = { it.packageName ?: "history-${it.name}" },
+      ) { app ->
+         NotificationAppRow(
+            app = app,
+            timeProvider = timeProvider,
+            onEnabledChanged = { setAppEnabled(app, it) },
+         )
+      }
+   }
+}
+
+@Composable
+private fun NotificationAppRow(
+   app: NotificationAppState,
+   timeProvider: TimeProvider,
+   onEnabledChanged: (Boolean) -> Unit,
+) {
+   ListItem(
+      leadingContent = {
+         AppIcon(
+            packageName = app.packageName,
+            modifier = Modifier
+               .size(42.dp)
+               .clip(RoundedCornerShape(10.dp))
+               .background(MaterialTheme.colorScheme.surfaceVariant),
          )
       },
-   ) { paddingValues ->
-      val listState = rememberLazyListState()
-      ReorderableListContainer(state.rules, listState) { rules ->
-         LazyColumn(
-            contentPadding = WindowInsets.safeDrawing.asPaddingValues(),
-            modifier = Modifier.padding(paddingValues)
-         ) {
-            itemsWithDivider(rules, key = { it.id }) { rule ->
-               ReorderableListItem(
-                  rule.id,
-                  rule,
-                  minReorderableIndex = RULE_ID_DEFAULT_SETTINGS,
-                  enabled = rule.id > RULE_ID_DEFAULT_SETTINGS,
-                  setOrder = setOrder
-               ) { modifier, isDragging ->
-                  Text(
-                     rule.name,
-                     modifier
-                        .clickable(onClick = { openDetails(rule.id) })
-                        .run {
-                           if (rule.id == selectedRuleId) {
-                              background(MaterialTheme.colorScheme.primary)
-                           } else {
-                              this
-                           }
-                        }
-                        .padding(32.dp)
-                        .fillMaxWidth()
-                        .animateItem()
-                        .run {
-                           if (!isDragging()) {
-                              sharedElement(
-                                 rememberSharedContentState("ruleName-${rule.id}"),
-                                 LocalNavAnimatedContentScope.current
-                              )
-                           } else {
-                              this
-                           }
-                        },
-                     color = if (rule.id == selectedRuleId) {
-                        MaterialTheme.colorScheme.onPrimary
-                     } else {
-                        MaterialTheme.colorScheme.onSurface
-                     },
-                  )
+      headlineContent = {
+         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+               text = app.name,
+               fontSize = 17.sp,
+               modifier = Modifier.weight(1f, fill = false),
+               maxLines = 1,
+               overflow = TextOverflow.Ellipsis,
+            )
+            if (app.notificationCount > 0) {
+               Badge(modifier = Modifier.padding(horizontal = 7.dp)) {
+                  Text(app.notificationCount.toString())
                }
             }
          }
+      },
+      supportingContent = {
+         Text(
+            text = app.lastNotification?.let { lastNotification ->
+               val localDateTime = lastNotification.atZone(timeProvider.systemDefaultZoneId()).toLocalDateTime()
+               java.time.format.DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).format(localDateTime)
+            } ?: stringResource(R.string.never_seen),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontSize = 12.sp,
+         )
+      },
+      trailingContent = {
+         Switch(
+            checked = app.enabled,
+            enabled = app.packageName != null,
+            onCheckedChange = onEnabledChanged,
+         )
+      },
+      shadowElevation = 0.dp,
+   )
+   HorizontalDivider()
+}
+
+@Composable
+private fun AppIcon(packageName: String?, modifier: Modifier = Modifier) {
+   if (LocalInspectionMode.current) {
+      Box(modifier.background(Color.Red))
+      return
+   }
+
+   if (packageName == null) {
+      Box(modifier)
+      return
+   }
+
+   var icon by remember(packageName) { mutableStateOf<Drawable?>(null) }
+   val context = LocalContext.current
+
+   LaunchedEffect(packageName, context) {
+      icon = withContext(Dispatchers.Default) {
+         runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
       }
    }
-}
 
-@Composable
-private fun AddButtons(
-   addMuteRule: () -> Unit,
-   addHideRule: () -> Unit,
-   addEmptyRule: () -> Unit,
-   shown: Boolean = false,
-) {
-   var showFabs by rememberSaveable { mutableStateOf(shown) }
-   val fabRotation by animateFloatAsState(if (showFabs) ROTATION_QUARTER_CIRCLE_DEG else 0f)
-
-   Column(
-      modifier = Modifier
-         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
-      horizontalAlignment = Alignment.End,
-   ) {
-      AnimatedVisibility(
-         visible = showFabs,
-         enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-         exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
-      ) {
-         Column(
-            Modifier.padding(end = 10.dp),
-            horizontalAlignment = Alignment.End,
-         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-               Text(stringResource(R.string.mute_an_app))
-
-               FloatingActionButton(
-                  containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                  onClick = {
-                     showFabs = false
-                     addMuteRule()
-                  },
-                  modifier = Modifier
-                     .padding(start = 8.dp)
-                     .size(48.dp)
-               ) {
-                  Icon(painterResource(R.drawable.ic_mute), null)
-               }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-               Text(stringResource(R.string.hide_an_app))
-
-               FloatingActionButton(
-                  containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                  onClick = {
-                     showFabs = false
-                     addHideRule()
-                  },
-                  modifier = Modifier
-                     .padding(start = 8.dp)
-                     .size(48.dp)
-               ) {
-                  Icon(painterResource(R.drawable.ic_hide), null)
-               }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-               Text(stringResource(R.string.create_a_blank_rule))
-
-               FloatingActionButton(
-                  containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                  onClick = {
-                     showFabs = false
-                     addEmptyRule()
-                  },
-                  modifier = Modifier
-                     .padding(start = 8.dp)
-                     .size(48.dp)
-               ) {
-                  Icon(painterResource(sharedR.drawable.rule), null)
-               }
-            }
-         }
-      }
-
-      FloatingActionButton(
-         onClick = {
-            showFabs = !showFabs
-         },
-         modifier = Modifier
-            .graphicsLayer {
-               rotationZ = fabRotation
-            }
-            .padding(16.dp)
-      ) {
-         Icon(painterResource(sharedR.drawable.ic_add), stringResource(R.string.new_rule))
-      }
-   }
-}
-
-private const val ROTATION_QUARTER_CIRCLE_DEG = 45f
-
-@FullScreenPreviews
-@Composable
-private fun RuleListScreenPreview() {
-   PreviewTheme {
-      RuleListScreenContent(
-         RuleListState(
-            listOf(
-               RuleMetadata(1, "Rule A"),
-               RuleMetadata(2, "Rule B"),
-            )
-         ),
-         null,
-         {},
-         {},
-         {},
-         { _, _ -> },
-         {},
-      )
-   }
-}
-
-@Preview
-@Composable
-private fun RuleListScreenWithFabExpandedPreview() {
-   PreviewTheme {
-      RuleListScreenContent(
-         RuleListState(
-            listOf(
-               RuleMetadata(1, "Rule A"),
-               RuleMetadata(2, "Rule B"),
-            )
-         ),
-         null,
-         {},
-         {},
-         {},
-         { _, _ -> },
-         {},
-         addButtonsShown = true,
-      )
-   }
-}
-
-@Preview
-@Composable
-private fun RuleListScreenWithSelectionPreview() {
-   PreviewTheme {
-      RuleListScreenContent(
-         RuleListState(
-            listOf(
-               RuleMetadata(1, "Rule A"),
-               RuleMetadata(2, "Rule B"),
-            )
-         ),
-         2,
-         {},
-         {},
-         {},
-         { _, _ -> },
-         {},
+   val drawable = icon
+   if (drawable == null) {
+      Box(modifier)
+   } else {
+      Image(
+         painter = rememberDrawablePainter(drawable),
+         contentDescription = null,
+         modifier = modifier.padding(4.dp),
       )
    }
 }

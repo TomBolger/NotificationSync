@@ -4,9 +4,17 @@
 # Feel free to customize this to your needs.
 #
 import os.path
+import shutil
 
 top = '.'
 out = 'build'
+
+
+def copy_named_bundle(ctx):
+    source = os.path.join(ctx.path.abspath(), out, 'watch.pbw')
+    target = os.path.join(ctx.path.abspath(), out, 'Notifications.pbw')
+    if os.path.exists(source):
+        shutil.copyfile(source, target)
 
 
 def options(ctx):
@@ -52,3 +60,4 @@ def build(ctx):
                                          'src/pkjs/**/*.json',
                                          'src/common/**/*.js']),
                    js_entry_file='src/pkjs/index.js')
+    ctx.add_post_fun(copy_named_bundle)

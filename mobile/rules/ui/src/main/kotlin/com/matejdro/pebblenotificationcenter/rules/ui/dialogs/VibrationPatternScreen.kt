@@ -12,8 +12,10 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -158,6 +160,29 @@ private fun VibrationPatternScreenContent(
          val lastTransition = remember { mutableLongStateOf(-1) }
 
          Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+               Text(
+                  text = stringResource(R.string.vibration_patterns_core),
+                  style = MaterialTheme.typography.titleSmall,
+               )
+
+               FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  coreVibrationPatterns.forEach { preset ->
+                     Button(
+                        onClick = {
+                           textFieldState.edit {
+                              replace(0, length, preset.pattern)
+                           }
+                           parsedPattern = parseVibrationPattern(preset.pattern)
+                        },
+                        modifier = Modifier.padding(bottom = 4.dp)
+                     ) {
+                        Text(preset.name)
+                     }
+                  }
+               }
+            }
+
             Button(
                onClick = {
                   lastTransition.longValue = -1
@@ -296,3 +321,22 @@ data class VibrationPatternScreenKey(
 ) : ScreenKey(), DialogKey
 
 private const val LONG_VIBRATION = 10_000L
+
+private val coreVibrationPatterns = listOf(
+   CoreVibrationPattern("Standard", "500"),
+   CoreVibrationPattern("Pulses", "50, 50, 50, 50, 50, 50, 50"),
+   CoreVibrationPattern("Double", "200, 75, 200"),
+   CoreVibrationPattern("Triple", "200, 75, 200, 75, 200"),
+   CoreVibrationPattern("Bloom", "35, 61, 47, 53, 50, 40, 81, 171, 189, 236, 47, 70, 38, 44, 39, 62, 79, 171, 181"),
+   CoreVibrationPattern("Pips", "40, 960, 40, 960, 40, 960, 40, 960, 40, 960, 500"),
+   CoreVibrationPattern("Ole", "61, 194, 272, 153, 47, 77, 47, 78, 46, 89, 54, 78, 47, 70, 388"),
+   CoreVibrationPattern("SOS", "100, 75, 100, 75, 100, 220, 300, 75, 300, 75, 300, 150, 100, 75, 100, 75, 100"),
+   CoreVibrationPattern("Ohhh, Oh", "459, 522, 144, 171, 173, 162, 72, 135, 555, 386, 514"),
+   CoreVibrationPattern("Five", "68, 178, 80, 237, 54, 95, 122, 221, 154, 221, 139, 218, 81, 161, 137, 189, 55, 95, 130, 211, 188, 178, 222"),
+   CoreVibrationPattern("Two", "135, 269, 847, 394, 40, 159, 48, 170, 31, 144, 64, 136, 64, 162, 36, 163, 122"),
+)
+
+private data class CoreVibrationPattern(
+   val name: String,
+   val pattern: String,
+)

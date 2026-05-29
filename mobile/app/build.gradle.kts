@@ -16,7 +16,7 @@ android {
 
    defaultConfig {
       applicationId = "com.matejdro.pebblenotificationcenter2"
-      targetSdk = 33
+      targetSdk = 36
       versionCode = 1
       versionName = "1.0.0"
    }
@@ -64,7 +64,7 @@ android {
    applicationVariants.all {
       outputs.all {
          val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
-         output.outputFileName = "notificationcenter-mobile.apk"
+         output.outputFileName = "notification-sync-mobile.apk"
       }
    }
 }

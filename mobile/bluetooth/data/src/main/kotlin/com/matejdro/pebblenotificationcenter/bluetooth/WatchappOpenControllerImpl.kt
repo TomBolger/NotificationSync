@@ -23,6 +23,7 @@ class WatchappOpenControllerImpl(
    private val pebbleInfoRetriever: PebbleInfoRetriever,
 ) : WatchappOpenController, BucketSyncWatchappOpenController {
    private var nextWatchappOpenForAutoSync: Boolean = false
+   private var nextWatchappOpenNotificationBucket: Int? = null
    private val lastOpenedApps = HashMap<WatchIdentifier, UUID?>()
 
    override fun isNextWatchappOpenForAutoSync(): Boolean {
@@ -33,8 +34,17 @@ class WatchappOpenControllerImpl(
       nextWatchappOpenForAutoSync = true
    }
 
+   override fun getNextWatchappOpenNotificationBucket(): Int? {
+      return nextWatchappOpenNotificationBucket
+   }
+
+   override fun setNextWatchappOpenNotificationBucket(bucketId: Int) {
+      nextWatchappOpenNotificationBucket = bucketId
+   }
+
    override fun resetNextWatchappOpen() {
       nextWatchappOpenForAutoSync = false
+      nextWatchappOpenNotificationBucket = null
    }
 
    override suspend fun openWatchapp() {

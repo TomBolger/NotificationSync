@@ -26,6 +26,11 @@ object RuleOption {
       false
    )
 
+   val useNotificationVibrationPattern = BooleanPreferenceKeyWithDefault(
+      "use_notification_vibration_pattern",
+      true
+   )
+
    val replyCannedTexts = StringListPreferenceKeyWithDefault(
       "reply_canned_texts_list",
       listOf("Yes", "No", "Okay")

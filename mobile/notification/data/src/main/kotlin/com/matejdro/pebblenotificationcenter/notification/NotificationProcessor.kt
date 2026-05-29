@@ -105,15 +105,16 @@ class NotificationProcessor(
             "silent=${parsedNotification.isSilent} " +
             "dnd=${parsedNotification.isFilteredByDoNotDisturb}"
       }
+      notifications[bucketId] = processedNotification
+      notificationIdsByKeys[parsedNotification.key] = bucketId
       if (vibrationPattern != null) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(vibrationPattern)
+         openController.setNextWatchappOpenNotificationBucket(bucketId)
          openController.openWatchapp()
       }
 
       historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
-      notifications[bucketId] = processedNotification
-      notificationIdsByKeys[parsedNotification.key] = bucketId
    }
 
    private fun shouldHide(
@@ -162,7 +163,7 @@ class NotificationProcessor(
       pausedBeforeInsert: PauseStatus,
    ): Pair<MuteReason?, IntArray?> {
       val pattern = (
-         notification.overrideVibrationPattern
+         notification.overrideVibrationPattern.takeIf { preferences[RuleOption.useNotificationVibrationPattern] }
             ?: parseVibrationPattern(preferences[RuleOption.vibrationPattern])
             ?: error("Invalid vibration pattern '${preferences[RuleOption.vibrationPattern]}'")
          )

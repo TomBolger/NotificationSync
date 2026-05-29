@@ -1,5 +1,6 @@
 package com.matejdro.pebblenotificationcenter
 
+import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.ClipData
@@ -42,11 +43,51 @@ class NotificationServiceControllerImpl : NotificationServiceController {
    }
 
    override fun triggerAction(pendingIntent: Any): Boolean {
-      if (NotificationService.instance == null) return false
+      val service = NotificationService.instance ?: return false
 
       pendingIntent as PendingIntent
 
-      pendingIntent.send()
+      return sendPendingIntent(pendingIntent, service, null)
+   }
+
+   @Suppress("DEPRECATION")
+   private fun pendingIntentLaunchOptions(): Bundle? {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+
+      val backgroundStartMode =
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+         } else {
+            ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+         }
+
+      return ActivityOptions.makeBasic()
+         .apply { setPendingIntentBackgroundActivityStartMode(backgroundStartMode) }
+         .toBundle()
+   }
+
+   private fun sendPendingIntent(
+      pendingIntent: PendingIntent,
+      service: NotificationService,
+      intent: Intent?,
+   ): Boolean {
+      try {
+         pendingIntent.send(
+            service,
+            0,
+            intent,
+            null,
+            null,
+            null,
+            pendingIntentLaunchOptions()
+         )
+      } catch (exception: PendingIntent.CanceledException) {
+         logcat { "PendingIntent action was canceled: ${exception.message.orEmpty()}" }
+         return false
+      } catch (exception: RuntimeException) {
+         logcat { "PendingIntent action failed: ${exception.message.orEmpty()}" }
+         return false
+      }
 
       return true
    }

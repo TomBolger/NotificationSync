@@ -9,6 +9,7 @@
 #include "ui/window_image.h"
 #include "ui/window_notification/data_loading.h"
 #include "ui/window_notification/idle_handler.h"
+#include "ui/window_notification/window_notification.h"
 
 static void receive_phone_welcome(const DictionaryIterator* iterator);
 static void receive_sync_restart(const DictionaryIterator* iterator);
@@ -107,16 +108,19 @@ void send_close_me()
     // Even if close clashes with other packets, we don't really care,
     // we don't want to show errors to the user
     ignore_bluetooth_busy_errors = true;
-
-    window_status_show_error("Closing...");
+    close_retries_left = 3;
 
     bluetooth_register_sending_finish(on_close_me_finished);
 
     DictionaryIterator* iterator;
-    app_message_outbox_begin(&iterator);
+    const AppMessageResult res = app_message_outbox_begin(&iterator);
+    if (res == APP_MSG_OK)
+    {
+        dict_write_uint8(iterator, 0, 8);
+        bluetooth_app_message_outbox_send();
+    }
 
-    dict_write_uint8(iterator, 0, 8);
-    bluetooth_app_message_outbox_send();
+    window_stack_pop_all(true);
 }
 
 bool send_setting(const uint8_t id, const uint8_t value)
@@ -173,7 +177,8 @@ static void receive_watch_packet(const DictionaryIterator* received)
 
 static void receive_phone_welcome(const DictionaryIterator* iterator)
 {
-    if (launch_reason() == APP_LAUNCH_PHONE && dict_find(iterator, 3) != NULL)
+    const bool phone_launch = launch_reason() == APP_LAUNCH_PHONE;
+    if (phone_launch && dict_find(iterator, 3) != NULL)
     {
         bucket_sync_set_auto_close_after_sync();
     }
@@ -196,6 +201,13 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
     Tuple* dict_entry = dict_find(iterator, 2);
 
     bucket_sync_on_start_received(dict_entry->value->data, dict_entry->length);
+    if (phone_launch)
+    {
+        const Tuple* launch_bucket_entry = dict_find(iterator, 4);
+        const uint8_t launch_bucket_id =
+            launch_bucket_entry != NULL ? launch_bucket_entry->value->uint8 : 0;
+        window_notification_ui_open_phone_launch_detail(launch_bucket_id);
+    }
 }
 
 static void receive_sync_restart(const DictionaryIterator* iterator)

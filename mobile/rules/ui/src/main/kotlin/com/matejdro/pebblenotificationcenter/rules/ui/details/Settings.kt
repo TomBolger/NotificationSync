@@ -76,6 +76,13 @@ internal fun ColumnScope.Settings(
       VibrationPatternPreference(navigator, updatePreference, preferences)
 
       SwitchPreference(
+         value = preferences[RuleOption.useNotificationVibrationPattern],
+         onValueChange = { updatePreference(RuleOption.useNotificationVibrationPattern, it) },
+         title = { Text(stringResource(R.string.setting_use_notification_vibration_pattern)) },
+         summary = { Text(stringResource(R.string.setting_use_notification_vibration_pattern_description)) }
+      )
+
+      SwitchPreference(
          value = preferences[RuleOption.periodicVibration],
          onValueChange = { updatePreference(RuleOption.periodicVibration, it) },
          title = { Text(stringResource(R.string.setting_periodic_vibration)) },

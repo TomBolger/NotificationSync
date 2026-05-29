@@ -1,5 +1,5 @@
 {
-  "name": "notificationcenter",
+  "name": "notification-sync",
   "author": "matejdro",
   "version": "1.51",
   "keywords": [
@@ -8,7 +8,7 @@
   "private": false,
   "dependencies": {},
   "pebble": {
-    "displayName": "Notify Center",
+    "displayName": "Notification Sync",
     "uuid": "1c5f3908-e3ea-419b-ae55-7f167ea8fafa",
     "sdkVersion": "3",
     "enableMultiJS": true,
@@ -25,7 +25,7 @@
         {
           "type": "bitmap",
           "name": "MENU_ICON",
-          "file": "launcher_icon.png",
+          "file": "notification_sync_icon.png",
           "menuIcon": true
         },
         {
@@ -62,6 +62,236 @@
           "type": "bitmap",
           "name": "INDICATOR_UNREAD_SMALL_SELECTED",
           "file": "indicator_unread_small_selected.png"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GENERIC",
+          "file": "pebbleos/generic.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GMAIL",
+          "file": "pebbleos/gmail.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_WHATSAPP",
+          "file": "pebbleos/whatsapp.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_MESSENGER",
+          "file": "pebbleos/messenger.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_FACEBOOK",
+          "file": "pebbleos/facebook.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TWITTER",
+          "file": "pebbleos/twitter.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TELEGRAM",
+          "file": "pebbleos/telegram.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_HANGOUTS",
+          "file": "pebbleos/hangouts.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_INBOX",
+          "file": "pebbleos/inbox.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SMS",
+          "file": "pebbleos/sms.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_EMAIL",
+          "file": "pebbleos/email.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_PHONE",
+          "file": "pebbleos/phone.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_INSTAGRAM",
+          "file": "pebbleos/instagram.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SLACK",
+          "file": "pebbleos/slack.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_LINKEDIN",
+          "file": "pebbleos/linkedin.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_AMAZON",
+          "file": "pebbleos/amazon.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_MAPS",
+          "file": "pebbleos/maps.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_PHOTOS",
+          "file": "pebbleos/photos.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_CALENDAR",
+          "file": "pebbleos/calendar.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GOOGLE_MESSAGES",
+          "file": "pebbleos/google_messages.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_OUTLOOK",
+          "file": "pebbleos/outlook.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SKYPE",
+          "file": "pebbleos/skype.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SNAPCHAT",
+          "file": "pebbleos/snapchat.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_LINE",
+          "file": "pebbleos/line.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_WECHAT",
+          "file": "pebbleos/wechat.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_KIK",
+          "file": "pebbleos/kik.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_VIBER",
+          "file": "pebbleos/viber.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_KAKAOTALK",
+          "file": "pebbleos/kakaotalk.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_BLACKBERRY_MESSENGER",
+          "file": "pebbleos/blackberry_messenger.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_YAHOO_MAIL",
+          "file": "pebbleos/yahoo_mail.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_WEATHER",
+          "file": "pebbleos/weather.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_MUSIC",
+          "file": "pebbleos/music.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_LOCATION",
+          "file": "pebbleos/location.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_REMINDER",
+          "file": "pebbleos/reminder.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_WARNING",
+          "file": "pebbleos/warning.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_DISCORD",
+          "file": "pebbleos/discord.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TEAMS",
+          "file": "pebbleos/teams.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GOOGLE_CHAT",
+          "file": "pebbleos/google_chat.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SIGNAL",
+          "file": "pebbleos/signal.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_REDDIT",
+          "file": "pebbleos/reddit.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_YOUTUBE",
+          "file": "pebbleos/youtube.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_ZOOM",
+          "file": "pebbleos/zoom.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TWITCH",
+          "file": "pebbleos/twitch.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GOOGLE_TASKS",
+          "file": "pebbleos/google_tasks.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TESLA",
+          "file": "pebbleos/tesla.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_RESULT_DISMISSED_LARGE",
+          "file": "pebbleos/result_dismissed_large.pdc"
         }
       ]
     },

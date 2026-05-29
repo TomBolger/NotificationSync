@@ -81,6 +81,8 @@
     <string name="setting_vibration_pattern_description">%1$s\n\nPattern that the watch will vibrate with for new notifications. A
         comma separated list corresponding to milliseconds vibrating, milliseconds pausing, milliseconds vibrating etc.
     </string>
+    <string name="setting_use_notification_vibration_pattern">Use vibration patterns from OS</string>
+    <string name="setting_use_notification_vibration_pattern_description">If Android provides a vibration pattern with the notification, use it on the watch unless a rule overrides it.</string>
     <string name="setting_mute_silent">Reply options</string>
     <string name="setting_mute_silent_description">A list of options that show up on Reply action, in addition to the options
         already provided by the application.
@@ -105,6 +107,34 @@
         received.
     </string>
     <string name="actions">Actions</string>
+    <string name="notifications">Notifications</string>
+    <string name="quick_replies">Quick replies</string>
+    <string name="quick_replies_description">Preset messages for notification replies on the watch.</string>
+    <string name="always_send_notifications">Default for new apps</string>
+    <string name="respect_phone_dnd">Respect Phone Do Not Disturb</string>
+    <string name="respect_phone_dnd_description">Mute watch vibration for notifications filtered by the phone\'s Do Not Disturb mode.</string>
+    <string name="send_local_only_notifications">Send local-only notifications to watch</string>
+    <string name="send_local_only_notifications_description">Android marks some notifications as local only. Turn this on to forward them anyway.</string>
+    <string name="store_disabled_notifications">Keep muted notifications in history</string>
+    <string name="store_disabled_notifications_description">Muted notifications are retained in the app history so they can help order the Notifications tab.</string>
+    <string name="mute_all">Mute All</string>
+    <string name="enable_all">Enable All</string>
+    <string name="all_apps">All Apps</string>
+    <string name="notified_only">Notified only</string>
+    <string name="showing_apps_count">%1$d apps</string>
+    <string name="shown">Show</string>
+    <string name="muted">Mute</string>
+    <string name="never_seen">No notifications yet</string>
+    <string name="notifications_count">%1$d notifications</string>
+    <string name="notification_settings_title">Settings</string>
+    <string name="phone_filters">Phone filters</string>
+    <string name="watch_experience">Watch experience</string>
+    <string name="notification_timeout">Notification timeout</string>
+    <string name="notification_timeout_description">Auto-close notification popups after this many seconds. Set to 0 to leave them open.</string>
+    <string name="advanced">Advanced</string>
+    <string name="vibration_patterns_core">Core Pebble presets</string>
+    <string name="vibration_pattern_custom">Custom pattern</string>
+    <string name="snooze_intervals">Snooze intervals</string>
     <string name="setting_tasker_actions">Tasker task actions</string>
     <string name="setting_tasker_actions_description">Here you can add Tasker tasks that will be added to the notification
         actions. When you select that task on the Pebble, Tasker task will be executed.

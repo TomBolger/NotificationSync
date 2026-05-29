@@ -145,6 +145,8 @@ class WatchappConnectionImpl(
             0u to UInt8(1u),
             1u to UInt16(PROTOCOL_VERSION),
             (3u to UInt8(1u)).takeIf { watchappOpenController.isNextWatchappOpenForAutoSync() },
+            watchappOpenController.getNextWatchappOpenNotificationBucket()
+               ?.let { 4u to UInt8(it) },
          ),
          watchVersion,
          watchMetadata.watchBufferSize,

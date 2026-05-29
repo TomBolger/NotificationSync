@@ -6,11 +6,12 @@
     <string name="notifications_permission_title">Posting notifications</string>
     <string name="notification_permission_description">Needed for error reporting</string>
     <string name="continue_to_the_app">Continue to the app</string>
-    <string name="onboarding_title">Welcome to the Notification Center App!</string>
+    <string name="onboarding_title">Welcome to Notification Sync!</string>
     <string name="onboarding_intro">Since the app is mostly running on its own in the background, afterward, all permissions are
         being asked up front. All are optional:
     </string>
-    <string name="rules">Rules</string>
+    <string name="rules">Notifications</string>
+    <string name="settings">Settings</string>
     <string name="history">History</string>
     <string name="permission_notification_access_title">Notification Access</string>
     <string name="permission_notification_access_companion_description">Needed to forward notifications from the other apps.

@@ -32,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.airbnb.android.showkase.annotation.ShowkaseComposable
 import com.matejdro.pebblenotificationcenter.home.ui.R
 import com.matejdro.pebblenotificationcenter.navigation.instructions.ReplaceTabContentWith
+import com.matejdro.pebblenotificationcenter.navigation.keys.DefaultSettingsScreenKey
 import com.matejdro.pebblenotificationcenter.navigation.keys.HistoryScreenKey
 import com.matejdro.pebblenotificationcenter.navigation.keys.HomeScreenKey
 import com.matejdro.pebblenotificationcenter.navigation.keys.RuleListScreenKey
@@ -96,6 +97,13 @@ private fun NavigationBarContent(
 
       NavigationBar {
          NavigationBarItem(
+            selected = selectedScreenKey is DefaultSettingsScreenKey,
+            onClick = { navigate(ReplaceTabContentWith(DefaultSettingsScreenKey)) },
+            icon = { Icon(painter = painterResource(id = R.drawable.ic_settings), contentDescription = null) },
+            label = { Text(stringResource(R.string.settings)) }
+         )
+
+         NavigationBarItem(
             selected = selectedScreenKey is RuleListScreenKey,
             onClick = { navigate(ReplaceTabContentWith(RuleListScreenKey)) },
             icon = { Icon(painter = painterResource(id = sharedR.drawable.rule), contentDescription = null) },
@@ -127,6 +135,13 @@ private fun NavigationRailContent(
 ) {
    Row {
       NavigationRail {
+         NavigationRailItem(
+            selected = selectedScreenKey is DefaultSettingsScreenKey,
+            onClick = { navigate(ReplaceTabContentWith(DefaultSettingsScreenKey)) },
+            icon = { Icon(painter = painterResource(id = R.drawable.ic_settings), contentDescription = null) },
+            label = { Text(stringResource(R.string.settings)) }
+         )
+
          NavigationRailItem(
             selected = selectedScreenKey is RuleListScreenKey,
             onClick = { navigate(ReplaceTabContentWith(RuleListScreenKey)) },

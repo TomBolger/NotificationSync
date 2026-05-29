@@ -6,9 +6,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matejdro.pebblenotificationcenter.navigation.keys.DefaultSettingsScreenKey
 import com.matejdro.pebblenotificationcenter.navigation.keys.HomeScreenKey
 import com.matejdro.pebblenotificationcenter.navigation.keys.OnboardingKey
-import com.matejdro.pebblenotificationcenter.navigation.keys.RuleListScreenKey
 import com.matejdro.pebblenotificationcenter.notification.NotificationServiceStatus
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
@@ -35,7 +35,7 @@ class MainViewModel(
             preferences.data.first()[onboardingShownVersion] == LATEST_VERSION &&
             pebbleAndroidAppPicker.getCurrentlySelectedApp() != null
          ) {
-            listOf(HomeScreenKey, RuleListScreenKey)
+            listOf(HomeScreenKey, DefaultSettingsScreenKey)
          } else {
             listOf(OnboardingKey)
          }

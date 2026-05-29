@@ -19,19 +19,28 @@ static bool any_notification_vibrated = false;
 static AppTimer* auto_close_timer = NULL;
 static AppTimer* periodic_vibration_timer = NULL;
 
-static void cancel_timers(void)
+static void cancel_auto_close_timer(void)
 {
     if (auto_close_timer != NULL)
     {
         app_timer_cancel(auto_close_timer);
         auto_close_timer = NULL;
     }
+}
 
+static void cancel_periodic_vibration_timer(void)
+{
     if (periodic_vibration_timer != NULL)
     {
         app_timer_cancel(periodic_vibration_timer);
         periodic_vibration_timer = NULL;
     }
+}
+
+static void cancel_timers(void)
+{
+    cancel_auto_close_timer();
+    cancel_periodic_vibration_timer();
 }
 
 static bool any_notification_wants_periodic_vibration(void)
@@ -60,6 +69,7 @@ static bool any_notification_wants_periodic_vibration(void)
 }
 
 static void maybe_start_periodic_vibration_timer();
+static void maybe_start_auto_close_timer();
 
 static void handle_periodic_vibration()
 {
@@ -71,23 +81,31 @@ void idle_handler_register_timers()
 {
     cancel_timers();
 
+    maybe_start_auto_close_timer();
+
     if (!idle_handler_has_user_interacted_since_last_vibration)
     {
-        if (launch_reason() == APP_LAUNCH_PHONE)
-        {
-            uint8_t config[3];
-            if (bucket_sync_load_bucket(1, config))
-            {
-                const uint32_t duration = read_uint16_from_byte_array(config, 1) * 1000;
-
-                if (duration != 0)
-                {
-                    auto_close_timer = app_timer_register(duration, send_close_me, NULL);
-                }
-            }
-        }
-
         maybe_start_periodic_vibration_timer();
+    }
+}
+
+static void maybe_start_auto_close_timer()
+{
+    if (launch_reason() != APP_LAUNCH_PHONE)
+    {
+        return;
+    }
+
+    uint8_t config[3];
+    if (!bucket_sync_load_bucket(1, config))
+    {
+        return;
+    }
+
+    const uint32_t duration = read_uint16_from_byte_array(config, 1) * 1000;
+    if (duration != 0)
+    {
+        auto_close_timer = app_timer_register(duration, send_close_me, NULL);
     }
 }
 
@@ -113,6 +131,7 @@ void idle_handler_notify_user_interacted()
     idle_handler_has_user_interacted_since_last_vibration = true;
 
     cancel_timers();
+    maybe_start_auto_close_timer();
 }
 
 void idle_handler_notify_received_new_vibration()
@@ -127,10 +146,6 @@ void idle_handler_notify_notifications_updated()
 {
     if (!any_notification_wants_periodic_vibration())
     {
-        if (periodic_vibration_timer != NULL)
-        {
-            app_timer_cancel(periodic_vibration_timer);
-            periodic_vibration_timer = NULL;
-        }
+        cancel_periodic_vibration_timer();
     }
 }

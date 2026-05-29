@@ -23,6 +23,7 @@ dependencies {
 
    implementation(projects.commonAndroid)
    implementation(projects.commonCompose)
+   implementation(projects.history.api)
    implementation(projects.sharedResources)
    implementation(libs.accompanist.drawablepainter)
    implementation(libs.androidx.core)

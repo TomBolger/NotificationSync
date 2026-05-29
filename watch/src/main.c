@@ -8,7 +8,7 @@
 #include "ui/window_notification/window_notification.h"
 #include "utils/bucket_utils.h"
 
-const uint16_t PROTOCOL_VERSION = 7;
+const uint16_t PROTOCOL_VERSION = 9;
 
 int main(void)
 {
@@ -20,16 +20,7 @@ int main(void)
 
     send_watch_welcome();
 
-    const BucketList* buckets = bucket_sync_get_bucket_list();
-
-    if (is_any_notification_bucket_active(buckets))
-    {
-        window_notification_show();
-    }
-    else
-    {
-        window_status_show_empty();
-    }
+    window_notification_show();
 
     app_event_loop();
 }
