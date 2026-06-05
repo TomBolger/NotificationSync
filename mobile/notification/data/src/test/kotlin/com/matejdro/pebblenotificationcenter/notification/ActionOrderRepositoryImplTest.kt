@@ -29,6 +29,7 @@ class ActionOrderRepositoryImplTest {
       context.resources.putString(R.string.other_actions, "Other actions")
       context.resources.putString(R.string.snooze, "Snooze")
       context.resources.putString(R.string.show_image, "Show image")
+      context.resources.putString(R.string.silence_app, "Silence app")
 
       repo = ActionOrderRepositoryImpl(context, preferenceStore)
    }
@@ -45,6 +46,7 @@ class ActionOrderRepositoryImplTest {
             "Snooze",
             "Pause app",
             "Unpause app",
+            "Silence app",
             "Pause conversation",
             "Unpause conversation",
          )
@@ -76,6 +78,7 @@ class ActionOrderRepositoryImplTest {
             "Unpause conversation",
             "Dismiss",
             "Snooze",
+            "Silence app",
          )
       }
    }
@@ -108,6 +111,7 @@ class ActionOrderRepositoryImplTest {
             "Pause conversation",
             "Unpause conversation",
             "Dismiss",
+            "Silence app",
          )
       }
    }
@@ -126,6 +130,7 @@ class ActionOrderRepositoryImplTest {
             "Other actions",
             "Snooze",
             "Unpause app",
+            "Silence app",
             "Pause conversation",
             "Unpause conversation",
          )
@@ -146,6 +151,7 @@ class ActionOrderRepositoryImplTest {
             "Pause app",
             "Unpause app",
             "Dismiss",
+            "Silence app",
             "Pause conversation",
             "Unpause conversation",
          )
@@ -225,6 +231,7 @@ class ActionOrderRepositoryImplTest {
             "Snooze",
             "Pause app",
             "Unpause app",
+            "Silence app",
             "Pause conversation",
             "Unpause conversation",
          )

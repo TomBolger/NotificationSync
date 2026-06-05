@@ -208,6 +208,7 @@ class StockPebbleOsNotificationTransport(
             is Action.Native,
             is Action.PauseApp,
             is Action.PauseConversation,
+            is Action.SilenceApp,
             is Action.ShowImage,
             is Action.TaskerTask -> ACTION_TYPE_GENERIC
          }

@@ -126,6 +126,15 @@ static int16_t detail_scroll_max_offset(ScrollLayer* scroll_layer);
 static int16_t detail_scroll_current_offset(ScrollLayer* scroll_layer);
 static void detail_scroll_to_offset(ScrollLayer* scroll_layer, int16_t offset, bool animated);
 
+static void close_failed_detail_window(void* context)
+{
+    (void)context;
+    if (detail_window != NULL)
+    {
+        window_stack_remove(detail_window, false);
+    }
+}
+
 static const uint32_t icon_resource_ids[] = {
     RESOURCE_ID_PEBBLEOS_NOTIFICATION_GENERIC,
     RESOURCE_ID_PEBBLEOS_NOTIFICATION_GMAIL,
@@ -2391,10 +2400,31 @@ static void detail_window_load(Window* window)
 
     detail_scroll_layer = scroll_layer_create(bounds);
     detail_content_layer = layer_create(bounds);
+    if (detail_scroll_layer == NULL || detail_content_layer == NULL)
+    {
+        if (detail_scroll_layer != NULL)
+        {
+            scroll_layer_destroy(detail_scroll_layer);
+            detail_scroll_layer = NULL;
+        }
+        if (detail_content_layer != NULL)
+        {
+            layer_destroy(detail_content_layer);
+            detail_content_layer = NULL;
+        }
+        window_notification_data.detail_open = false;
+        vibes_double_pulse();
+        app_timer_register(1, close_failed_detail_window, NULL);
+        return;
+    }
+
     layer_set_update_proc(detail_content_layer, detail_content_layer_update);
     detail_swap_layer = layer_create(bounds);
-    layer_set_update_proc(detail_swap_layer, detail_swap_layer_update);
-    layer_set_hidden(detail_swap_layer, true);
+    if (detail_swap_layer != NULL)
+    {
+        layer_set_update_proc(detail_swap_layer, detail_swap_layer_update);
+        layer_set_hidden(detail_swap_layer, true);
+    }
 
     layer_add_child(window_layer, scroll_layer_get_layer(detail_scroll_layer));
     scroll_layer_add_child(detail_scroll_layer, detail_content_layer);
@@ -2409,17 +2439,32 @@ static void detail_window_load(Window* window)
     scroll_layer_set_click_config_onto_window(detail_scroll_layer, window);
 
     detail_action_button_layer = layer_create(bounds);
-    layer_set_update_proc(detail_action_button_layer, action_button_update_proc);
+    if (detail_action_button_layer != NULL)
+    {
+        layer_set_update_proc(detail_action_button_layer, action_button_update_proc);
+    }
 
     detail_arrow_layer = layer_create(GRect(0,
                                             bounds.size.h - LAYOUT_ARROW_HEIGHT,
                                             bounds.size.w,
                                             LAYOUT_ARROW_HEIGHT));
-    layer_set_update_proc(detail_arrow_layer, arrow_layer_update_proc);
-    layer_add_child(window_layer, detail_swap_layer);
-    layer_add_child(window_layer, detail_arrow_layer);
+    if (detail_arrow_layer != NULL)
+    {
+        layer_set_update_proc(detail_arrow_layer, arrow_layer_update_proc);
+    }
+    if (detail_swap_layer != NULL)
+    {
+        layer_add_child(window_layer, detail_swap_layer);
+    }
+    if (detail_arrow_layer != NULL)
+    {
+        layer_add_child(window_layer, detail_arrow_layer);
+    }
 
-    layer_add_child(window_layer, detail_action_button_layer);
+    if (detail_action_button_layer != NULL)
+    {
+        layer_add_child(window_layer, detail_action_button_layer);
+    }
     reload_detail_content_size();
 }
 
@@ -2507,6 +2552,13 @@ void window_notification_ui_open_selected_detail()
     }
 
     detail_window = window_create();
+    if (detail_window == NULL)
+    {
+        window_notification_data.detail_open = false;
+        vibes_double_pulse();
+        return;
+    }
+
     window_set_background_color(detail_window, GColorWhite);
     window_set_window_handlers(
         detail_window,
@@ -2533,6 +2585,34 @@ void window_notification_ui_close_detail()
     {
         window_stack_remove(detail_window, true);
     }
+}
+
+void window_notification_ui_select_relative(const int8_t delta)
+{
+    if (notification_item_count == 0)
+    {
+        return;
+    }
+
+    int16_t selected_index = window_notification_data.currently_selected_bucket_index + delta;
+    if (selected_index < 0)
+    {
+        selected_index = 0;
+    }
+    else if (selected_index >= notification_item_count)
+    {
+        selected_index = notification_item_count - 1;
+    }
+
+    if (selected_index == window_notification_data.currently_selected_bucket_index)
+    {
+        vibes_short_pulse();
+        return;
+    }
+
+    window_notification_data.currently_selected_bucket_index = selected_index;
+    window_notification_data.currently_selected_bucket = notification_items[selected_index].bucket_id;
+    sync_menu_selection(MenuRowAlignCenter, true);
 }
 
 void window_notification_ui_on_bucket_selected()
@@ -2605,7 +2685,7 @@ static void window_load(Window* window)
         GColorWhite
     );
     layer_add_child(window_layer, menu_layer_get_layer(menu_layer));
-    menu_layer_set_click_config_onto_window(menu_layer, window);
+    window_set_click_config_provider(window, window_notification_buttons_config);
 
     empty_state_layer = layer_create(bounds);
     layer_set_update_proc(empty_state_layer, empty_state_layer_update);

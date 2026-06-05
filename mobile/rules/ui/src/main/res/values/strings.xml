@@ -126,9 +126,14 @@
     <string name="sort_name_descending">Z-A</string>
     <string name="sort_enabled_first">Enabled</string>
     <string name="sort_disabled_first">Disabled</string>
+    <string name="sort_shown_first">Shown</string>
+    <string name="sort_silenced_first">Silenced</string>
+    <string name="sort_hidden_first">Hidden</string>
     <string name="showing_apps_count">%1$d apps</string>
     <string name="shown">Show</string>
     <string name="muted">Mute</string>
+    <string name="silenced">Silenced</string>
+    <string name="hidden">Hidden</string>
     <string name="never_seen">No notifications yet</string>
     <string name="notifications_count">%1$d notifications</string>
     <string name="notification_settings_title">Settings</string>

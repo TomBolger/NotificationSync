@@ -294,6 +294,9 @@ class NotificationProcessor(
                id = size.toUByte()
             )
          )
+         if (settings[RuleOption.masterSwitch] != MasterSwitch.MUTE) {
+            add(Action.SilenceApp(title = context.getString(R.string.silence_app), id = size.toUByte()))
+         }
       }
 
       val appActions = parsedNotification.nativeActions.mapIndexed { index, action ->

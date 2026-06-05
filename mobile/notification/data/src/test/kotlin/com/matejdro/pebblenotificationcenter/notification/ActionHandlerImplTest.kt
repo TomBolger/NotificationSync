@@ -11,8 +11,10 @@ import com.matejdro.pebblenotificationcenter.notification.model.Action
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import com.matejdro.pebblenotificationcenter.rules.FakeRulesRepository
+import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
+import com.matejdro.pebblenotificationcenter.rules.keys.get
 import com.matejdro.pebblenotificationcenter.rules.keys.setTo
 import com.matejdro.pebblenotificationcenter.submenus.ReplySubmenuPayload
 import com.matejdro.pebblenotificationcenter.tasker.FakeTaskerTaskStarter
@@ -20,6 +22,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.maps.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeSameInstanceAs
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -47,6 +50,7 @@ class ActionHandlerImplTest {
       servicecontroller,
       submenuController,
       RuleResolver(rulesRepository),
+      rulesRepository,
       resources,
       pauseController,
       imageSender,
@@ -427,6 +431,35 @@ class ActionHandlerImplTest {
       handler.handleAction(2, 0) shouldBe true
 
       pauseController.toggledConversationNotifications.shouldContainExactly(notification)
+   }
+
+   @Test
+   fun `Silence app action creates muted app rule`() = runTest {
+      insertDefaultRules()
+
+      repo.putNotification(
+         2,
+         ProcessedNotification(
+            ParsedNotification(
+               "keyNotification",
+               "com.example.app",
+               "Example App",
+               "",
+               "Hello",
+               Instant.MIN,
+            ),
+            actions = listOf(
+               Action.SilenceApp("Silence app", 0u)
+            )
+         ),
+      )
+
+      handler.handleAction(2, 0) shouldBe true
+
+      val preferences = rulesRepository.getRulePreferences(2).first()
+      preferences[RuleOption.conditionAppPackage] shouldBe "com.example.app"
+      preferences[RuleOption.conditionNotificationChannels] shouldBe emptySet()
+      preferences[RuleOption.masterSwitch] shouldBe MasterSwitch.MUTE
    }
 
    @Test

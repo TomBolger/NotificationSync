@@ -73,6 +73,7 @@ sealed interface Action {
 
    data class PauseApp(override val title: String, override val id: UByte) : Action
    data class PauseConversation(override val title: String, override val id: UByte) : Action
+   data class SilenceApp(override val title: String, override val id: UByte) : Action
 
    data class Snooze(override val title: String, override val id: UByte) : Action
    data class ShowImage(override val title: String, override val id: UByte) : Action

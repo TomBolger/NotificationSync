@@ -99,6 +99,7 @@ class RuleListViewModel(
       )
    }
 
+   @Suppress("LongMethod")
    private suspend fun buildState(
       rules: List<RuleMetadata>,
       history: List<HistoryEntry>,
@@ -147,6 +148,7 @@ class RuleListViewModel(
                notificationCount = 0,
                lastNotification = null,
                enabled = rule.masterSwitch == MasterSwitch.SHOW,
+               masterSwitch = rule.masterSwitch,
                ruleId = rule.id,
             )
          }
@@ -161,6 +163,7 @@ class RuleListViewModel(
                notificationCount = stats.count,
                lastNotification = stats.lastNotification,
                enabled = defaultMasterSwitch == MasterSwitch.SHOW,
+               masterSwitch = defaultMasterSwitch,
                ruleId = null,
             )
          }
@@ -175,6 +178,7 @@ class RuleListViewModel(
       return RuleListState(
          apps = apps,
          defaultEnabled = defaultMasterSwitch == MasterSwitch.SHOW,
+         defaultMasterSwitch = defaultMasterSwitch,
       )
    }
 
@@ -197,6 +201,7 @@ class RuleListViewModel(
 data class RuleListState(
    val apps: List<NotificationAppState>,
    val defaultEnabled: Boolean,
+   val defaultMasterSwitch: MasterSwitch,
 )
 
 @Stable
@@ -206,6 +211,7 @@ data class NotificationAppState(
    val notificationCount: Int,
    val lastNotification: Instant?,
    val enabled: Boolean,
+   val masterSwitch: MasterSwitch,
    val ruleId: Int?,
 )
 
@@ -237,6 +243,7 @@ private fun InstalledApp.toNotificationAppState(
    notificationCount = stats?.count ?: 0,
    lastNotification = stats?.lastNotification,
    enabled = appRule?.let { it.masterSwitch == MasterSwitch.SHOW } ?: (defaultMasterSwitch == MasterSwitch.SHOW),
+   masterSwitch = appRule?.masterSwitch ?: defaultMasterSwitch,
    ruleId = appRule?.id,
 )
 

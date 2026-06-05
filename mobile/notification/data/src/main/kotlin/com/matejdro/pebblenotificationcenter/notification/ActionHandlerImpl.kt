@@ -9,12 +9,16 @@ import com.matejdro.pebblenotificationcenter.bluetooth.SubmenuType
 import com.matejdro.pebblenotificationcenter.bluetooth.images.ImageSender
 import com.matejdro.pebblenotificationcenter.notification.model.Action
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
+import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
+import com.matejdro.pebblenotificationcenter.rules.RulesRepository
 import com.matejdro.pebblenotificationcenter.rules.keys.get
+import com.matejdro.pebblenotificationcenter.rules.keys.setTo
 import com.matejdro.pebblenotificationcenter.submenus.ReplySubmenuPayload
 import com.matejdro.pebblenotificationcenter.tasker.TaskerTaskStarter
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.flow.first
 import logcat.logcat
 import kotlin.time.Duration.Companion.minutes
 
@@ -25,6 +29,7 @@ class ActionHandlerImpl(
    private val serviceController: NotificationServiceController,
    private val submenuController: SubmenuController,
    private val ruleResolver: RuleResolver,
+   private val rulesRepository: RulesRepository,
    private val resources: Resources,
    private val pauseController: PauseController,
    private val imageSender: ImageSender,
@@ -69,6 +74,10 @@ class ActionHandlerImpl(
          is Action.PauseConversation -> {
             pauseController.toggleConversationPause(notification.systemData)
             true
+         }
+
+         is Action.SilenceApp -> {
+            silenceApp(notification)
          }
 
          is Action.Snooze -> {
@@ -122,6 +131,28 @@ class ActionHandlerImpl(
          listItems
       )
 
+      return true
+   }
+
+   private suspend fun silenceApp(notification: ProcessedNotification): Boolean {
+      val appRuleId = rulesRepository.getAll()
+         .first()
+         .data
+         .orEmpty()
+         .firstOrNull { rule ->
+            val preferences = rulesRepository.getRulePreferences(rule.id).first()
+            preferences[RuleOption.conditionAppPackage] == notification.systemData.pkg &&
+               preferences[RuleOption.conditionNotificationChannels].isEmpty()
+         }
+         ?.id
+         ?: rulesRepository.insert(notification.systemData.title.ifBlank { notification.systemData.pkg })
+
+      rulesRepository.updateRulePreferences(
+         appRuleId,
+         RuleOption.conditionAppPackage setTo notification.systemData.pkg,
+         RuleOption.conditionNotificationChannels setTo emptySet(),
+         RuleOption.masterSwitch setTo MasterSwitch.MUTE,
+      )
       return true
    }
 

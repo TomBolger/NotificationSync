@@ -8,6 +8,7 @@ fun Action.zeroId(): Action {
       is Action.Native -> copy(id = 0u)
       is Action.PauseApp -> copy(id = 0u)
       is Action.PauseConversation -> copy(id = 0u)
+      is Action.SilenceApp -> copy(id = 0u)
       is Action.Reply -> copy(id = 0u)
       is Action.Snooze -> copy(id = 0u)
       is Action.ShowImage -> copy(id = 0u)

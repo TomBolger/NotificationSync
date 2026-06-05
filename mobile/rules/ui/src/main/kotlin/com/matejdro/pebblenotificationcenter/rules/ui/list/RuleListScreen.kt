@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import com.matejdro.pebblenotificationcenter.navigation.keys.RuleListScreenKey
+import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.ui.R
 import com.matejdro.pebblenotificationcenter.ui.components.ProgressErrorSuccessScaffold
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +112,15 @@ private fun RuleListScreenContent(
          )
          NotificationSort.DisabledFirst -> filteredApps.sortedWith(
             compareBy<NotificationAppState> { it.enabled }.thenBy { it.name.lowercase() }
+         )
+         NotificationSort.ShownFirst -> filteredApps.sortedWith(
+            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.SHOW }.thenBy { it.name.lowercase() }
+         )
+         NotificationSort.SilencedFirst -> filteredApps.sortedWith(
+            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.MUTE }.thenBy { it.name.lowercase() }
+         )
+         NotificationSort.HiddenFirst -> filteredApps.sortedWith(
+            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.HIDE }.thenBy { it.name.lowercase() }
          )
       }
    }
@@ -175,6 +185,21 @@ private fun RuleListScreenContent(
                label = stringResource(R.string.sort_disabled_first),
                onClick = { sort = NotificationSort.DisabledFirst },
             )
+            SortChip(
+               selected = sort == NotificationSort.ShownFirst,
+               label = stringResource(R.string.sort_shown_first),
+               onClick = { sort = NotificationSort.ShownFirst },
+            )
+            SortChip(
+               selected = sort == NotificationSort.SilencedFirst,
+               label = stringResource(R.string.sort_silenced_first),
+               onClick = { sort = NotificationSort.SilencedFirst },
+            )
+            SortChip(
+               selected = sort == NotificationSort.HiddenFirst,
+               label = stringResource(R.string.sort_hidden_first),
+               onClick = { sort = NotificationSort.HiddenFirst },
+            )
          }
       }
 
@@ -189,7 +214,7 @@ private fun RuleListScreenContent(
             },
             supportingContent = {
                Text(
-                  text = if (state.defaultEnabled) stringResource(R.string.shown) else stringResource(R.string.muted),
+                  text = ruleStatusText(state.defaultMasterSwitch),
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                )
             },
@@ -240,6 +265,12 @@ private fun NotificationAppRow(
    timeProvider: TimeProvider,
    onEnabledChanged: (Boolean) -> Unit,
 ) {
+   val lastSeen = app.lastNotification?.let { lastNotification ->
+      val localDateTime = lastNotification.atZone(timeProvider.systemDefaultZoneId()).toLocalDateTime()
+      java.time.format.DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).format(localDateTime)
+   } ?: stringResource(R.string.never_seen)
+   val status = ruleStatusText(app.masterSwitch)
+
    ListItem(
       leadingContent = {
          AppIcon(
@@ -268,10 +299,7 @@ private fun NotificationAppRow(
       },
       supportingContent = {
          Text(
-            text = app.lastNotification?.let { lastNotification ->
-               val localDateTime = lastNotification.atZone(timeProvider.systemDefaultZoneId()).toLocalDateTime()
-               java.time.format.DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).format(localDateTime)
-            } ?: stringResource(R.string.never_seen),
+            text = "$status - $lastSeen",
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             fontSize = 12.sp,
@@ -322,10 +350,22 @@ private fun AppIcon(packageName: String?, modifier: Modifier = Modifier) {
    }
 }
 
+@Composable
+private fun ruleStatusText(masterSwitch: MasterSwitch): String {
+   return when (masterSwitch) {
+      MasterSwitch.SHOW -> stringResource(R.string.shown)
+      MasterSwitch.MUTE -> stringResource(R.string.silenced)
+      MasterSwitch.HIDE -> stringResource(R.string.hidden)
+   }
+}
+
 private enum class NotificationSort {
    Recent,
    NameAscending,
    NameDescending,
    EnabledFirst,
    DisabledFirst,
+   ShownFirst,
+   SilencedFirst,
+   HiddenFirst,
 }

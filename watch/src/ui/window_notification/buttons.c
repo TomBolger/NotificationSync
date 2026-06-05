@@ -83,6 +83,11 @@ static void button_up_repeating(ClickRecognizerRef recognizer, void* context)
         window_notification_action_list_move_up();
         return;
     }
+    if (!window_notification_data.detail_open)
+    {
+        window_notification_ui_select_relative(-1);
+        return;
+    }
 
     window_notification_ui_scroll_detail_up(recognizer, context);
 }
@@ -100,6 +105,11 @@ static void button_down_repeating(ClickRecognizerRef recognizer, void* context)
         window_notification_action_list_move_down();
         return;
     }
+    if (!window_notification_data.detail_open)
+    {
+        window_notification_ui_select_relative(1);
+        return;
+    }
 
     window_notification_ui_scroll_detail_down(recognizer, context);
 }
@@ -110,6 +120,11 @@ static void button_up_raw(ClickRecognizerRef recognizer, void* context)
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_move_up();
+        return;
+    }
+    if (!window_notification_data.detail_open)
+    {
+        window_notification_ui_select_relative(-1);
         return;
     }
 
@@ -124,19 +139,21 @@ static void button_down_raw(ClickRecognizerRef recognizer, void* context)
         window_notification_action_list_move_down();
         return;
     }
+    if (!window_notification_data.detail_open)
+    {
+        window_notification_ui_select_relative(1);
+        return;
+    }
 
     window_notification_ui_scroll_detail_down(recognizer, context);
 }
 
 void window_notification_buttons_config(void* context)
 {
-    if (window_notification_data.detail_open)
-    {
-        window_raw_click_subscribe(BUTTON_ID_UP, button_up_raw, NULL, context);
-        window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, button_up_repeating);
-        window_raw_click_subscribe(BUTTON_ID_DOWN, button_down_raw, NULL, context);
-        window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, button_down_repeating);
-    }
+    window_raw_click_subscribe(BUTTON_ID_UP, button_up_raw, NULL, context);
+    window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, button_up_repeating);
+    window_raw_click_subscribe(BUTTON_ID_DOWN, button_down_raw, NULL, context);
+    window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, button_down_repeating);
     window_single_click_subscribe(BUTTON_ID_SELECT, button_select_single);
     window_single_click_subscribe(BUTTON_ID_BACK, button_back_single);
 }

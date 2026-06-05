@@ -33,6 +33,7 @@ class ActionOrderRepositoryImpl(
       context.getString(R.string.snooze),
       context.getString(R.string.pause_app),
       context.getString(R.string.unpause_app),
+      context.getString(R.string.silence_app),
       context.getString(R.string.pause_conversation),
       context.getString(R.string.unpause_conversation),
    )
