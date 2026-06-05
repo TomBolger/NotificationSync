@@ -90,6 +90,7 @@ open class NotificationCenterApplication : Application(), NavigationInjectingApp
 
       applicationGraph.getDefaultCoroutineScope().launch {
          applicationGraph.getWatchSyncer().init()
+         applicationGraph.getNotificationServiceController().resyncActiveNotifications()
          applicationGraph.getSyncNotifier().notifyAppStarted()
       }
    }
@@ -138,23 +139,13 @@ open class NotificationCenterApplication : Application(), NavigationInjectingApp
             .build()
       )
 
-      StrictMode.setThreadPolicy(
-         StrictMode.ThreadPolicy.Builder()
-            .detectCustomSlowCalls()
-            .detectDiskReads()
-            .detectDiskWrites()
-            .detectNetwork()
-            .detectResourceMismatches()
-            .detectUnbufferedIo()
-            .penaltyListener(ContextCompat.getMainExecutor(this)) { e ->
-               if (BuildConfig.DEBUG) {
-                  throw e
-               } else {
-                  applicationGraph.getErrorReporter().report(e)
-               }
-            }
-            .build()
-      )
+      /*
+       * Do not enable ThreadPolicy checks in app builds that may be sent to testers.
+       * Android carries the caller's thread StrictMode policy across Binder, so launching
+       * system permission UI can make system_server enforce our disk-read policy. On
+       * Android 16 this can crash the permission screen if a system hook or OEM component
+       * reads preferences while handling ActivityRecord creation.
+       */
    }
 
    private fun setupLogging() {

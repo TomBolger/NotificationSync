@@ -13,6 +13,12 @@ class FakeNotificationServiceController : NotificationServiceController {
    var lastTriggeredIntent: Any? = null
    var lastTriggeredReplyAction: NativeAction? = null
    var lastSnooze: Pair<String, Duration>? = null
+   var resyncActiveNotificationsCalled = false
+
+   override fun resyncActiveNotifications(): Boolean {
+      resyncActiveNotificationsCalled = true
+      return returnValue
+   }
 
    override fun cancelNotification(key: String): Boolean {
       lastCancelledNotification = key

@@ -6,6 +6,11 @@
 #include "connection/packets.h"
 
 const uint32_t PERIODIC_VIBRATION_PERIOD_MS = 10000;
+static const uint16_t DEFAULT_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS = 10;
+static const uint8_t CONFIG_FLAGS_INDEX = 0;
+static const uint8_t CONFIG_AUTO_CLOSE_SECONDS_INDEX = 1;
+static const uint8_t CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX = 3;
+static const uint8_t CONFIG_DEFER_NEW_NOTIFICATIONS_FLAG = 0x04;
 static const uint32_t PERIODIC_VIBRATION_SEGMENTS[] = {50};
 const VibePattern PERIODIC_VIBRATION_PATTERN = {
     .durations = PERIODIC_VIBRATION_SEGMENTS,
@@ -18,6 +23,7 @@ static bool any_notification_vibrated = false;
 
 static AppTimer* auto_close_timer = NULL;
 static AppTimer* periodic_vibration_timer = NULL;
+static time_t last_user_interaction_time = 0;
 
 static void cancel_auto_close_timer(void)
 {
@@ -70,6 +76,7 @@ static bool any_notification_wants_periodic_vibration(void)
 
 static void maybe_start_periodic_vibration_timer();
 static void maybe_start_auto_close_timer();
+static bool load_config(uint8_t* config, size_t config_size);
 
 static void handle_periodic_vibration()
 {
@@ -96,13 +103,14 @@ static void maybe_start_auto_close_timer()
         return;
     }
 
-    uint8_t config[3];
-    if (!bucket_sync_load_bucket(1, config))
+    uint8_t config[5];
+    if (!load_config(config, sizeof(config)))
     {
         return;
     }
 
-    const uint32_t duration = read_uint16_from_byte_array(config, 1) * 1000;
+    const uint32_t duration =
+        read_uint16_from_byte_array(config, CONFIG_AUTO_CLOSE_SECONDS_INDEX) * 1000;
     if (duration != 0)
     {
         auto_close_timer = app_timer_register(duration, send_close_me, NULL);
@@ -129,6 +137,7 @@ void idle_handler_notify_user_interacted()
 {
     idle_handler_has_user_interacted_since_app_start = true;
     idle_handler_has_user_interacted_since_last_vibration = true;
+    last_user_interaction_time = time(NULL);
 
     cancel_timers();
     maybe_start_auto_close_timer();
@@ -148,4 +157,52 @@ void idle_handler_notify_notifications_updated()
     {
         cancel_periodic_vibration_timer();
     }
+}
+
+bool idle_handler_should_keep_current_notification()
+{
+    return idle_handler_ms_until_current_notification_release() > 0;
+}
+
+uint32_t idle_handler_ms_until_current_notification_release()
+{
+    uint8_t config[5];
+    if (!load_config(config, sizeof(config)))
+    {
+        return 0;
+    }
+
+    if ((config[CONFIG_FLAGS_INDEX] & CONFIG_DEFER_NEW_NOTIFICATIONS_FLAG) == 0)
+    {
+        return 0;
+    }
+
+    const uint16_t timeout_seconds = read_uint16_from_byte_array(
+        config,
+        CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX
+    );
+    if (timeout_seconds == 0 || last_user_interaction_time == 0)
+    {
+        return 0;
+    }
+
+    const time_t elapsed_seconds = time(NULL) - last_user_interaction_time;
+    if (elapsed_seconds < 0 || elapsed_seconds >= timeout_seconds)
+    {
+        return 0;
+    }
+
+    return (uint32_t)(timeout_seconds - elapsed_seconds) * 1000;
+}
+
+static bool load_config(uint8_t* config, const size_t config_size)
+{
+    memset(config, 0, config_size);
+    config[CONFIG_FLAGS_INDEX] = CONFIG_DEFER_NEW_NOTIFICATIONS_FLAG;
+    config[CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX] =
+        DEFAULT_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS >> 8;
+    config[CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX + 1] =
+        DEFAULT_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS & 0xff;
+
+    return bucket_sync_load_bucket(1, config);
 }

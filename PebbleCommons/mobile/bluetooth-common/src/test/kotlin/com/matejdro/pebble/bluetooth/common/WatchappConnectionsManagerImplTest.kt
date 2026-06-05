@@ -91,6 +91,21 @@ class WatchappConnectionsManagerImplTest {
    }
 
    @Test
+   fun `Create connection when message arrives without app opened event`() = scope.runTest {
+      connectionsManager.onMessageReceived(
+         WATCHAPP_UUID,
+         mapOf(1u to PebbleDictionaryItem.UInt32(1u)),
+         WatchIdentifier("Watch1")
+      ) shouldBe ReceiveResult.Ack
+      runCurrent()
+
+      createdConnections.keys.shouldContainExactly("Watch1")
+      createdConnections.getValue("Watch1").receivedPackets.shouldContainExactly(
+         mapOf(1u to PebbleDictionaryItem.UInt32(1u))
+      )
+   }
+
+   @Test
    fun `Forward ack statuses`() = scope.runTest {
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch2"))

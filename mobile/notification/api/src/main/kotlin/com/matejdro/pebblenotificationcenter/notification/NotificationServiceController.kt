@@ -4,6 +4,7 @@ import com.matejdro.pebblenotificationcenter.notification.model.LightNotificatio
 import kotlin.time.Duration
 
 interface NotificationServiceController {
+   fun resyncActiveNotifications(): Boolean
    fun cancelNotification(key: String): Boolean
    fun snoozeNotificationNotification(key: String, duration: Duration): Boolean
    fun triggerAction(pendingIntent: Any): Boolean

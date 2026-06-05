@@ -276,7 +276,57 @@ class BucketSyncRepositoryImplTest {
       repo.updateBucket(2u, byteArrayOf(2))
       delay(1.seconds)
 
-      repo.checkForNextUpdate(2u, emptyList()) shouldBe null
+      repo.checkForNextUpdate(2u, listOf(1u, 2u)) shouldBe null
+   }
+
+   @Test
+   fun `Reconcile active buckets during update peek when version already matches`() = scope.runTest {
+      repo.init(1)
+
+      repo.updateBucket(1u, byteArrayOf(1))
+      repo.updateBucket(2u, byteArrayOf(2))
+      delay(1.seconds)
+
+      repo.checkForNextUpdate(2u, listOf(1u, 2u, 3u)) shouldBe BucketUpdate(
+         2u,
+         listOf(1u, 2u),
+         emptyList(),
+      )
+   }
+
+   @Test
+   fun `Send missing active buckets during update peek when version already matches`() = scope.runTest {
+      repo.init(1)
+
+      repo.updateBucket(1u, byteArrayOf(1))
+      repo.updateBucket(2u, byteArrayOf(2))
+      delay(1.seconds)
+
+      repo.checkForNextUpdate(2u, listOf(1u)) shouldBe BucketUpdate(
+         2u,
+         listOf(1u, 2u),
+         listOf(
+            Bucket(2u, byteArrayOf(2)),
+         ),
+      )
+   }
+
+   @Test
+   fun `Clear stale dynamic active buckets during update peek when version already matches`() = scope.runTest {
+      repo.init(1, dynamicPool = 2..3)
+
+      repo.updateBucket(1u, byteArrayOf(1))
+      repo.updateBucketDynamic("notification", byteArrayOf(2))
+      delay(1.seconds)
+
+      repo.clearAllDynamic()
+      delay(1.seconds)
+
+      repo.checkForNextUpdate(3u, listOf(1u, 2u)) shouldBe BucketUpdate(
+         3u,
+         listOf(1u),
+         emptyList(),
+      )
    }
 
    @Test
@@ -601,7 +651,7 @@ class BucketSyncRepositoryImplTest {
       repo.deleteBucketDynamic("3")
       delay(1.seconds)
 
-      repo.checkForNextUpdate(2u, emptyList()) shouldBe null
+      repo.checkForNextUpdate(2u, listOf(1u, 2u)) shouldBe null
    }
 
    @Test
@@ -748,7 +798,7 @@ class BucketSyncRepositoryImplTest {
       repo.updateBucketFlagsSilently(2u, 12u)
       delay(1.seconds)
 
-      repo.checkForNextUpdate(2u, emptyList()).shouldBeNull()
+      repo.checkForNextUpdate(2u, listOf(1u, 2u)).shouldBeNull()
    }
 
    @Test

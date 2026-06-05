@@ -1,8 +1,11 @@
+@file:Suppress("MultipleEmitters")
+
 package com.matejdro.pebblenotificationcenter.rules.ui.list
 
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,10 +21,10 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
-import androidx.compose.material3.ElevatedAssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,11 +95,23 @@ private fun RuleListScreenContent(
    setAppEnabled: (NotificationAppState, Boolean) -> Unit,
 ) {
    var notifiedOnly by remember { mutableStateOf(true) }
-   val visibleApps = remember(state.apps, notifiedOnly) {
-      if (notifiedOnly) {
+   var sort by rememberSaveable { mutableStateOf(NotificationSort.Recent) }
+   val visibleApps = remember(state.apps, notifiedOnly, sort) {
+      val filteredApps = if (notifiedOnly) {
          state.apps.filter { it.notificationCount > 0 || it.ruleId != null }
       } else {
          state.apps
+      }
+      when (sort) {
+         NotificationSort.Recent -> filteredApps
+         NotificationSort.NameAscending -> filteredApps.sortedBy { it.name.lowercase() }
+         NotificationSort.NameDescending -> filteredApps.sortedByDescending { it.name.lowercase() }
+         NotificationSort.EnabledFirst -> filteredApps.sortedWith(
+            compareByDescending<NotificationAppState> { it.enabled }.thenBy { it.name.lowercase() }
+         )
+         NotificationSort.DisabledFirst -> filteredApps.sortedWith(
+            compareBy<NotificationAppState> { it.enabled }.thenBy { it.name.lowercase() }
+         )
       }
    }
 
@@ -124,20 +140,40 @@ private fun RuleListScreenContent(
          Row(
             modifier = Modifier
                .fillMaxWidth()
+               .horizontalScroll(rememberScrollState())
                .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
          ) {
-            ElevatedAssistChip(
+            FilterChip(
+               selected = notifiedOnly,
                onClick = { notifiedOnly = !notifiedOnly },
                label = { Text(stringResource(R.string.notified_only)) },
-               colors = AssistChipDefaults.elevatedAssistChipColors(
-                  containerColor = if (notifiedOnly) {
-                     MaterialTheme.colorScheme.primaryContainer
-                  } else {
-                     MaterialTheme.colorScheme.background
-                  }
-               ),
+            )
+            SortChip(
+               selected = sort == NotificationSort.Recent,
+               label = stringResource(R.string.sort_recent),
+               onClick = { sort = NotificationSort.Recent },
+            )
+            SortChip(
+               selected = sort == NotificationSort.NameAscending,
+               label = stringResource(R.string.sort_name_ascending),
+               onClick = { sort = NotificationSort.NameAscending },
+            )
+            SortChip(
+               selected = sort == NotificationSort.NameDescending,
+               label = stringResource(R.string.sort_name_descending),
+               onClick = { sort = NotificationSort.NameDescending },
+            )
+            SortChip(
+               selected = sort == NotificationSort.EnabledFirst,
+               label = stringResource(R.string.sort_enabled_first),
+               onClick = { sort = NotificationSort.EnabledFirst },
+            )
+            SortChip(
+               selected = sort == NotificationSort.DisabledFirst,
+               label = stringResource(R.string.sort_disabled_first),
+               onClick = { sort = NotificationSort.DisabledFirst },
             )
          }
       }
@@ -183,6 +219,19 @@ private fun RuleListScreenContent(
          )
       }
    }
+}
+
+@Composable
+private fun SortChip(
+   selected: Boolean,
+   label: String,
+   onClick: () -> Unit,
+) {
+   FilterChip(
+      selected = selected,
+      onClick = onClick,
+      label = { Text(label) },
+   )
 }
 
 @Composable
@@ -271,4 +320,12 @@ private fun AppIcon(packageName: String?, modifier: Modifier = Modifier) {
          modifier = modifier.padding(4.dp),
       )
    }
+}
+
+private enum class NotificationSort {
+   Recent,
+   NameAscending,
+   NameDescending,
+   EnabledFirst,
+   DisabledFirst,
 }

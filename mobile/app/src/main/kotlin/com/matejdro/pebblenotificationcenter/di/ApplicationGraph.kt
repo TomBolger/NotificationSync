@@ -8,6 +8,7 @@ import com.matejdro.pebblenotificationcenter.MainViewModel
 import com.matejdro.pebblenotificationcenter.bluetooth.WatchSyncer
 import com.matejdro.pebblenotificationcenter.common.di.NavigationInjectingGraph
 import com.matejdro.pebblenotificationcenter.navigation.scenes.TabListDetailScene
+import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
 import com.matejdro.pebblenotificationcenter.notification.di.NotificationInject
 import com.matejdro.pebblenotificationcenter.receiving.PebbleListenerService
 import com.matejdro.pebblenotificationcenter.tasker.TaskerServiceInjector
@@ -52,6 +53,7 @@ interface ApplicationGraph : NavigationInjectingGraph, NotificationInject, Taske
    fun getFileLoggingController(): FileLoggingController
    fun getTinyLogLoggingThread(): TinyLogLoggingThread
    fun getWatchSyncer(): WatchSyncer
+   fun getNotificationServiceController(): NotificationServiceController
    fun getTabListDetailSceneFactory(): TabListDetailScene.Factory
    fun getWorkerFactory(): NotificationCenterWorkerFactory
    fun getSyncNotifier(): BackgroundSyncNotifier

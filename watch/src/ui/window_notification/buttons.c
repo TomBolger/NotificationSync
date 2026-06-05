@@ -57,7 +57,7 @@ static void button_back_single(ClickRecognizerRef recognizer, void* context)
     {
         if (window_notification_ui_should_exit_detail_on_back())
         {
-            send_close_me();
+            send_close_me_without_animation();
         }
         else
         {
@@ -78,6 +78,12 @@ static void button_up_repeating(ClickRecognizerRef recognizer, void* context)
     }
 
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed)
+    {
+        window_notification_action_list_move_up();
+        return;
+    }
+
     window_notification_ui_scroll_detail_up(recognizer, context);
 }
 
@@ -89,18 +95,36 @@ static void button_down_repeating(ClickRecognizerRef recognizer, void* context)
     }
 
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed)
+    {
+        window_notification_action_list_move_down();
+        return;
+    }
+
     window_notification_ui_scroll_detail_down(recognizer, context);
 }
 
 static void button_up_raw(ClickRecognizerRef recognizer, void* context)
 {
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed)
+    {
+        window_notification_action_list_move_up();
+        return;
+    }
+
     window_notification_ui_scroll_detail_up(recognizer, context);
 }
 
 static void button_down_raw(ClickRecognizerRef recognizer, void* context)
 {
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed)
+    {
+        window_notification_action_list_move_down();
+        return;
+    }
+
     window_notification_ui_scroll_detail_down(recognizer, context);
 }
 

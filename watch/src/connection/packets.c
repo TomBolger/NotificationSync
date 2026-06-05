@@ -103,7 +103,7 @@ static void on_close_me_finished(const bool success)
     }
 }
 
-void send_close_me()
+static void send_close_me_animated(const bool animated)
 {
     // Even if close clashes with other packets, we don't really care,
     // we don't want to show errors to the user
@@ -120,7 +120,17 @@ void send_close_me()
         bluetooth_app_message_outbox_send();
     }
 
-    window_stack_pop_all(true);
+    window_stack_pop_all(animated);
+}
+
+void send_close_me()
+{
+    send_close_me_animated(true);
+}
+
+void send_close_me_without_animation()
+{
+    send_close_me_animated(false);
 }
 
 bool send_setting(const uint8_t id, const uint8_t value)

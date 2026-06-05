@@ -7,6 +7,8 @@
 
     <!-- List reordering vibration & vibration pattern generation -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <uses-permission android:name="io.rebble.pebblekit2.permission.SEND_DATA_TO_WATCH" />
     <uses-permission android:name="io.rebble.pebblekit2.permission.READ_PROVIDER" />
@@ -19,7 +21,7 @@
 
     <application
         android:name=".NotificationCenterApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"

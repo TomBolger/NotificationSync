@@ -2,8 +2,12 @@ package com.matejdro.pebblenotificationcenter.bluetooth
 
 import androidx.datastore.preferences.core.Preferences
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 
 class FakeWatchSyncer : WatchSyncer {
+   override val stockNotificationActions: Flow<StockNotificationAction> = emptyFlow()
+
    val syncedNotifications = mutableListOf<ProcessedNotification>()
    val syncedNotificationReadStatuses = mutableListOf<ProcessedNotification>()
    val clearedNotifications = mutableListOf<String>()

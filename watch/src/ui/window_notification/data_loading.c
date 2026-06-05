@@ -12,6 +12,24 @@ static BucketList* buckets;
 static NotificationListItem list_items[MAX_NOTIFICATION_ITEMS];
 static const uint32_t STORAGE_BUCKET_FLAGS_ID_MIN = 3000;
 
+static size_t bounded_cstring_length(const uint8_t* data, const size_t start, const size_t data_size)
+{
+    size_t length = 0;
+    while (start + length < data_size && data[start + length] != '\0')
+    {
+        length++;
+    }
+
+    return length;
+}
+
+static void copy_action_text(char* destination, const uint8_t* source, const size_t source_length)
+{
+    const size_t copy_length = MIN(source_length, MAX_NOTIFICATION_ACTION_TEXT - 1);
+    memcpy(destination, source, copy_length);
+    destination[copy_length] = '\0';
+}
+
 static bool is_real_notification_id(const uint8_t id)
 {
     return id != 1;
@@ -114,6 +132,8 @@ static void on_bucket_updated(const BucketMetadata bucket_metadata, void* contex
         return;
     }
 
+    window_notification_ui_uncache_body_for_bucket(bucket_metadata.id);
+    window_notification_ui_note_bucket_updated(bucket_metadata.id);
     persist_delete(bucket_metadata.id + STORAGE_BUCKET_FLAGS_ID_MIN);
     on_buckets_changed();
 }
@@ -124,31 +144,53 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
     {
         return;
     }
+    if (data_size < 1)
+    {
+        return;
+    }
 
     const bool is_current_bucket = bucket_id == window_notification_data.currently_selected_bucket;
     size_t position = 1;
     const uint8_t num_actions = data[0];
     if (is_current_bucket)
     {
-        window_notification_data.num_actions = num_actions;
+        window_notification_data.num_actions = MIN(num_actions, MAX_NOTIFICATION_ACTIONS);
     }
     for (int i = 0; i < num_actions; i++)
     {
-        const uint8_t action_id = data[position++];
-        const char* action_title = (char*)&data[position];
-        if (is_current_bucket)
+        if (position >= data_size)
         {
-            strcpy(window_notification_data.actions[i].text, action_title);
+            return;
         }
-        position += strlen(action_title) + 1;
-        if (is_current_bucket)
+        const uint8_t action_id = data[position++];
+        const size_t action_title_position = position;
+        const size_t action_title_length = bounded_cstring_length(data, action_title_position, data_size);
+        if (action_title_position + action_title_length >= data_size)
         {
+            return;
+        }
+        if (is_current_bucket && i < MAX_NOTIFICATION_ACTIONS)
+        {
+            copy_action_text(
+                window_notification_data.actions[i].text,
+                &data[action_title_position],
+                action_title_length
+            );
             window_notification_data.actions[i].id = action_id;
             window_notification_data.actions[i].voice = false;
         }
+        position += action_title_length + 1;
     }
 
+    if (position + 2 > data_size)
+    {
+        return;
+    }
     const size_t icon_bytes_length = read_uint16_from_byte_array(data, position);
+    if (position + 2 + icon_bytes_length > data_size)
+    {
+        return;
+    }
     position += 2 + icon_bytes_length;
 
     const size_t max_text_size = MIN(MAX_BODY_TEXT_SIZE, data_size - position);
@@ -166,6 +208,11 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
 
 void window_notification_data_receive_show_submenu(const uint8_t* data, const size_t data_size)
 {
+    if (data_size < 3)
+    {
+        return;
+    }
+
     const uint8_t target_bucket = data[0];
     if (window_notification_data.currently_selected_bucket != target_bucket)
     {
@@ -175,13 +222,31 @@ void window_notification_data_receive_show_submenu(const uint8_t* data, const si
     const uint8_t menu_id = data[1];
     const uint8_t num_actions = data[2];
     size_t position = 3;
-    window_notification_data.num_submenu_actions = num_actions;
+    window_notification_data.num_submenu_actions = MIN(num_actions, MAX_NOTIFICATION_ACTIONS);
     for (int i = 0; i < num_actions; i++)
     {
-        const char* action_title = strcpy(window_notification_data.submenu_actions[i].text, (char*)&data[position]);
-        position += strlen(action_title) + 1;
-        window_notification_data.submenu_actions[i].id = i;
-        window_notification_data.submenu_actions[i].voice = data[position++] == 1;
+        const size_t action_title_position = position;
+        const size_t action_title_length = bounded_cstring_length(data, action_title_position, data_size);
+        if (action_title_position + action_title_length >= data_size)
+        {
+            return;
+        }
+        position += action_title_length + 1;
+        if (position >= data_size)
+        {
+            return;
+        }
+        const bool voice = data[position++] == 1;
+        if (i < MAX_NOTIFICATION_ACTIONS)
+        {
+            copy_action_text(
+                window_notification_data.submenu_actions[i].text,
+                &data[action_title_position],
+                action_title_length
+            );
+            window_notification_data.submenu_actions[i].id = i;
+            window_notification_data.submenu_actions[i].voice = voice;
+        }
     }
 
     if (window_notification_data.menu_displayed)

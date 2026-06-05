@@ -81,27 +81,20 @@ class NotificationService : NotificationListenerService() {
    override fun onListenerConnected() {
       super.onListenerConnected()
 
-      if (bound) {
-         // Prevent duplicate calls
-         return
+      if (!bound) {
+         bound = true
+         controlListenerHintsAndOpenOnReconnect()
       }
-      bound = true
 
+      resyncActiveNotifications()
+   }
+
+   fun resyncActiveNotifications() {
       coroutineScope.launch {
          mutex.withLock {
-            notificationProcessor.onNotificationsCleared()
-            for (sbn in activeNotifications) {
-               val parsed = parseNotification(sbn)
-               if (parsed != null) {
-                  notificationProcessor.onNotificationPosted(parsed, suppressVibration = true)
-               } else {
-                  logcat { "Notification ${sbn.key} has no text. Skipping..." }
-               }
-            }
+            resyncActiveNotificationsLocked()
          }
       }
-
-      controlListenerHintsAndOpenOnReconnect()
    }
 
    override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -128,6 +121,25 @@ class NotificationService : NotificationListenerService() {
          ranking,
          preferenceStore.data.first()[GlobalPreferenceKeys.showMessagingStyleChronologically]
       )
+   }
+
+   private suspend fun resyncActiveNotificationsLocked() {
+      val currentNotifications = try {
+         activeNotifications
+      } catch (exception: SecurityException) {
+         errorReporter.report(exception)
+         return
+      }
+
+      notificationProcessor.onNotificationsCleared()
+      for (sbn in currentNotifications) {
+         val parsed = parseNotification(sbn)
+         if (parsed != null) {
+            notificationProcessor.onNotificationPosted(parsed, suppressVibration = true)
+         } else {
+            logcat { "Notification ${sbn.key} has no text. Skipping..." }
+         }
+      }
    }
 
    override fun onNotificationRemoved(sbn: StatusBarNotification) {

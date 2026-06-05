@@ -9,3 +9,5 @@ void idle_handler_register_timers();
 void idle_handler_notify_user_interacted();
 void idle_handler_notify_received_new_vibration();
 void idle_handler_notify_notifications_updated();
+bool idle_handler_should_keep_current_notification();
+uint32_t idle_handler_ms_until_current_notification_release();

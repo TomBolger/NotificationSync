@@ -3,12 +3,15 @@ package com.matejdro.pebblenotificationcenter
 import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.app.RemoteInput
+import android.content.ComponentName
+import android.content.Context
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
+import android.service.notification.NotificationListenerService
 import androidx.annotation.RequiresApi
 import com.matejdro.pebblenotificationcenter.notification.NotificationService
 import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
@@ -21,7 +24,20 @@ import kotlin.time.Duration
 
 @Inject
 @ContributesBinding(AppScope::class)
-class NotificationServiceControllerImpl : NotificationServiceController {
+class NotificationServiceControllerImpl(private val context: Context) : NotificationServiceController {
+   override fun resyncActiveNotifications(): Boolean {
+      val service = NotificationService.instance
+      if (service != null) {
+         service.resyncActiveNotifications()
+         return true
+      }
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+         NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
+      }
+      return false
+   }
+
    override fun cancelNotification(key: String): Boolean {
       val service = NotificationService.instance ?: return false
 

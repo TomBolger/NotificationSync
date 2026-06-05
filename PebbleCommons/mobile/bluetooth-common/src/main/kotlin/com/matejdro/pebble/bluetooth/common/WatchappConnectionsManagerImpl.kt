@@ -41,15 +41,7 @@ class WatchappConnectionsManagerImpl(
       }
 
       val connection = synchronized(activeConnections) {
-         activeConnections[watch]
-      }
-
-      if (connection == null) {
-         // This might happen if the phone app is restarted/reinstalled while the watchapp is still open.
-         // In this case, a session will not exist, while the watch will still send messages
-         // Since this is such a rare case, it's not really supported. It's easy to fix: just reopen the watchapp
-         logcat { "Got an AppMessage for a closed connection." }
-         return ReceiveResult.Nack
+         activeConnections[watch] ?: createConnection(watch)
       }
 
       return try {
@@ -74,8 +66,12 @@ class WatchappConnectionsManagerImpl(
             errorReporter.report(UnknownCauseException("Connection for the $watch is already opened"))
             return
          }
-      }
 
+         createConnection(watch)
+      }
+   }
+
+   private fun createConnection(watch: WatchIdentifier): ConnectionWrapper {
       val newScope = CoroutineScope(
          defaultScope.coroutineContext +
             CoroutineExceptionHandler { _, throwable -> errorReporter.report(throwable) } +
@@ -84,9 +80,8 @@ class WatchappConnectionsManagerImpl(
 
       val newConnection = connectionFactory.create(watch, newScope)
       val wrapper = ConnectionWrapper(newConnection, newScope)
-      synchronized(activeConnections) {
-         activeConnections.put(watch, wrapper)
-      }
+      activeConnections[watch] = wrapper
+      return wrapper
    }
 
    override fun onAppClosed(watchappUUID: UUID, watch: WatchIdentifier) {

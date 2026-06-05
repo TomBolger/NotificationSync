@@ -106,11 +106,16 @@ class BucketsyncRepositoryImpl(
    ): BucketUpdate? = withIO {
       logcat { "Check next update from $currentVersion" }
       val latestVersion = queries.getLatestVersion().executeAsOne().MAX?.toUShort() ?: 0u
+      val activeBuckets = getActiveBuckets(maxActiveBuckets)
+      val activeBucketIds = activeBuckets.map { it.first.toUByte() }
 
       logcat { "Latest version is $latestVersion" }
 
       val requestVersion = if (currentVersion == latestVersion) {
-         return@withIO null
+         if (currentActiveBuckets == activeBucketIds) {
+            return@withIO null
+         }
+         latestVersion
       } else if (latestVersion > currentVersion) {
          currentVersion
       } else {
@@ -118,7 +123,7 @@ class BucketsyncRepositoryImpl(
          0u
       }
 
-      createBucketUpdate(requestVersion, latestVersion, currentActiveBuckets, maxActiveBuckets)
+      createBucketUpdate(requestVersion, latestVersion, currentActiveBuckets, maxActiveBuckets, activeBuckets)
    }
 
    private fun createBucketUpdate(
@@ -126,9 +131,9 @@ class BucketsyncRepositoryImpl(
       newVersion: UShort,
       currentActiveBuckets: List<UByte>,
       maxActiveBuckets: Int,
+      knownActiveBuckets: List<Pair<UShort, UByte>>? = null,
    ): BucketUpdate {
-      val activeBuckets =
-         queries.getActiveBuckets(maxActiveBuckets.toLong()).executeAsList().map { it.id.toUShort() to it.flags.toUByte() }
+      val activeBuckets = knownActiveBuckets ?: getActiveBuckets(maxActiveBuckets)
 
       val bucketsToUpdate = queries.getUpdatedBuckets(
          requestVersion.toLong(),
@@ -158,6 +163,10 @@ class BucketsyncRepositoryImpl(
          activeBuckets.map { it.second },
       )
    }
+
+   private fun getActiveBuckets(maxActiveBuckets: Int): List<Pair<UShort, UByte>> =
+      queries.getActiveBuckets(maxActiveBuckets.toLong()).executeAsList()
+         .map { it.id.toUShort() to it.flags.toUByte() }
 
    override suspend fun deleteBucket(id: UByte) = withIO<Unit> {
       logcat { "Delete bucket $id" }

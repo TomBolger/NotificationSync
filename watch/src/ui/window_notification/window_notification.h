@@ -8,11 +8,13 @@
 #define MAX_NOTIFICATION_ITEMS 30
 #define MAX_NOTIFICATION_TITLE 64
 #define MAX_NOTIFICATION_SNIPPET 160
+#define MAX_NOTIFICATION_ACTIONS 20
+#define MAX_NOTIFICATION_ACTION_TEXT 21
 
 typedef struct
 {
     uint8_t id;
-    char text[21];
+    char text[MAX_NOTIFICATION_ACTION_TEXT];
     bool voice;
 } Action;
 
@@ -47,9 +49,9 @@ typedef struct
     time_t receive_time;
 
     uint8_t num_actions;
-    Action actions[20];
+    Action actions[MAX_NOTIFICATION_ACTIONS];
     uint8_t num_submenu_actions;
-    Action submenu_actions[20];
+    Action submenu_actions[MAX_NOTIFICATION_ACTIONS];
     bool menu_displayed;
     uint8_t currently_displayed_menu_id;
     uint8_t open_menu_on_success;
@@ -62,6 +64,8 @@ void window_notification_ui_set_items(const NotificationListItem* items, uint8_t
 void window_notification_ui_redraw();
 void window_notification_ui_cache_current_body();
 void window_notification_ui_cache_body_for_bucket(uint8_t bucket_id, const char* body, size_t body_size);
+void window_notification_ui_uncache_body_for_bucket(uint8_t bucket_id);
+void window_notification_ui_note_bucket_updated(uint8_t bucket_id);
 void window_notification_ui_on_bucket_selected();
 void window_notification_ui_on_bucket_list_updated();
 void window_notification_ui_on_bucket_deleted(uint8_t bucket_id);

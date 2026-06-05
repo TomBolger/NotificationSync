@@ -121,6 +121,11 @@
     <string name="enable_all">Enable All</string>
     <string name="all_apps">All Apps</string>
     <string name="notified_only">Notified only</string>
+    <string name="sort_recent">Recent</string>
+    <string name="sort_name_ascending">A-Z</string>
+    <string name="sort_name_descending">Z-A</string>
+    <string name="sort_enabled_first">Enabled</string>
+    <string name="sort_disabled_first">Disabled</string>
     <string name="showing_apps_count">%1$d apps</string>
     <string name="shown">Show</string>
     <string name="muted">Mute</string>
@@ -131,6 +136,14 @@
     <string name="watch_experience">Watch experience</string>
     <string name="notification_timeout">Notification timeout</string>
     <string name="notification_timeout_description">Auto-close notification popups after this many seconds. Set to 0 to leave them open.</string>
+    <string name="setting_defer_new_notifications">Keep current notification while using watch</string>
+    <string name="setting_defer_new_notifications_description">When enabled, new phone notifications are added to the top of the list without replacing the open notification if you pressed a watch button recently.</string>
+    <string name="setting_new_notification_interaction_timeout">Current notification timeout</string>
+    <string name="setting_new_notification_interaction_timeout_description">Seconds after a watch button press that a new notification should wait in the list instead of replacing the open notification. Set to 0 to always show the newest notification.</string>
+    <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
+    <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
+    <string name="setting_stock_pebble_os_notifications">Use stock PebbleOS notifications</string>
+    <string name="setting_stock_pebble_os_notifications_description">Experimental firmware mode. Sends notifications to the built-in PebbleOS notification list instead of opening the companion watch app.</string>
     <string name="advanced">Advanced</string>
     <string name="vibration_patterns_core">Core Pebble presets</string>
     <string name="vibration_pattern_custom">Custom pattern</string>

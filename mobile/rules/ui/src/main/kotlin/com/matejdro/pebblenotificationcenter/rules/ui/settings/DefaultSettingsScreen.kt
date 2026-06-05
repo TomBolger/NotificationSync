@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber", "MaxLineLength", "MultipleEmitters")
+
 package com.matejdro.pebblenotificationcenter.rules.ui.settings
 
 import android.os.Build
@@ -252,6 +254,36 @@ private fun DefaultSettingsContent(
          )
       }
       item {
+         ToggleSetting(
+            title = stringResource(R.string.setting_defer_new_notifications),
+            description = stringResource(R.string.setting_defer_new_notifications_description),
+            checked = globalPreferences[GlobalPreferenceKeys.deferNewNotificationsWhileInteracting],
+            onCheckedChange = {
+               updateGlobalPreference(GlobalPreferenceKeys.deferNewNotificationsWhileInteracting, it)
+            },
+         )
+      }
+      item {
+         NumberSetting(
+            title = stringResource(R.string.setting_new_notification_interaction_timeout),
+            description = stringResource(R.string.setting_new_notification_interaction_timeout_description),
+            value = globalPreferences[GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds],
+            onValueChange = {
+               updateGlobalPreference(GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds, it)
+            },
+         )
+      }
+      item {
+         ToggleSetting(
+            title = stringResource(R.string.setting_skip_when_phone_unlocked),
+            description = stringResource(R.string.setting_skip_when_phone_unlocked_description),
+            checked = globalPreferences[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked],
+            onCheckedChange = {
+               updateGlobalPreference(GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked, it)
+            },
+         )
+      }
+      item {
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ActionSetting(
                title = stringResource(R.string.snooze_intervals),
@@ -279,6 +311,16 @@ private fun DefaultSettingsContent(
       }
 
       item { SectionHeader(stringResource(R.string.advanced)) }
+      item {
+         ToggleSetting(
+            title = stringResource(R.string.setting_stock_pebble_os_notifications),
+            description = stringResource(R.string.setting_stock_pebble_os_notifications_description),
+            checked = globalPreferences[GlobalPreferenceKeys.stockPebbleOsNotifications],
+            onCheckedChange = {
+               updateGlobalPreference(GlobalPreferenceKeys.stockPebbleOsNotifications, it)
+            },
+         )
+      }
       item {
          ActionSetting(
             title = stringResource(R.string.preference_regex_replacement),

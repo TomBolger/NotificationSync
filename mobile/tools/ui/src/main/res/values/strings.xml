@@ -13,6 +13,8 @@
     <string name="setting_messaging_style_chronological_description">Display MessagingStyle conversation bodies oldest-first. When disabled,
         newest messages are shown first to reduce scrolling.
     </string>
+    <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
+    <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
     <string name="setting_notify_on_reconnect">Open missed notifications on reconnect</string>
     <string name="setting_notify_on_reconnect_description">If phone received any non-muted notifications during watch disconnect,
         it will show them on the watch after it reconnects

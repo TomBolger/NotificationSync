@@ -22,6 +22,7 @@ import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
 import com.matejdro.pebblenotificationcenter.rules.keys.set
 import com.matejdro.pebblenotificationcenter.rules.keys.setTo
+import dispatch.core.DefaultCoroutineScope
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
@@ -35,6 +36,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
@@ -57,6 +59,10 @@ class NotificationProcessorTest {
 
    private val historyInserter = FakeHistoryInserter()
 
+   private val phoneStateDetector = FakePhoneStateDetector()
+
+   private val processorCoroutineScope = TestScope()
+
    private val processor = NotificationProcessor(
       context,
       watchSyncer,
@@ -65,6 +71,8 @@ class NotificationProcessorTest {
       globalPreferences,
       pauseController,
       historyInserter,
+      phoneStateDetector,
+      DefaultCoroutineScope(processorCoroutineScope.backgroundScope.coroutineContext),
       androidVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM
    )
 
@@ -355,6 +363,31 @@ class NotificationProcessorTest {
       openController.watchappOpened shouldBe false
       processor.pollNextVibration() shouldBe null
       historyInserter.insertedEntries.shouldHaveSize(1).first().muteReason shouldBe MuteReason.APP_STARTUP
+   }
+
+   @Test
+   fun `It should not send notifications to the watch when phone is unlocked and skip setting is enabled`() = runTest {
+      globalPreferences.edit {
+         it[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked] = true
+      }
+      phoneStateDetector.phoneUnlocked = true
+
+      val notification = ParsedNotification(
+         "key",
+         "com.app",
+         "Title",
+         "sTitle",
+         "Body",
+         // 19:18:25 GMT | Sunday, January 4, 2026
+         Instant.ofEpochSecond(1_767_554_305)
+      )
+
+      processor.onNotificationPosted(notification)
+
+      watchSyncer.syncedNotifications.shouldBeEmpty()
+      openController.watchappOpened shouldBe false
+      processor.getAllActiveNotifications().shouldBeEmpty()
+      historyInserter.insertedEntries.shouldHaveSize(1).first().hideReason shouldBe HideReason.PHONE_UNLOCKED
    }
 
    @Test
@@ -1386,6 +1419,8 @@ class NotificationProcessorTest {
          globalPreferences,
          pauseController,
          historyInserter,
+         phoneStateDetector,
+         DefaultCoroutineScope(this.backgroundScope.coroutineContext),
          androidVersion = Build.VERSION_CODES.N,
       )
 
@@ -1539,6 +1574,14 @@ class NotificationProcessorTest {
          title shouldBe "title"
          subtitle shouldBe "stitle"
          body shouldBe "body"
+      }
+   }
+
+   private class FakePhoneStateDetector : PhoneStateDetector {
+      var phoneUnlocked = false
+
+      override fun isPhoneUnlocked(): Boolean {
+         return phoneUnlocked
       }
    }
 }

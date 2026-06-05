@@ -431,7 +431,7 @@ class WatchSyncerImplTest {
          emptyPreferences(),
       )
 
-      bucketSyncRepository.checkForNextUpdate(1u, emptyList()).shouldBeNull()
+      bucketSyncRepository.checkForNextUpdate(1u, listOf(2u)).shouldBeNull()
    }
 
    @Test
@@ -496,9 +496,11 @@ class WatchSyncerImplTest {
             Bucket(
                1u,
                byteArrayOf(
-                  0b00000000, // Both mutes by default
+                  0b00000100, // Both mutes off, defer-new-notifications on
+                  0x02,
+                  0x58,
                   0,
-                  0,
+                  10,
                )
             )
          )
@@ -522,9 +524,11 @@ class WatchSyncerImplTest {
             Bucket(
                1u,
                byteArrayOf(
-                  0b00000001, // Only mute watch enabled
+                  0b00000101, // Mute watch and defer-new-notifications enabled
+                  0x02,
+                  0x58,
                   0,
-                  0,
+                  10,
                )
             )
          )
@@ -548,9 +552,11 @@ class WatchSyncerImplTest {
             Bucket(
                1u,
                byteArrayOf(
-                  0b00000010, // Only mute phone enabled
+                  0b00000110, // Mute phone and defer-new-notifications enabled
+                  0x02,
+                  0x58,
                   0,
-                  0,
+                  10,
                )
             )
          )
@@ -574,9 +580,40 @@ class WatchSyncerImplTest {
             Bucket(
                1u,
                byteArrayOf(
-                  0b00000000, // Both mutes disabled by default
+                  0b00000100, // Both mutes disabled, defer-new-notifications enabled
                   0x01,
                   0x04,
+                  0,
+                  10,
+               )
+            )
+         )
+      )
+   }
+
+   @Test
+   fun `Send updated new notification interaction settings`() = scope.runTest {
+      init(enablePreferences = true)
+      delay(2.seconds)
+
+      preferences.edit {
+         it[GlobalPreferenceKeys.deferNewNotificationsWhileInteracting] = false
+         it[GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds] = 30
+      }
+      delay(2.seconds)
+
+      bucketSyncRepository.awaitNextUpdate(0u, emptyList()) shouldBe BucketUpdate(
+         2u,
+         listOf(1u),
+         listOf(
+            Bucket(
+               1u,
+               byteArrayOf(
+                  0b00000000, // Both mutes disabled, defer-new-notifications disabled
+                  0x02,
+                  0x58,
+                  0,
+                  30,
                )
             )
          )

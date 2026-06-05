@@ -1,3 +1,5 @@
+@file:Suppress("LongMethod")
+
 package com.matejdro.pebblenotificationcenter.notification
 
 import android.content.Context
@@ -6,6 +8,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import com.matejdro.pebblenotificationcenter.bluetooth.WatchSyncer
 import com.matejdro.pebblenotificationcenter.bluetooth.WatchappOpenController
+import com.matejdro.pebblenotificationcenter.bluetooth.StockNotificationAction
 import com.matejdro.pebblenotificationcenter.common.di.AndroidVersion
 import com.matejdro.pebblenotificationcenter.notification.history.HideReason
 import com.matejdro.pebblenotificationcenter.notification.history.HistoryInserter
@@ -24,7 +27,9 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import dispatch.core.DefaultCoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import logcat.logcat
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -40,6 +45,8 @@ class NotificationProcessor(
    private val globalPreferenceStore: DataStore<Preferences>,
    private val pauseController: PauseController,
    private val historyInserter: HistoryInserter,
+   private val phoneStateDetector: PhoneStateDetector,
+   private val defaultScope: DefaultCoroutineScope,
    @AndroidVersion
    private val androidVersion: Int,
 ) : NotificationRepository {
@@ -47,6 +54,19 @@ class NotificationProcessor(
    private val notificationIdsByKeys = HashMap<String, Int>()
 
    private var nextVibration: AtomicReference<IntArray?> = AtomicReference(null)
+
+   init {
+      defaultScope.launch {
+         watchSyncer.stockNotificationActions.collect { action ->
+            when (action) {
+               is StockNotificationAction.Dismiss -> {
+                  NotificationService.instance?.cancelNotification(action.key)
+                  onNotificationDismissed(action.key)
+               }
+            }
+         }
+      }
+   }
 
    suspend fun onNotificationPosted(parsedNotification: ParsedNotification, suppressVibration: Boolean = false) {
       val (affectedRules, settings) = ruleResolver.resolveRules(parsedNotification)
@@ -59,6 +79,12 @@ class NotificationProcessor(
       if (hideReason != null) {
          historyInserter.insertHistoryEntry(parsedNotification, affectedRules, hideReason, null)
          onNotificationDismissed(parsedNotification.key)
+         return
+      }
+
+      if (shouldSkipBecausePhoneUnlocked()) {
+         logcat { "Hiding: phone is unlocked" }
+         historyInserter.insertHistoryEntry(parsedNotification, affectedRules, HideReason.PHONE_UNLOCKED, null)
          return
       }
 
@@ -107,7 +133,7 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[parsedNotification.key] = bucketId
-      if (vibrationPattern != null) {
+      if (vibrationPattern != null && !usingStockPebbleOsNotifications()) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(vibrationPattern)
          openController.setNextWatchappOpenNotificationBucket(bucketId)
@@ -152,6 +178,15 @@ class NotificationProcessor(
       }
 
       return null
+   }
+
+   private suspend fun shouldSkipBecausePhoneUnlocked(): Boolean {
+      return globalPreferenceStore.data.first()[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked] &&
+         phoneStateDetector.isPhoneUnlocked()
+   }
+
+   private suspend fun usingStockPebbleOsNotifications(): Boolean {
+      return globalPreferenceStore.data.first()[GlobalPreferenceKeys.stockPebbleOsNotifications]
    }
 
    @Suppress("CyclomaticComplexMethod", "CognitiveComplexMethod") // Lots of successive checks

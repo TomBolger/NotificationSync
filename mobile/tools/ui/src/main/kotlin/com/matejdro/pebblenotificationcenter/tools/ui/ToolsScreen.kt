@@ -178,6 +178,17 @@ private fun ToolsScreenContent(
          }
 
          item(span = { GridItemSpan(maxLineSpan) }) {
+            SwitchPreference(
+               state.preferences[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked],
+               onValueChange = {
+                  updatePreference(GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked, it)
+               },
+               title = { Text(stringResource(R.string.setting_skip_when_phone_unlocked)) },
+               summary = { Text(stringResource(R.string.setting_skip_when_phone_unlocked_description)) }
+            )
+         }
+
+         item(span = { GridItemSpan(maxLineSpan) }) {
             Preference(
                title = { Text(stringResource(R.string.setting_action_order)) },
                summary = { Text(stringResource(R.string.setting_action_order_description)) },

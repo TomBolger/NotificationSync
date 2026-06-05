@@ -63,6 +63,7 @@ class HistoryInserterImpl(
          HideReason.GROUP_SUMMARY_NOTIFICATION -> context.getString(R.string.reason_group_summary)
          HideReason.LOCAL_ONLY_NOTIFICATION -> context.getString(R.string.reason_local_only)
          HideReason.MEDIA_NOTIFICATION -> context.getString(R.string.reason_media)
+         HideReason.PHONE_UNLOCKED -> context.getString(R.string.reason_phone_unlocked)
       }
    }
 }

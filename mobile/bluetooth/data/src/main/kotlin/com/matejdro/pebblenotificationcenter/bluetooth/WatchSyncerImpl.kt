@@ -1,3 +1,5 @@
+@file:Suppress("CognitiveComplexMethod", "CyclomaticComplexMethod", "MagicNumber")
+
 package com.matejdro.pebblenotificationcenter.bluetooth
 
 import androidx.annotation.VisibleForTesting
@@ -21,6 +23,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dispatch.core.DefaultCoroutineScope
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import logcat.logcat
 import okio.Buffer
@@ -33,8 +36,11 @@ class WatchSyncerImpl(
    private val bucketSyncRepository: BucketSyncRepository,
    private val preferenceStore: DataStore<Preferences>,
    private val defaultScope: DefaultCoroutineScope,
+   private val stockNotificationTransport: StockNotificationTransport = NoOpStockNotificationTransport,
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
+
+   override val stockNotificationActions = stockNotificationTransport.actions
 
    override suspend fun init() {
       init(enablePreferences = true)
@@ -52,6 +58,7 @@ class WatchSyncerImpl(
 
       if (enablePreferences) {
          syncPreferences()
+         syncStockTransportEnabled()
       }
    }
 
@@ -73,7 +80,7 @@ class WatchSyncerImpl(
 
       buffer.write(
          utf8Encoder.encodeSizeLimited(
-            notificationData.title,
+            notificationData.title.replaceUnsupportedPebbleEmoji(),
             MAX_APP_NAME_TEXT_LENGTH,
             true
          ).encodedString
@@ -81,20 +88,25 @@ class WatchSyncerImpl(
       buffer.writeUByte(0u)
       buffer.write(
          utf8Encoder.encodeSizeLimited(
-            watchTitle,
+            watchTitle.replaceUnsupportedPebbleEmoji(),
             MAX_TITLE_TEXT_LENGTH,
             true
          ).encodedString
       )
       buffer.writeUByte(0u)
-      val leftoverSize = BucketSyncRepository.MAX_BUCKET_SIZE_BYTES - buffer.size.toInt()
-      buffer.write(
-         utf8Encoder.encodeSizeLimited(
-            watchBody.fixPebbleIndentation(),
-            leftoverSize,
-            true
-         ).encodedString
-      )
+      val leftoverSize = MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES - buffer.size.toInt()
+      if (leftoverSize > 0) {
+         buffer.write(
+            utf8Encoder.encodeSizeLimited(
+               watchBody.replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
+               leftoverSize,
+               true
+            ).encodedString
+         )
+      }
+      require(buffer.size <= MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES) {
+         "watch sync bucket summary (${buffer.size}) must fit Basalt packets"
+      }
 
       val flags: UByte = getNotificationFlags(notification, preferences)
 
@@ -104,6 +116,10 @@ class WatchSyncerImpl(
          sortKey = -epochSecond,
          flags = flags
       )
+
+      if (preferenceStore.data.first()[GlobalPreferenceKeys.stockPebbleOsNotifications]) {
+         stockNotificationTransport.upsert(notification.copy(bucketId = id), preferences)
+      }
 
       logcat { "Synced" }
 
@@ -131,10 +147,12 @@ class WatchSyncerImpl(
 
    override suspend fun clearAllNotifications() {
       bucketSyncRepository.clearAllDynamic()
+      stockNotificationTransport.deleteAll()
    }
 
    override suspend fun clearNotification(key: String) {
       bucketSyncRepository.deleteBucketDynamic(key)
+      stockNotificationTransport.delete(key)
       logcat { "Deleting Notification $key from the store" }
    }
 
@@ -156,13 +174,18 @@ class WatchSyncerImpl(
             if (preferences[GlobalPreferenceKeys.mutePhone]) {
                flags = flags or 0x02
             }
+            if (preferences[GlobalPreferenceKeys.deferNewNotificationsWhileInteracting]) {
+               flags = flags or 0x04
+            }
 
             val autoClose = preferences[GlobalPreferenceKeys.autoCloseSeconds]
+            val interactionTimeout = preferences[GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds]
 
             val buffer = Buffer()
 
             buffer.writeByte(flags.toInt())
             buffer.writeUShort(autoClose.toUShort())
+            buffer.writeUShort(interactionTimeout.toUShort())
 
             bucketSyncRepository.updateBucket(
                1u,
@@ -171,10 +194,19 @@ class WatchSyncerImpl(
          }
       }
    }
+
+   private fun syncStockTransportEnabled() {
+      defaultScope.launch {
+         preferenceStore.data.collect { preferences ->
+            stockNotificationTransport.setEnabled(preferences[GlobalPreferenceKeys.stockPebbleOsNotifications])
+         }
+      }
+   }
 }
 
-private const val MAX_APP_NAME_TEXT_LENGTH = 48
-private const val MAX_TITLE_TEXT_LENGTH = 64
+private const val MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES = 100
+private const val MAX_APP_NAME_TEXT_LENGTH = 24
+private const val MAX_TITLE_TEXT_LENGTH = 40
 
 private fun ParsedNotification.watchTitle(): String {
    return subtitle.ifBlank { body.lineSequence().firstOrNull().orEmpty() }
@@ -205,7 +237,7 @@ private fun String.removeSenderPrefix(sender: String): String {
    }
 }
 
-private fun ParsedNotification.pebbleOsIconId(): Int {
+internal fun ParsedNotification.pebbleOsIconId(): Int {
    val pkg = this.pkg.lowercase()
    val app = title.lowercase()
    return when {
