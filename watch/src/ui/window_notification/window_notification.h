@@ -73,7 +73,6 @@ void window_notification_ui_open_phone_launch_detail(uint8_t bucket_id);
 void window_notification_ui_open_selected_detail();
 bool window_notification_ui_should_exit_detail_on_back(void);
 void window_notification_ui_close_detail();
-void window_notification_ui_select_relative(int8_t delta);
 void window_notification_ui_scroll_detail_up(ClickRecognizerRef recognizer, void* context);
 void window_notification_ui_scroll_detail_down(ClickRecognizerRef recognizer, void* context);
 GColor window_notification_ui_get_primary_color();

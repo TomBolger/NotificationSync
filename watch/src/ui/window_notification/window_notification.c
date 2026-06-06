@@ -118,8 +118,6 @@ static bool load_selected_detail_data(void);
 static void reload_detail_after_selected_bucket_changed(void);
 static void reload_detail_after_selected_bucket_updated(void);
 static void maybe_open_phone_launch_detail(void);
-static void restore_list_click_config(void);
-static bool should_auto_open_detail_window(void);
 static bool notification_item_has_loaded_content(const NotificationListItem* item);
 static bool notification_item_is_auto_open_candidate(const NotificationListItem* item);
 static int16_t find_notification_index(uint8_t bucket_id, bool require_loaded_content);
@@ -135,19 +133,6 @@ static void close_failed_detail_window(void* context)
     {
         window_stack_remove(detail_window, false);
     }
-}
-
-static void restore_list_click_config(void)
-{
-    if (notification_window != NULL)
-    {
-        window_set_click_config_provider(notification_window, window_notification_buttons_config);
-    }
-}
-
-static bool should_auto_open_detail_window(void)
-{
-    return PBL_PLATFORM_TYPE_CURRENT != PlatformTypeBasalt;
 }
 
 static const uint32_t icon_resource_ids[] = {
@@ -752,8 +737,6 @@ static void reload_menu_layer(void)
         return;
     }
 
-    restore_list_click_config();
-
     int16_t selected_index = window_notification_data.currently_selected_bucket_index;
     menu_layer_reload_data(menu_layer);
     if (empty_state_layer != NULL)
@@ -787,8 +770,6 @@ static void sync_menu_selection(const MenuRowAlign align, const bool animated)
     {
         return;
     }
-
-    restore_list_click_config();
 
     int16_t selected_index = window_notification_data.currently_selected_bucket_index;
     if (selected_index < 0 || selected_index >= notification_item_count)
@@ -854,7 +835,7 @@ static void select_top_notification_and_open_detail(void)
             reload_detail_after_selected_bucket_updated();
         }
     }
-    else if (should_auto_open_detail_window())
+    else
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();
@@ -895,7 +876,7 @@ static void select_pending_notification_and_open_detail(void)
             reload_detail_after_selected_bucket_updated();
         }
     }
-    else if (should_auto_open_detail_window())
+    else
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();
@@ -1047,13 +1028,6 @@ static void maybe_open_phone_launch_detail(void)
             return;
         }
 
-        if (!should_auto_open_detail_window())
-        {
-            phone_launch_detail_pending = false;
-            phone_launch_detail_bucket_id = -1;
-            return;
-        }
-
         if (idle_handler_should_keep_current_notification())
         {
             schedule_deferred_new_top_selection();
@@ -1065,11 +1039,8 @@ static void maybe_open_phone_launch_detail(void)
         window_notification_data.currently_selected_bucket_index = target_index;
         window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
         sync_menu_selection(MenuRowAlignCenter, false);
-        if (should_auto_open_detail_window())
-        {
-            detail_opened_from_phone_launch = true;
-            reload_detail_after_selected_bucket_changed();
-        }
+        detail_opened_from_phone_launch = true;
+        reload_detail_after_selected_bucket_changed();
         return;
     }
 
@@ -1084,11 +1055,8 @@ static void maybe_open_phone_launch_detail(void)
     window_notification_data.currently_selected_bucket_index = target_index;
     window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
     sync_menu_selection(MenuRowAlignCenter, false);
-    if (should_auto_open_detail_window())
-    {
-        detail_opened_from_phone_launch = true;
-        window_notification_ui_open_selected_detail();
-    }
+    detail_opened_from_phone_launch = true;
+    window_notification_ui_open_selected_detail();
 }
 
 void window_notification_ui_open_phone_launch_detail(const uint8_t bucket_id)
@@ -1889,7 +1857,7 @@ void window_notification_ui_set_items(const NotificationListItem* items, const u
     {
         reload_detail_after_selected_bucket_updated();
     }
-    else if (should_select_auto_open && should_auto_open_detail_window())
+    else if (should_select_auto_open)
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();
@@ -2619,34 +2587,6 @@ void window_notification_ui_close_detail()
     }
 }
 
-void window_notification_ui_select_relative(const int8_t delta)
-{
-    if (notification_item_count == 0)
-    {
-        return;
-    }
-
-    int16_t selected_index = window_notification_data.currently_selected_bucket_index + delta;
-    if (selected_index < 0)
-    {
-        selected_index = 0;
-    }
-    else if (selected_index >= notification_item_count)
-    {
-        selected_index = notification_item_count - 1;
-    }
-
-    if (selected_index == window_notification_data.currently_selected_bucket_index)
-    {
-        vibes_short_pulse();
-        return;
-    }
-
-    window_notification_data.currently_selected_bucket_index = selected_index;
-    window_notification_data.currently_selected_bucket = notification_items[selected_index].bucket_id;
-    sync_menu_selection(MenuRowAlignCenter, true);
-}
-
 void window_notification_ui_on_bucket_selected()
 {
     reload_menu_layer();
@@ -2717,7 +2657,7 @@ static void window_load(Window* window)
         GColorWhite
     );
     layer_add_child(window_layer, menu_layer_get_layer(menu_layer));
-    restore_list_click_config();
+    menu_layer_set_click_config_onto_window(menu_layer, window);
 
     empty_state_layer = layer_create(bounds);
     layer_set_update_proc(empty_state_layer, empty_state_layer_update);
@@ -2759,7 +2699,6 @@ static void window_unload(Window* window)
 static void window_appear(Window* window)
 {
     (void)window;
-    restore_list_click_config();
     window_notification_data_init();
 }
 
@@ -2776,8 +2715,13 @@ static void window_disappear(Window* window)
 void window_notification_show()
 {
     notification_window = window_create();
+    if (notification_window == NULL)
+    {
+        vibes_double_pulse();
+        return;
+    }
+
     window_set_background_color(notification_window, GColorWhite);
-    restore_list_click_config();
     window_set_window_handlers(
         notification_window,
         (WindowHandlers)
