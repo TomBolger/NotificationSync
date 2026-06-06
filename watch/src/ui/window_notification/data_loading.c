@@ -11,6 +11,7 @@
 static BucketList* buckets;
 static NotificationListItem list_items[MAX_NOTIFICATION_ITEMS];
 static const uint32_t STORAGE_BUCKET_FLAGS_ID_MIN = 3000;
+static AppTimer* metadata_refresh_timer;
 
 static size_t bounded_cstring_length(const uint8_t* data, const size_t start, const size_t data_size)
 {
@@ -35,6 +36,13 @@ static bool is_real_notification_id(const uint8_t id)
     return id != 1;
 }
 
+static void set_loading_item(NotificationListItem* item)
+{
+    strcpy(item->app_name, "Loading");
+    strcpy(item->title, "Syncing notification");
+    strcpy(item->body, "");
+}
+
 static void parse_bucket(const uint8_t id, const enum DotState state, NotificationListItem* item)
 {
     uint8_t bucket_data[256];
@@ -42,26 +50,37 @@ static void parse_bucket(const uint8_t id, const enum DotState state, Notificati
     item->bucket_id = id;
     item->state = state;
 
-    if (!bucket_sync_load_bucket(id, bucket_data))
+    const uint8_t bucket_size = bucket_sync_get_bucket_size(id);
+    if (bucket_size < 6 || !bucket_sync_load_bucket(id, bucket_data))
     {
-        strcpy(item->app_name, "Loading");
-        strcpy(item->title, "Syncing notification");
-        strcpy(item->body, "");
+        set_loading_item(item);
         return;
     }
 
     item->receive_time = read_uint32_from_byte_array(bucket_data, 0);
-    uint8_t position = 4;
+    size_t position = 4;
     item->icon_id = bucket_data[position++];
     item->color_id = bucket_data[position++];
 
-    strncpy(item->app_name, (char*)&bucket_data[position], sizeof(item->app_name) - 1);
-    position += strlen(item->app_name) + 1;
+    const size_t app_name_length = bounded_cstring_length(bucket_data, position, bucket_size);
+    if (position + app_name_length >= bucket_size)
+    {
+        set_loading_item(item);
+        return;
+    }
+    strncpy(item->app_name, (char*)&bucket_data[position], MIN(app_name_length, sizeof(item->app_name) - 1));
+    position += app_name_length + 1;
 
-    strncpy(item->title, (char*)&bucket_data[position], sizeof(item->title) - 1);
-    position += strlen(item->title) + 1;
+    const size_t title_length = bounded_cstring_length(bucket_data, position, bucket_size);
+    if (position + title_length >= bucket_size)
+    {
+        set_loading_item(item);
+        return;
+    }
+    strncpy(item->title, (char*)&bucket_data[position], MIN(title_length, sizeof(item->title) - 1));
+    position += title_length + 1;
 
-    const uint8_t body_bytes = bucket_sync_get_bucket_size(id) - position;
+    const size_t body_bytes = bucket_size - position;
     strncpy(item->body, (char*)&bucket_data[position], MIN(body_bytes, sizeof(item->body) - 1));
 }
 
@@ -124,6 +143,23 @@ static void on_buckets_changed()
     idle_handler_notify_notifications_updated();
 }
 
+static void on_scheduled_buckets_changed(void* context)
+{
+    (void)context;
+    metadata_refresh_timer = NULL;
+    on_buckets_changed();
+}
+
+static void schedule_buckets_changed()
+{
+    if (metadata_refresh_timer != NULL)
+    {
+        return;
+    }
+
+    metadata_refresh_timer = app_timer_register(1, on_scheduled_buckets_changed, NULL);
+}
+
 static void on_bucket_updated(const BucketMetadata bucket_metadata, void* context)
 {
     if (bucket_metadata.id == 1)
@@ -135,7 +171,7 @@ static void on_bucket_updated(const BucketMetadata bucket_metadata, void* contex
     window_notification_ui_uncache_body_for_bucket(bucket_metadata.id);
     window_notification_ui_note_bucket_updated(bucket_metadata.id);
     persist_delete(bucket_metadata.id + STORAGE_BUCKET_FLAGS_ID_MIN);
-    on_buckets_changed();
+    schedule_buckets_changed();
 }
 
 void window_notification_data_receive_more_text(const uint8_t bucket_id, const uint8_t* data, const size_t data_size)
@@ -274,14 +310,20 @@ void window_notification_data_app_started()
 void window_notification_data_init()
 {
     on_buckets_changed();
-    bucket_sync_set_bucket_list_change_callback(on_buckets_changed);
+    bucket_sync_set_bucket_list_change_callback(schedule_buckets_changed);
     bucket_sync_set_bucket_data_change_callback(on_bucket_updated, NULL);
     bucket_sync_register_bucket_deleted_callback(on_bucket_deleted);
 }
 
 void window_notification_data_deinit()
 {
-    bucket_sync_set_bucket_list_change_callback(NULL);
+    if (metadata_refresh_timer != NULL)
+    {
+        app_timer_cancel(metadata_refresh_timer);
+        metadata_refresh_timer = NULL;
+    }
+
+    bucket_sync_clear_bucket_list_change_callback(schedule_buckets_changed);
     bucket_sync_clear_bucket_data_change_callback(on_bucket_updated, NULL);
     bucket_sync_register_bucket_deleted_callback(NULL);
 }

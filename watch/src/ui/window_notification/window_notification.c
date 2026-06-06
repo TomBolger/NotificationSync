@@ -125,6 +125,7 @@ static int16_t find_auto_open_notification_index(uint8_t bucket_id);
 static int16_t detail_scroll_max_offset(ScrollLayer* scroll_layer);
 static int16_t detail_scroll_current_offset(ScrollLayer* scroll_layer);
 static void detail_scroll_to_offset(ScrollLayer* scroll_layer, int16_t offset, bool animated);
+static void restore_detail_click_config(void);
 
 static void close_failed_detail_window(void* context)
 {
@@ -1699,6 +1700,14 @@ static void detail_scroll_to_edge(const bool bottom)
     update_detail_arrow_visibility();
 }
 
+static void restore_detail_click_config(void)
+{
+    if (detail_scroll_layer != NULL && detail_window != NULL)
+    {
+        scroll_layer_set_click_config_onto_window(detail_scroll_layer, detail_window);
+    }
+}
+
 static void reload_detail_after_selected_bucket_changed(void)
 {
     if (!window_notification_data.detail_open ||
@@ -1715,6 +1724,7 @@ static void reload_detail_after_selected_bucket_changed(void)
     }
 
     reload_detail_content_size();
+    restore_detail_click_config();
     detail_scroll_to_edge(false);
 }
 
@@ -1738,6 +1748,7 @@ static void reload_detail_after_selected_bucket_updated(void)
     }
 
     reload_detail_content_size();
+    restore_detail_click_config();
     if (was_at_bottom)
     {
         detail_scroll_to_edge(true);
@@ -1893,6 +1904,7 @@ void window_notification_ui_redraw()
             detail_scroll_current_offset(detail_scroll_layer) >=
             detail_scroll_max_offset(detail_scroll_layer);
         reload_detail_content_size();
+        restore_detail_click_config();
         if (was_at_bottom)
         {
             detail_scroll_to_edge(true);

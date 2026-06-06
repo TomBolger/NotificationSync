@@ -30,8 +30,10 @@ static void (*bucket_deleted_callback)(uint8_t) = NULL;
 
 static uint32_t get_bucket_persist_key(uint8_t bucket_id);
 static void delete_inactive_buckets(const uint8_t* data, const uint8_t new_active_buckets);
-static void save_bucket_data(const uint8_t* data, size_t data_size, size_t position);
+static bool validate_bucket_data(const uint8_t* data, size_t data_size, size_t position);
+static bool save_bucket_data(const uint8_t* data, size_t data_size, size_t position);
 static void complete_sync(void);
+static void finish_failed_sync(void);
 
 void bucket_sync_init()
 {
@@ -148,6 +150,12 @@ void bucket_sync_clear_bucket_data_change_callback(void(*callback)(BucketMetadat
 
 void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
 {
+    if (data_size < 1)
+    {
+        finish_failed_sync();
+        return;
+    }
+
     const uint8_t sync_status = data[0];
     if (sync_status == 2)
     {
@@ -171,6 +179,26 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
         return;
     }
 
+    if (data_size < 4)
+    {
+        finish_failed_sync();
+        return;
+    }
+
+    const uint8_t new_active_buckets = data[3];
+    const size_t bucket_metadata_start = 4;
+    const size_t bucket_data_start = bucket_metadata_start + new_active_buckets * sizeof(BucketMetadata);
+    if (new_active_buckets > MAX_BUCKETS || bucket_data_start > data_size)
+    {
+        finish_failed_sync();
+        return;
+    }
+    if (!validate_bucket_data(data, data_size, bucket_data_start))
+    {
+        finish_failed_sync();
+        return;
+    }
+
     bucket_sync_is_currently_syncing = true;
     void (*local_syncing_callback)() = syncing_status_callback;
     if (local_syncing_callback != NULL)
@@ -183,7 +211,6 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
     }
 
     bucket_sync_pending_next_version = read_uint16_from_byte_array(data, 1);
-    const uint8_t new_active_buckets = data[3];
     delete_inactive_buckets(data, new_active_buckets);
 
     buckets.count = new_active_buckets;
@@ -196,13 +223,18 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
 
     persist_write_data(FILE_BUCKET_LIST, buckets.data, buckets.count * sizeof(BucketMetadata));
 
+    if (!save_bucket_data(data, data_size, bucket_data_start))
+    {
+        finish_failed_sync();
+        return;
+    }
+
     void (*local_list_change_callback)() = list_change_callback;
     if (local_list_change_callback != NULL)
     {
         local_list_change_callback();
     }
 
-    save_bucket_data(data, data_size, 4 + new_active_buckets * sizeof(BucketMetadata));
     if (sync_status == 1)
     {
         complete_sync();
@@ -211,9 +243,25 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
 
 void bucket_sync_on_next_packet_received(const uint8_t* data, const size_t data_size)
 {
+    if (data_size < 1)
+    {
+        finish_failed_sync();
+        return;
+    }
+
     const uint8_t sync_status = data[0];
 
-    save_bucket_data(data, data_size, 1);
+    if (!validate_bucket_data(data, data_size, 1))
+    {
+        finish_failed_sync();
+        return;
+    }
+
+    if (!save_bucket_data(data, data_size, 1))
+    {
+        finish_failed_sync();
+        return;
+    }
 
     if (sync_status == 1)
     {
@@ -221,18 +269,38 @@ void bucket_sync_on_next_packet_received(const uint8_t* data, const size_t data_
     }
 }
 
-static void save_bucket_data(const uint8_t* data, const size_t data_size, size_t position)
+static bool validate_bucket_data(const uint8_t* data, const size_t data_size, size_t position)
+{
+    while (position < data_size)
+    {
+        if (position + 2 > data_size)
+        {
+            return false;
+        }
+
+        position++;
+        const uint8_t size = data[position++];
+        if (position + size > data_size)
+        {
+            return false;
+        }
+        position += size;
+    }
+
+    return position == data_size;
+}
+
+static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t position)
 {
     while (position < data_size)
     {
         const uint8_t id = data[position++];
         const uint8_t size = data[position++];
-
         const int status = persist_write_data(get_bucket_persist_key(id), &data[position], size);
         if (status < 0)
         {
             bluetooth_show_error("Failed writing data\n\nIs watch's storage full?");
-            return;
+            return false;
         };
 
         const DataChangeCallback local_bucket_data_change_callback = data_change_callback;
@@ -251,6 +319,8 @@ static void save_bucket_data(const uint8_t* data, const size_t data_size, size_t
 
         position += size;
     }
+
+    return position == data_size;
 }
 
 static void complete_sync(void)
@@ -281,6 +351,20 @@ static void complete_sync(void)
     if (close_after_sync)
     {
         window_stack_pop_all(true);
+    }
+}
+
+static void finish_failed_sync(void)
+{
+    bucket_sync_is_currently_syncing = false;
+    void (*local_syncing_callback)() = syncing_status_callback;
+    if (local_syncing_callback != NULL)
+    {
+        local_syncing_callback();
+    }
+    if (second_syncing_status_callback != NULL)
+    {
+        second_syncing_status_callback();
     }
 }
 
