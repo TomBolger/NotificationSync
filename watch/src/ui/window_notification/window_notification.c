@@ -119,6 +119,7 @@ static void reload_detail_after_selected_bucket_changed(void);
 static void reload_detail_after_selected_bucket_updated(void);
 static void maybe_open_phone_launch_detail(void);
 static void restore_list_click_config(void);
+static bool should_auto_open_detail_window(void);
 static bool notification_item_has_loaded_content(const NotificationListItem* item);
 static bool notification_item_is_auto_open_candidate(const NotificationListItem* item);
 static int16_t find_notification_index(uint8_t bucket_id, bool require_loaded_content);
@@ -142,6 +143,11 @@ static void restore_list_click_config(void)
     {
         window_set_click_config_provider(notification_window, window_notification_buttons_config);
     }
+}
+
+static bool should_auto_open_detail_window(void)
+{
+    return PBL_PLATFORM_TYPE_CURRENT != PlatformTypeBasalt;
 }
 
 static const uint32_t icon_resource_ids[] = {
@@ -848,7 +854,7 @@ static void select_top_notification_and_open_detail(void)
             reload_detail_after_selected_bucket_updated();
         }
     }
-    else
+    else if (should_auto_open_detail_window())
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();
@@ -889,7 +895,7 @@ static void select_pending_notification_and_open_detail(void)
             reload_detail_after_selected_bucket_updated();
         }
     }
-    else
+    else if (should_auto_open_detail_window())
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();
@@ -1041,6 +1047,13 @@ static void maybe_open_phone_launch_detail(void)
             return;
         }
 
+        if (!should_auto_open_detail_window())
+        {
+            phone_launch_detail_pending = false;
+            phone_launch_detail_bucket_id = -1;
+            return;
+        }
+
         if (idle_handler_should_keep_current_notification())
         {
             schedule_deferred_new_top_selection();
@@ -1052,8 +1065,11 @@ static void maybe_open_phone_launch_detail(void)
         window_notification_data.currently_selected_bucket_index = target_index;
         window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
         sync_menu_selection(MenuRowAlignCenter, false);
-        detail_opened_from_phone_launch = true;
-        reload_detail_after_selected_bucket_changed();
+        if (should_auto_open_detail_window())
+        {
+            detail_opened_from_phone_launch = true;
+            reload_detail_after_selected_bucket_changed();
+        }
         return;
     }
 
@@ -1068,8 +1084,11 @@ static void maybe_open_phone_launch_detail(void)
     window_notification_data.currently_selected_bucket_index = target_index;
     window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
     sync_menu_selection(MenuRowAlignCenter, false);
-    detail_opened_from_phone_launch = true;
-    window_notification_ui_open_selected_detail();
+    if (should_auto_open_detail_window())
+    {
+        detail_opened_from_phone_launch = true;
+        window_notification_ui_open_selected_detail();
+    }
 }
 
 void window_notification_ui_open_phone_launch_detail(const uint8_t bucket_id)
@@ -1870,7 +1889,7 @@ void window_notification_ui_set_items(const NotificationListItem* items, const u
     {
         reload_detail_after_selected_bucket_updated();
     }
-    else if (should_select_auto_open)
+    else if (should_select_auto_open && should_auto_open_detail_window())
     {
         detail_opened_from_phone_launch = false;
         window_notification_ui_open_selected_detail();

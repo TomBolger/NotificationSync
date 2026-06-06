@@ -19,6 +19,10 @@ static void button_select_single(ClickRecognizerRef recognizer, void* context)
     (void)recognizer;
     (void)context;
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+    }
 
     if (!window_notification_data.detail_open)
     {
@@ -48,6 +52,12 @@ static void button_back_single(ClickRecognizerRef recognizer, void* context)
     (void)recognizer;
     (void)context;
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+        send_close_me();
+        return;
+    }
 
     if (window_notification_data.menu_displayed)
     {
@@ -78,6 +88,10 @@ static void button_up_repeating(ClickRecognizerRef recognizer, void* context)
     }
 
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+    }
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_move_up();
@@ -100,6 +114,10 @@ static void button_down_repeating(ClickRecognizerRef recognizer, void* context)
     }
 
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+    }
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_move_down();
@@ -117,6 +135,10 @@ static void button_down_repeating(ClickRecognizerRef recognizer, void* context)
 static void button_up_raw(ClickRecognizerRef recognizer, void* context)
 {
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+    }
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_move_up();
@@ -134,6 +156,10 @@ static void button_up_raw(ClickRecognizerRef recognizer, void* context)
 static void button_down_raw(ClickRecognizerRef recognizer, void* context)
 {
     idle_handler_notify_user_interacted();
+    if (window_notification_data.menu_displayed && !window_notification_data.detail_open)
+    {
+        window_notification_action_list_hide();
+    }
     if (window_notification_data.menu_displayed)
     {
         window_notification_action_list_move_down();
