@@ -96,32 +96,26 @@ private fun RuleListScreenContent(
    setAppEnabled: (NotificationAppState, Boolean) -> Unit,
 ) {
    var notifiedOnly by remember { mutableStateOf(true) }
+   var filter by rememberSaveable { mutableStateOf(NotificationFilter.All) }
    var sort by rememberSaveable { mutableStateOf(NotificationSort.Recent) }
-   val visibleApps = remember(state.apps, notifiedOnly, sort) {
-      val filteredApps = if (notifiedOnly) {
+   val visibleApps = remember(state.apps, notifiedOnly, filter, sort) {
+      val notifiedApps = if (notifiedOnly) {
          state.apps.filter { it.notificationCount > 0 || it.ruleId != null }
       } else {
          state.apps
+      }
+      val filteredApps = when (filter) {
+         NotificationFilter.All -> notifiedApps
+         NotificationFilter.Enabled -> notifiedApps.filter { it.enabled }
+         NotificationFilter.Disabled -> notifiedApps.filter { !it.enabled }
+         NotificationFilter.Shown -> notifiedApps.filter { it.masterSwitch == MasterSwitch.SHOW }
+         NotificationFilter.Silenced -> notifiedApps.filter { it.masterSwitch == MasterSwitch.MUTE }
+         NotificationFilter.Hidden -> notifiedApps.filter { it.masterSwitch == MasterSwitch.HIDE }
       }
       when (sort) {
          NotificationSort.Recent -> filteredApps
          NotificationSort.NameAscending -> filteredApps.sortedBy { it.name.lowercase() }
          NotificationSort.NameDescending -> filteredApps.sortedByDescending { it.name.lowercase() }
-         NotificationSort.EnabledFirst -> filteredApps.sortedWith(
-            compareByDescending<NotificationAppState> { it.enabled }.thenBy { it.name.lowercase() }
-         )
-         NotificationSort.DisabledFirst -> filteredApps.sortedWith(
-            compareBy<NotificationAppState> { it.enabled }.thenBy { it.name.lowercase() }
-         )
-         NotificationSort.ShownFirst -> filteredApps.sortedWith(
-            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.SHOW }.thenBy { it.name.lowercase() }
-         )
-         NotificationSort.SilencedFirst -> filteredApps.sortedWith(
-            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.MUTE }.thenBy { it.name.lowercase() }
-         )
-         NotificationSort.HiddenFirst -> filteredApps.sortedWith(
-            compareByDescending<NotificationAppState> { it.masterSwitch == MasterSwitch.HIDE }.thenBy { it.name.lowercase() }
-         )
       }
    }
 
@@ -176,29 +170,34 @@ private fun RuleListScreenContent(
                onClick = { sort = NotificationSort.NameDescending },
             )
             SortChip(
-               selected = sort == NotificationSort.EnabledFirst,
+               selected = filter == NotificationFilter.All,
+               label = stringResource(R.string.sort_all),
+               onClick = { filter = NotificationFilter.All },
+            )
+            SortChip(
+               selected = filter == NotificationFilter.Enabled,
                label = stringResource(R.string.sort_enabled_first),
-               onClick = { sort = NotificationSort.EnabledFirst },
+               onClick = { filter = NotificationFilter.Enabled },
             )
             SortChip(
-               selected = sort == NotificationSort.DisabledFirst,
+               selected = filter == NotificationFilter.Disabled,
                label = stringResource(R.string.sort_disabled_first),
-               onClick = { sort = NotificationSort.DisabledFirst },
+               onClick = { filter = NotificationFilter.Disabled },
             )
             SortChip(
-               selected = sort == NotificationSort.ShownFirst,
+               selected = filter == NotificationFilter.Shown,
                label = stringResource(R.string.sort_shown_first),
-               onClick = { sort = NotificationSort.ShownFirst },
+               onClick = { filter = NotificationFilter.Shown },
             )
             SortChip(
-               selected = sort == NotificationSort.SilencedFirst,
+               selected = filter == NotificationFilter.Silenced,
                label = stringResource(R.string.sort_silenced_first),
-               onClick = { sort = NotificationSort.SilencedFirst },
+               onClick = { filter = NotificationFilter.Silenced },
             )
             SortChip(
-               selected = sort == NotificationSort.HiddenFirst,
+               selected = filter == NotificationFilter.Hidden,
                label = stringResource(R.string.sort_hidden_first),
-               onClick = { sort = NotificationSort.HiddenFirst },
+               onClick = { filter = NotificationFilter.Hidden },
             )
          }
       }
@@ -363,9 +362,13 @@ private enum class NotificationSort {
    Recent,
    NameAscending,
    NameDescending,
-   EnabledFirst,
-   DisabledFirst,
-   ShownFirst,
-   SilencedFirst,
-   HiddenFirst,
+}
+
+private enum class NotificationFilter {
+   All,
+   Enabled,
+   Disabled,
+   Shown,
+   Silenced,
+   Hidden,
 }

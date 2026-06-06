@@ -118,6 +118,7 @@ static bool load_selected_detail_data(void);
 static void reload_detail_after_selected_bucket_changed(void);
 static void reload_detail_after_selected_bucket_updated(void);
 static void maybe_open_phone_launch_detail(void);
+static void restore_list_click_config(void);
 static bool notification_item_has_loaded_content(const NotificationListItem* item);
 static bool notification_item_is_auto_open_candidate(const NotificationListItem* item);
 static int16_t find_notification_index(uint8_t bucket_id, bool require_loaded_content);
@@ -132,6 +133,14 @@ static void close_failed_detail_window(void* context)
     if (detail_window != NULL)
     {
         window_stack_remove(detail_window, false);
+    }
+}
+
+static void restore_list_click_config(void)
+{
+    if (notification_window != NULL)
+    {
+        window_set_click_config_provider(notification_window, window_notification_buttons_config);
     }
 }
 
@@ -737,6 +746,8 @@ static void reload_menu_layer(void)
         return;
     }
 
+    restore_list_click_config();
+
     int16_t selected_index = window_notification_data.currently_selected_bucket_index;
     menu_layer_reload_data(menu_layer);
     if (empty_state_layer != NULL)
@@ -770,6 +781,8 @@ static void sync_menu_selection(const MenuRowAlign align, const bool animated)
     {
         return;
     }
+
+    restore_list_click_config();
 
     int16_t selected_index = window_notification_data.currently_selected_bucket_index;
     if (selected_index < 0 || selected_index >= notification_item_count)
@@ -2685,7 +2698,7 @@ static void window_load(Window* window)
         GColorWhite
     );
     layer_add_child(window_layer, menu_layer_get_layer(menu_layer));
-    window_set_click_config_provider(window, window_notification_buttons_config);
+    restore_list_click_config();
 
     empty_state_layer = layer_create(bounds);
     layer_set_update_proc(empty_state_layer, empty_state_layer_update);
@@ -2726,6 +2739,8 @@ static void window_unload(Window* window)
 
 static void window_appear(Window* window)
 {
+    (void)window;
+    restore_list_click_config();
     window_notification_data_init();
 }
 
@@ -2743,6 +2758,7 @@ void window_notification_show()
 {
     notification_window = window_create();
     window_set_background_color(notification_window, GColorWhite);
+    restore_list_click_config();
     window_set_window_handlers(
         notification_window,
         (WindowHandlers)

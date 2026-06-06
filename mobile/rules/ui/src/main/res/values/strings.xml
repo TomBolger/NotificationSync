@@ -124,6 +124,7 @@
     <string name="sort_recent">Recent</string>
     <string name="sort_name_ascending">A-Z</string>
     <string name="sort_name_descending">Z-A</string>
+    <string name="sort_all">All</string>
     <string name="sort_enabled_first">Enabled</string>
     <string name="sort_disabled_first">Disabled</string>
     <string name="sort_shown_first">Shown</string>
