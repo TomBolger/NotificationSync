@@ -132,6 +132,13 @@ static void maybe_start_periodic_vibration_timer()
     }
 }
 
+void idle_handler_reset_user_interaction()
+{
+    idle_handler_has_user_interacted_since_app_start = false;
+    idle_handler_has_user_interacted_since_last_vibration = false;
+    last_user_interaction_time = 0;
+}
+
 
 void idle_handler_notify_user_interacted()
 {

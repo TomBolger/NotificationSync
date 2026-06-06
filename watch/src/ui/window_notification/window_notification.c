@@ -706,6 +706,11 @@ static void select_callback(MenuLayer* layer, MenuIndex* cell_index, void* conte
     (void)layer;
     (void)context;
 
+    if (window_notification_data.detail_open)
+    {
+        return;
+    }
+
     window_notification_data.currently_selected_bucket_index = cell_index->row;
     if (cell_index->row < notification_item_count)
     {
@@ -1026,6 +1031,8 @@ static void maybe_open_phone_launch_detail(void)
         {
             phone_launch_detail_pending = false;
             phone_launch_detail_bucket_id = -1;
+            detail_opened_from_phone_launch = true;
+            restore_detail_click_config();
             return;
         }
 

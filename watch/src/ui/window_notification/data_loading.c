@@ -304,6 +304,7 @@ static void on_bucket_deleted(const uint8_t bucket_id)
 
 void window_notification_data_app_started()
 {
+    idle_handler_reset_user_interaction();
     bucket_sync_register_bucket_deleted_callback(on_bucket_deleted);
 }
 

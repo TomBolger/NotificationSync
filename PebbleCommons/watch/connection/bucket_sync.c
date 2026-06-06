@@ -173,6 +173,7 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
 
         if (close_after_sync)
         {
+            close_after_sync = false;
             window_stack_pop_all(true);
         }
 
@@ -350,6 +351,7 @@ static void complete_sync(void)
 
     if (close_after_sync)
     {
+        close_after_sync = false;
         window_stack_pop_all(true);
     }
 }
@@ -414,6 +416,7 @@ void bucket_sync_set_auto_close_after_sync()
 {
     if (!bucket_sync_is_currently_syncing)
     {
+        close_after_sync = false;
         window_stack_pop_all(true);
     }
     else
