@@ -14,16 +14,24 @@ class FakeWatchSyncer : WatchSyncer {
    var clearAllCalled = false
 
    var nextBucketId = 1
+   var watchBufferSize = 0
+   private val bucketIdsByKey = HashMap<String, Int>()
 
    override suspend fun init() {
    }
 
+   override fun updateWatchPayloadLimits(watchBufferSize: Int) {
+      this.watchBufferSize = watchBufferSize
+   }
+
    override suspend fun clearAllNotifications() {
       clearAllCalled = true
+      bucketIdsByKey.clear()
    }
 
    override suspend fun clearNotification(key: String) {
       clearedNotifications.add(key)
+      bucketIdsByKey.remove(key)
    }
 
    override suspend fun syncNotification(
@@ -31,7 +39,7 @@ class FakeWatchSyncer : WatchSyncer {
       preferences: Preferences,
    ): Int {
       syncedNotifications.add(notification)
-      return nextBucketId++
+      return bucketIdsByKey.getOrPut(notification.systemData.key) { nextBucketId++ }
    }
 
    override suspend fun prepareNotificationReadStatus(notification: ProcessedNotification, preferences: Preferences) {

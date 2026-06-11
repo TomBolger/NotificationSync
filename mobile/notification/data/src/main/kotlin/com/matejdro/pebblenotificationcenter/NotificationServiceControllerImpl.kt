@@ -19,8 +19,10 @@ import com.matejdro.pebblenotificationcenter.notification.model.LightNotificatio
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import kotlinx.coroutines.delay
 import logcat.logcat
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 @Inject
 @ContributesBinding(AppScope::class)
@@ -35,6 +37,48 @@ class NotificationServiceControllerImpl(private val context: Context) : Notifica
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
          NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
       }
+      return false
+   }
+
+   override suspend fun resyncActiveNotificationsNow(): Boolean {
+      val service = NotificationService.instance
+      if (service != null) {
+         return service.resyncActiveNotificationsNow()
+      }
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+         NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
+      }
+
+      repeat(RESYNC_REBIND_WAIT_ATTEMPTS) {
+         delay(RESYNC_REBIND_WAIT_INTERVAL)
+         val reboundService = NotificationService.instance
+         if (reboundService != null) {
+            return reboundService.resyncActiveNotificationsNow()
+         }
+      }
+
+      return false
+   }
+
+   override suspend fun resyncNotificationNow(key: String): Boolean {
+      val service = NotificationService.instance
+      if (service != null) {
+         return service.resyncNotificationNow(key)
+      }
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+         NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
+      }
+
+      repeat(RESYNC_REBIND_WAIT_ATTEMPTS) {
+         delay(RESYNC_REBIND_WAIT_INTERVAL)
+         val reboundService = NotificationService.instance
+         if (reboundService != null) {
+            return reboundService.resyncNotificationNow(key)
+         }
+      }
+
       return false
    }
 
@@ -149,3 +193,6 @@ class NotificationServiceControllerImpl(private val context: Context) : Notifica
       }
    }
 }
+
+private const val RESYNC_REBIND_WAIT_ATTEMPTS = 15
+private val RESYNC_REBIND_WAIT_INTERVAL = 100.milliseconds

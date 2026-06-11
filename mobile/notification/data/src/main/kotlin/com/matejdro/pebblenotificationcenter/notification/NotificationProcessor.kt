@@ -69,57 +69,62 @@ class NotificationProcessor(
    }
 
    suspend fun onNotificationPosted(parsedNotification: ParsedNotification, suppressVibration: Boolean = false) {
-      val (affectedRules, settings) = ruleResolver.resolveRules(parsedNotification)
-      logcat { "Notification ${parsedNotification.key} rules: $affectedRules" }
+      val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
+      val notification = parsedNotification.withRicherFieldsFrom(previousNotification?.systemData)
+      val (affectedRules, settings) = ruleResolver.resolveRules(notification)
+      logcat { "Notification ${notification.key} rules: $affectedRules" }
       for (setting in settings.asMap()) {
          logcat { "   ${setting.key} = ${setting.value}" }
       }
 
-      val hideReason = shouldHide(parsedNotification, settings)
+      val hideReason = shouldHide(notification, settings)
       if (hideReason != null) {
-         historyInserter.insertHistoryEntry(parsedNotification, affectedRules, hideReason, null)
-         onNotificationDismissed(parsedNotification.key)
+         historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
+         onNotificationDismissed(notification.key)
          return
       }
 
       if (shouldSkipBecausePhoneUnlocked()) {
          logcat { "Hiding: phone is unlocked" }
-         historyInserter.insertHistoryEntry(parsedNotification, affectedRules, HideReason.PHONE_UNLOCKED, null)
+         historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
          return
       }
 
-      val isUpdate = notificationIdsByKeys.containsKey(parsedNotification.key)
-      val pauseStatusBeforeInsert = pauseController.computePauseStatus(parsedNotification)
+      val isUpdate = previousNotification != null
+      val pauseStatusBeforeInsert = pauseController.computePauseStatus(notification)
       if (!isUpdate) {
-         pauseController.onNewNotification(parsedNotification, settings)
+         pauseController.onNewNotification(notification, settings)
       }
-      val pauseStatus = pauseController.computePauseStatus(parsedNotification)
+      val pauseStatus = pauseController.computePauseStatus(notification)
 
-      val actions = processActions(parsedNotification, pauseStatus, settings)
+      val actions = processActions(notification, pauseStatus, settings)
 
-      val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
       val (muteReason, vibrationPattern) = getVibrationPattern(
          previousNotification,
-         parsedNotification,
+         notification,
          suppressVibration,
          settings,
          pauseStatusBeforeInsert
       )
 
       val regexesToReplace = settings[RuleOption.regexReplacements]
-      val regexReplacedParsedNotification = parsedNotification.copy(
-         title = replaceRegexes(parsedNotification.title, regexesToReplace),
-         subtitle = replaceRegexes(parsedNotification.subtitle, regexesToReplace),
-         body = replaceRegexes(parsedNotification.body, regexesToReplace),
+      val regexReplacedParsedNotification = notification.copy(
+         title = replaceRegexes(notification.title, regexesToReplace),
+         subtitle = replaceRegexes(notification.subtitle, regexesToReplace),
+         body = replaceRegexes(notification.body, regexesToReplace),
       )
 
       val initialProcessedNotification = ProcessedNotification(
          regexReplacedParsedNotification,
          0,
          actions,
-         unread = !suppressVibration,
+         unread = if (suppressVibration && previousNotification != null) previousNotification.unread else !suppressVibration,
          paused = pauseStatus,
-         vibrated = vibrationPattern != null
+         vibrated = if (suppressVibration && previousNotification != null) {
+            previousNotification.vibrated
+         } else {
+            vibrationPattern != null
+         }
       )
       val bucketId = watchSyncer.syncNotification(initialProcessedNotification, settings)
 
@@ -131,8 +136,11 @@ class NotificationProcessor(
             "silent=${parsedNotification.isSilent} " +
             "dnd=${parsedNotification.isFilteredByDoNotDisturb}"
       }
+      if (previousNotification != null && previousNotification.bucketId != bucketId) {
+         notifications.remove(previousNotification.bucketId)
+      }
       notifications[bucketId] = processedNotification
-      notificationIdsByKeys[parsedNotification.key] = bucketId
+      notificationIdsByKeys[notification.key] = bucketId
       if (vibrationPattern != null && !usingStockPebbleOsNotifications()) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(vibrationPattern)
@@ -141,6 +149,50 @@ class NotificationProcessor(
       }
 
       historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
+   }
+
+   private fun ParsedNotification.withRicherFieldsFrom(previous: ParsedNotification?): ParsedNotification {
+      if (previous == null) {
+         return this
+      }
+
+      return copy(
+         subtitle = richerText(
+            current = subtitle,
+            previous = previous.subtitle,
+            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
+         ),
+         body = richerText(
+            current = body,
+            previous = previous.body,
+            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
+         ),
+         nativeActions = if (previous.nativeActions.size > nativeActions.size) {
+            previous.nativeActions
+         } else {
+            nativeActions
+         },
+         iconDrawable = iconDrawable ?: previous.iconDrawable,
+         largeImage = largeImage ?: previous.largeImage,
+      )
+   }
+
+   private fun richerText(current: String, previous: String, preservePreviousByTimestamp: Boolean): String {
+      if (current.isBlank()) {
+         return previous.ifBlank { current }
+      }
+      if (previous.isBlank()) {
+         return current
+      }
+
+      if (preservePreviousByTimestamp && previous.length > current.length) {
+         return previous
+      }
+      if (previous.length > current.length && previous.contains(current)) {
+         return previous
+      }
+
+      return current
    }
 
    private fun shouldHide(
@@ -270,32 +322,34 @@ class NotificationProcessor(
             add(Action.ShowImage(title = context.getString(R.string.show_image), id = size.toUByte()))
          }
 
-         for (taskerTask in settings[RuleOption.taskerTaskActions]) {
-            add(Action.TaskerTask(taskerTask, size.toUByte()))
-         }
+         if (!DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY) {
+            for (taskerTask in settings[RuleOption.taskerTaskActions]) {
+               add(Action.TaskerTask(taskerTask, size.toUByte()))
+            }
 
-         add(
-            Action.PauseApp(
-               title = if (pauseStatus.app) {
-                  context.getString(R.string.unpause_app)
-               } else {
-                  context.getString(R.string.pause_app)
-               },
-               id = size.toUByte()
+            add(
+               Action.PauseApp(
+                  title = if (pauseStatus.app) {
+                     context.getString(R.string.unpause_app)
+                  } else {
+                     context.getString(R.string.pause_app)
+                  },
+                  id = size.toUByte()
+               )
             )
-         )
-         add(
-            Action.PauseConversation(
-               title = if (pauseStatus.conversation) {
-                  context.getString(R.string.unpause_conversation)
-               } else {
-                  context.getString(R.string.pause_conversation)
-               },
-               id = size.toUByte()
+            add(
+               Action.PauseConversation(
+                  title = if (pauseStatus.conversation) {
+                     context.getString(R.string.unpause_conversation)
+                  } else {
+                     context.getString(R.string.pause_conversation)
+                  },
+                  id = size.toUByte()
+               )
             )
-         )
-         if (settings[RuleOption.masterSwitch] != MasterSwitch.MUTE) {
-            add(Action.SilenceApp(title = context.getString(R.string.silence_app), id = size.toUByte()))
+            if (settings[RuleOption.masterSwitch] != MasterSwitch.MUTE) {
+               add(Action.SilenceApp(title = context.getString(R.string.silence_app), id = size.toUByte()))
+            }
          }
       }
 
@@ -365,6 +419,26 @@ class NotificationProcessor(
       }
 
       watchSyncer.clearNotification(key)
+   }
+
+   suspend fun onActiveNotificationsResynced(activeNotifications: List<ParsedNotification>) {
+      if (activeNotifications.isEmpty()) {
+         onNotificationsCleared()
+         return
+      }
+
+      val activeKeys = activeNotifications.mapTo(HashSet()) { it.key }
+      val missingKeys = notificationIdsByKeys.keys
+         .filterNot { it in activeKeys }
+         .toList()
+
+      for (key in missingKeys) {
+         onNotificationDismissed(key)
+      }
+
+      for (notification in activeNotifications) {
+         onNotificationPosted(notification, suppressVibration = true)
+      }
    }
 
    suspend fun onNotificationsCleared() {
@@ -437,3 +511,5 @@ class NotificationProcessor(
       }
    }
 }
+
+private const val DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY = false

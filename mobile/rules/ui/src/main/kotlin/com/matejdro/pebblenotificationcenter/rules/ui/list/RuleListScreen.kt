@@ -3,8 +3,10 @@
 package com.matejdro.pebblenotificationcenter.rules.ui.list
 
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
@@ -60,6 +63,7 @@ import com.matejdro.pebblenotificationcenter.ui.components.ProgressErrorSuccessS
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import si.inova.kotlinova.compose.flow.collectAsStateWithLifecycleAndBlinkingPrevention
+import si.inova.kotlinova.core.outcome.Outcome
 import si.inova.kotlinova.core.time.TimeProvider
 import si.inova.kotlinova.navigation.screens.InjectNavigationScreen
 import si.inova.kotlinova.navigation.screens.Screen
@@ -73,6 +77,7 @@ class RuleListScreen(
    @Composable
    override fun Content(key: RuleListScreenKey) {
       val stateOutcome = viewModel.uiState.collectAsStateWithLifecycleAndBlinkingPrevention()
+      val appDetailsOutcome by viewModel.appDetailsState.collectAsStateWithLifecycle()
 
       ProgressErrorSuccessScaffold(
          stateOutcome::value,
@@ -80,9 +85,14 @@ class RuleListScreen(
       ) { state ->
          RuleListScreenContent(
             state = state,
+            appDetailsOutcome = appDetailsOutcome,
             timeProvider = timeProvider,
             setAllEnabled = viewModel::setAllEnabled,
             setAppEnabled = viewModel::setAppEnabled,
+            openAppDetails = viewModel::openAppDetails,
+            closeAppDetails = viewModel::closeAppDetails,
+            setAppMasterSwitch = viewModel::setAppMasterSwitch,
+            setChannelMasterSwitch = viewModel::setChannelMasterSwitch,
          )
       }
    }
@@ -91,10 +101,25 @@ class RuleListScreen(
 @Composable
 private fun RuleListScreenContent(
    state: RuleListState,
+   appDetailsOutcome: Outcome<NotificationAppDetailsState>?,
    timeProvider: TimeProvider,
    setAllEnabled: (Boolean) -> Unit,
    setAppEnabled: (NotificationAppState, Boolean) -> Unit,
+   openAppDetails: (NotificationAppState) -> Unit,
+   closeAppDetails: () -> Unit,
+   setAppMasterSwitch: (MasterSwitch) -> Unit,
+   setChannelMasterSwitch: (NotificationChannelRuleState, MasterSwitch) -> Unit,
 ) {
+   if (appDetailsOutcome != null) {
+      NotificationTypeListScreen(
+         outcome = appDetailsOutcome,
+         onBack = closeAppDetails,
+         setAppMasterSwitch = setAppMasterSwitch,
+         setChannelMasterSwitch = setChannelMasterSwitch,
+      )
+      return
+   }
+
    var notifiedOnly by remember { mutableStateOf(true) }
    var filter by rememberSaveable { mutableStateOf(NotificationFilter.All) }
    var sort by rememberSaveable { mutableStateOf(NotificationSort.Recent) }
@@ -239,10 +264,190 @@ private fun RuleListScreenContent(
          NotificationAppRow(
             app = app,
             timeProvider = timeProvider,
+            onClick = { openAppDetails(app) },
             onEnabledChanged = { setAppEnabled(app, it) },
          )
       }
    }
+}
+
+@Composable
+private fun NotificationTypeListScreen(
+   outcome: Outcome<NotificationAppDetailsState>,
+   onBack: () -> Unit,
+   setAppMasterSwitch: (MasterSwitch) -> Unit,
+   setChannelMasterSwitch: (NotificationChannelRuleState, MasterSwitch) -> Unit,
+) {
+   BackHandler(onBack = onBack)
+
+   LazyColumn(
+      modifier = Modifier.fillMaxSize(),
+      contentPadding = PaddingValues(
+         top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding(),
+         bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 12.dp,
+      ),
+   ) {
+      item {
+         Column(Modifier.padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 8.dp)) {
+            TextButton(onClick = onBack) {
+               Text(stringResource(R.string.back))
+            }
+         }
+      }
+
+      when (outcome) {
+         is Outcome.Progress -> item {
+            Box(
+               modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(32.dp),
+               contentAlignment = Alignment.Center,
+            ) {
+               CircularProgressIndicator()
+            }
+         }
+
+         is Outcome.Error -> item {
+            Text(
+               text = outcome.exception.localizedMessage ?: stringResource(R.string.generic_error),
+               color = MaterialTheme.colorScheme.error,
+               modifier = Modifier.padding(16.dp),
+            )
+         }
+
+         is Outcome.Success -> {
+            val details = outcome.data
+            item {
+               ListItem(
+                  leadingContent = {
+                     AppIcon(
+                        packageName = details.packageName,
+                        modifier = Modifier
+                           .size(46.dp)
+                           .clip(RoundedCornerShape(10.dp))
+                           .background(MaterialTheme.colorScheme.surfaceVariant),
+                     )
+                  },
+                  headlineContent = {
+                     Text(
+                        text = details.appName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                     )
+                  },
+                  supportingContent = {
+                     Text(stringResource(R.string.notification_types))
+                  },
+                  shadowElevation = 0.dp,
+               )
+               HorizontalDivider()
+            }
+
+            item {
+               RuleControlRow(
+                  title = stringResource(R.string.all_notifications),
+                  subtitle = if (details.appWide.explicit) {
+                     stringResource(R.string.direct_setting)
+                  } else {
+                     stringResource(R.string.using_default_setting)
+                  },
+                  masterSwitch = details.appWide.masterSwitch,
+                  onMasterSwitch = setAppMasterSwitch,
+               )
+            }
+
+            if (details.channels.isEmpty()) {
+               item {
+                  Text(
+                     text = stringResource(R.string.no_notification_types),
+                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                     modifier = Modifier.padding(16.dp),
+                  )
+               }
+            } else {
+               items(
+                  items = details.channels,
+                  key = { it.id },
+               ) { channel ->
+                  RuleControlRow(
+                     title = channel.title,
+                     subtitle = if (channel.explicit) {
+                        stringResource(R.string.direct_setting)
+                     } else {
+                        stringResource(R.string.using_app_setting)
+                     },
+                     masterSwitch = channel.masterSwitch,
+                     onMasterSwitch = { setChannelMasterSwitch(channel, it) },
+                  )
+               }
+            }
+         }
+      }
+   }
+}
+
+@Composable
+private fun RuleControlRow(
+   title: String,
+   subtitle: String,
+   masterSwitch: MasterSwitch,
+   onMasterSwitch: (MasterSwitch) -> Unit,
+) {
+   ListItem(
+      headlineContent = {
+         Text(
+            text = title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+         )
+      },
+      supportingContent = {
+         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+               text = subtitle,
+               color = MaterialTheme.colorScheme.onSurfaceVariant,
+               maxLines = 1,
+               overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+               modifier = Modifier.horizontalScroll(rememberScrollState()),
+               horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+               MasterSwitchChip(
+                  selected = masterSwitch == MasterSwitch.SHOW,
+                  label = stringResource(R.string.shown),
+                  onClick = { onMasterSwitch(MasterSwitch.SHOW) },
+               )
+               MasterSwitchChip(
+                  selected = masterSwitch == MasterSwitch.MUTE,
+                  label = stringResource(R.string.silenced),
+                  onClick = { onMasterSwitch(MasterSwitch.MUTE) },
+               )
+               MasterSwitchChip(
+                  selected = masterSwitch == MasterSwitch.HIDE,
+                  label = stringResource(R.string.hidden),
+                  onClick = { onMasterSwitch(MasterSwitch.HIDE) },
+               )
+            }
+         }
+      },
+      shadowElevation = 0.dp,
+   )
+   HorizontalDivider()
+}
+
+@Composable
+private fun MasterSwitchChip(
+   selected: Boolean,
+   label: String,
+   onClick: () -> Unit,
+) {
+   FilterChip(
+      selected = selected,
+      onClick = onClick,
+      label = { Text(label) },
+   )
 }
 
 @Composable
@@ -262,6 +467,7 @@ private fun SortChip(
 private fun NotificationAppRow(
    app: NotificationAppState,
    timeProvider: TimeProvider,
+   onClick: () -> Unit,
    onEnabledChanged: (Boolean) -> Unit,
 ) {
    val lastSeen = app.lastNotification?.let { lastNotification ->
@@ -312,6 +518,7 @@ private fun NotificationAppRow(
          )
       },
       shadowElevation = 0.dp,
+      modifier = Modifier.clickable(enabled = app.packageName != null, onClick = onClick),
    )
    HorizontalDivider()
 }

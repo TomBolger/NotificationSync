@@ -284,6 +284,16 @@ private fun DefaultSettingsContent(
          )
       }
       item {
+         ToggleSetting(
+            title = stringResource(R.string.setting_wait_for_watchface),
+            description = stringResource(R.string.setting_wait_for_watchface_description),
+            checked = globalPreferences[GlobalPreferenceKeys.waitForWatchfaceBeforeOpening],
+            onCheckedChange = {
+               updateGlobalPreference(GlobalPreferenceKeys.waitForWatchfaceBeforeOpening, it)
+            },
+         )
+      }
+      item {
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ActionSetting(
                title = stringResource(R.string.snooze_intervals),

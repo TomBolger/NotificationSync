@@ -11,6 +11,10 @@ object GlobalPreferenceKeys {
       "skip_notifications_when_phone_unlocked",
       false
    )
+   val waitForWatchfaceBeforeOpening = BooleanPreferenceKeyWithDefault(
+      "wait_for_watchface_before_opening",
+      false
+   )
    val stockPebbleOsNotifications = BooleanPreferenceKeyWithDefault(
       "stock_pebble_os_notifications",
       false

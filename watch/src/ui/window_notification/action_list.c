@@ -103,6 +103,10 @@ static void on_sending_finished(const bool success)
         else
         {
             close_current_menu(true);
+            if (window_notification_ui_should_exit_detail_on_back())
+            {
+                send_close_me_without_animation();
+            }
         }
     }
     else

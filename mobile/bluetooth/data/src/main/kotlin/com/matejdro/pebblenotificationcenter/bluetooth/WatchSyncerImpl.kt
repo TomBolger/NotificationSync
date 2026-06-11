@@ -39,6 +39,7 @@ class WatchSyncerImpl(
    private val stockNotificationTransport: StockNotificationTransport = NoOpStockNotificationTransport,
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
+   private var maxWatchSyncBucketPayloadBytes = BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES
 
    override val stockNotificationActions = stockNotificationTransport.actions
 
@@ -60,6 +61,17 @@ class WatchSyncerImpl(
          syncPreferences()
          syncStockTransportEnabled()
       }
+   }
+
+   override fun updateWatchPayloadLimits(watchBufferSize: Int) {
+      if (watchBufferSize <= 0) {
+         return
+      }
+
+      maxWatchSyncBucketPayloadBytes = (watchBufferSize - WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES)
+         .coerceAtLeast(BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES)
+         .coerceAtMost(BucketSyncRepository.MAX_BUCKET_SIZE_BYTES)
+      logcat { "Watch summary payload limit: $maxWatchSyncBucketPayloadBytes bytes (buffer=$watchBufferSize)" }
    }
 
    // Magic numbers are a whole point of this function (protocol constants).
@@ -94,7 +106,8 @@ class WatchSyncerImpl(
          ).encodedString
       )
       buffer.writeUByte(0u)
-      val leftoverSize = MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES - buffer.size.toInt()
+      val maxBucketPayloadBytes = maxWatchSyncBucketPayloadBytes
+      val leftoverSize = maxBucketPayloadBytes - buffer.size.toInt()
       if (leftoverSize > 0) {
          buffer.write(
             utf8Encoder.encodeSizeLimited(
@@ -104,8 +117,8 @@ class WatchSyncerImpl(
             ).encodedString
          )
       }
-      require(buffer.size <= MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES) {
-         "watch sync bucket summary (${buffer.size}) must fit Basalt packets"
+      require(buffer.size <= maxBucketPayloadBytes) {
+         "watch sync bucket summary (${buffer.size}) must fit configured watch packet payload"
       }
 
       val flags: UByte = getNotificationFlags(notification, preferences)
@@ -204,7 +217,8 @@ class WatchSyncerImpl(
    }
 }
 
-private const val MAX_WATCH_SYNC_BUCKET_PAYLOAD_BYTES = 100
+private const val BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES = 100
+private const val WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES = 32
 private const val MAX_APP_NAME_TEXT_LENGTH = 24
 private const val MAX_TITLE_TEXT_LENGTH = 40
 

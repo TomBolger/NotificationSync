@@ -8,6 +8,7 @@ import com.matejdro.pebble.bluetooth.WatchMetadata
 import com.matejdro.pebble.bluetooth.common.PacketQueue
 import com.matejdro.pebble.bluetooth.common.test.FakePebbleSender
 import com.matejdro.pebble.bluetooth.common.test.sentData
+import com.matejdro.pebblenotificationcenter.FakeNotificationServiceController
 import com.matejdro.pebblenotificationcenter.bluetooth.api.WATCHAPP_UUID
 import com.matejdro.pebblenotificationcenter.common.test.InMemoryDataStore
 import com.matejdro.pebblenotificationcenter.notification.FakeActionHandler
@@ -49,6 +50,8 @@ class WatchappConnectionImplTest {
 
    private val actionHandler = FakeActionHandler()
    private val submenuActionHandler = FakeSubmenuActionHandler()
+   private val notificationServiceController = FakeNotificationServiceController()
+   private val watchSyncer = FakeWatchSyncer()
 
    private val watch = WatchIdentifier("watch")
 
@@ -75,6 +78,8 @@ class WatchappConnectionImplTest {
       notificationDetailsPusher,
       actionHandler,
       submenuActionHandler,
+      notificationServiceController,
+      watchSyncer,
       notificationsRepository,
       watch,
       globalPreferences,
@@ -151,6 +156,60 @@ class WatchappConnectionImplTest {
          )
       )
    }
+
+   @Test
+   fun `Resync active phone notifications before sending watch welcome sync`() = scope.runTest {
+      notificationServiceController.onResyncActiveNotificationsNow = {
+         bucketSyncRepository.updateBucket(8u, byteArrayOf(9))
+      }
+
+      receiveStandardHelloPacket(bufferSize = 61u)
+      runCurrent()
+
+      notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
+      sender.sentData.shouldContainExactly(
+         mapOf(
+            0u to PebbleDictionaryItem.UInt8(1u),
+            1u to PebbleDictionaryItem.UInt16(PROTOCOL_VERSION),
+            2u to PebbleDictionaryItem.Bytes(
+               byteArrayOf(
+                  1, // Status
+                  0, 1, // Latest version
+                  1, // Num of active buckets
+                  8, 0, // Metadata for bucket 8
+                  8, 1, 9, // Sync data for bucket 8
+               )
+            ),
+         )
+      )
+   }
+
+   @Test
+   fun `Keep existing buckets when live phone notification resync is unavailable during watch sync`() =
+      scope.runTest {
+         bucketSyncRepository.updateBucket(8u, byteArrayOf(9))
+         notificationServiceController.returnValue = false
+
+         receiveStandardHelloPacket(bufferSize = 61u)
+         runCurrent()
+
+         notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
+         sender.sentData.shouldContainExactly(
+            mapOf(
+               0u to PebbleDictionaryItem.UInt8(1u),
+               1u to PebbleDictionaryItem.UInt16(PROTOCOL_VERSION),
+               2u to PebbleDictionaryItem.Bytes(
+                  byteArrayOf(
+                     1, // Status
+                     0, 1, // Latest version
+                     1, // Num of active buckets
+                     8, 0, // Metadata for bucket 8
+                     8, 1, 9, // Sync data for bucket 8
+                  )
+               ),
+            )
+         )
+      }
 
    @Test
    fun `Send bucketsync data after Acking first packet`() = scope.runTest {
@@ -458,6 +517,19 @@ class WatchappConnectionImplTest {
 
       watchMetadata.screenWidth shouldBe 300
       watchMetadata.screenHeight shouldBe 400
+   }
+
+   @Test
+   fun `Update watch sync payload limits before resyncing live notifications`() = scope.runTest {
+      notificationServiceController.onResyncActiveNotificationsNow = {
+         watchSyncer.watchBufferSize shouldBe 4096
+      }
+
+      receiveStandardHelloPacket(bufferSize = 4096u)
+      runCurrent()
+
+      watchSyncer.watchBufferSize shouldBe 4096
+      notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
    }
 
    @Test

@@ -54,6 +54,21 @@ class WatchappConnectionsManagerImplTest {
    }
 
    @Test
+   fun `Replace stale connection on duplicate app opened event`() = scope.runTest {
+      connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
+      val firstConnection = createdConnections.getValue("Watch1")
+
+      connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
+      runCurrent()
+
+      createdConnections.keys.shouldContainExactly("Watch1")
+      (createdConnections.getValue("Watch1") === firstConnection) shouldBe false
+      firstConnection.coroutineScope.coroutineContext.job.isActive shouldBe false
+      createdConnections.getValue("Watch1").coroutineScope.coroutineContext.job.isActive shouldBe true
+      errorReporter.receivedExceptions.shouldBeEmpty()
+   }
+
+   @Test
    fun `Cancel connections on app close`() = scope.runTest {
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch2"))

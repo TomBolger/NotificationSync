@@ -13,6 +13,7 @@ import com.matejdro.pebble.bluetooth.common.util.requireUint
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
 import com.matejdro.pebblenotificationcenter.notification.ActionHandler
 import com.matejdro.pebblenotificationcenter.notification.NotificationRepository
+import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
 import com.matejdro.pebblenotificationcenter.notification.SubmenuActionHandler
 import com.matejdro.pebblenotificationcenter.rules.GlobalPreferenceKeys
 import com.matejdro.pebblenotificationcenter.rules.keys.set
@@ -44,6 +45,8 @@ class WatchappConnectionImpl(
    private val notificationDetailsPusher: NotificationDetailsPusher,
    private val actionHandler: ActionHandler,
    private val submenuActionHandler: SubmenuActionHandler,
+   private val notificationServiceController: NotificationServiceController,
+   private val watchSyncer: WatchSyncer,
    private val notificationRepository: NotificationRepository,
    private val watch: WatchIdentifier,
    private val preferenceStore: DataStore<Preferences>,
@@ -139,6 +142,9 @@ class WatchappConnectionImpl(
 
       val flags = data.requireUint(4u)
       watchMetadata.colorWatch = (flags and 0x01u) != 0u
+
+      watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
+      notificationServiceController.resyncActiveNotificationsNow()
 
       bucketSyncWatchLoop.sendFirstPacketAndStartLoop(
          mapOfNotNull(

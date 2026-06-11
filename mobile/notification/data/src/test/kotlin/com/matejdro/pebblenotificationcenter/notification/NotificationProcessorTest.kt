@@ -147,6 +147,94 @@ class NotificationProcessorTest {
    }
 
    @Test
+   fun `Active notification resync should clear watch notifications when phone has no active notifications`() = runTest {
+      processor.onActiveNotificationsResynced(emptyList())
+
+      watchSyncer.clearAllCalled shouldBe true
+      watchSyncer.clearedNotifications.shouldBeEmpty()
+   }
+
+   @Test
+   fun `Active notification resync should only delete known missing notifications`() = runTest {
+      val notificationA = ParsedNotification(
+         "key-a",
+         "com.app",
+         "Title",
+         "sTitle",
+         "Body",
+         Instant.ofEpochSecond(1_767_554_305)
+      )
+      val notificationB = notificationA.copy(key = "key-b")
+
+      processor.onNotificationPosted(notificationA)
+      processor.onNotificationPosted(notificationB)
+      watchSyncer.clearedNotifications.clear()
+
+      processor.onActiveNotificationsResynced(listOf(notificationB))
+
+      watchSyncer.clearAllCalled shouldBe false
+      watchSyncer.clearedNotifications.shouldContainExactly("key-a")
+      processor.getNotification(1).shouldBeNull()
+      processor.getNotification(2).shouldNotBeNull()
+   }
+
+   @Test
+   fun `Active notification resync should not downgrade richer detail data for the same notification`() = runTest {
+      val replyIntent = createPendingIntent()
+      val richNotification = ParsedNotification(
+         "key",
+         "com.app",
+         "Title",
+         "Conversation",
+         "Alice: first message\nBob: second message",
+         Instant.ofEpochSecond(1_767_554_305),
+         nativeActions = listOf(NativeAction("Reply", replyIntent)),
+      )
+      val compactNotification = richNotification.copy(
+         body = "Alice: first message",
+         nativeActions = emptyList(),
+      )
+
+      processor.onNotificationPosted(richNotification)
+      watchSyncer.nextBucketId = 1
+      processor.onActiveNotificationsResynced(listOf(compactNotification))
+
+      assertSoftly(processor.getNotification(1).shouldNotBeNull()) {
+         systemData.body shouldBe richNotification.body
+         actions.zeroIds().shouldContain(Action.Native("Reply", replyIntent, 0u))
+      }
+      watchSyncer.syncedNotifications.last().systemData.body shouldBe richNotification.body
+   }
+
+   @Test
+   fun `Newer compact update should not drop richer notification actions`() = runTest {
+      val replyIntent = createPendingIntent()
+      val richNotification = ParsedNotification(
+         "key",
+         "com.app",
+         "Title",
+         "Conversation",
+         "Alice: first message\nBob: second message",
+         Instant.ofEpochSecond(1_767_554_305),
+         nativeActions = listOf(NativeAction("Reply", replyIntent)),
+      )
+      val compactUpdate = richNotification.copy(
+         body = "Alice: first message",
+         timestamp = richNotification.timestamp.plusSeconds(1),
+         nativeActions = emptyList(),
+      )
+
+      processor.onNotificationPosted(richNotification)
+      watchSyncer.nextBucketId = 1
+      processor.onNotificationPosted(compactUpdate, suppressVibration = true)
+
+      assertSoftly(processor.getNotification(1).shouldNotBeNull()) {
+         systemData.body shouldBe richNotification.body
+         actions.zeroIds().shouldContain(Action.Native("Reply", replyIntent, 0u))
+      }
+   }
+
+   @Test
    fun `It should allow getting received notifications`() = runTest {
       val notification = ParsedNotification(
          "key",

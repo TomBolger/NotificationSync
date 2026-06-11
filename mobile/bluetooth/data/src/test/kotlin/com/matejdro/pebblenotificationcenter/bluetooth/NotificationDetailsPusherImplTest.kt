@@ -7,6 +7,7 @@ import com.matejdro.pebble.bluetooth.common.PacketQueue
 import com.matejdro.pebble.bluetooth.common.test.FakePebbleSender
 import com.matejdro.pebble.bluetooth.common.test.sentData
 import com.matejdro.pebble.bluetooth.common.util.requireBytes
+import com.matejdro.pebblenotificationcenter.FakeNotificationServiceController
 import com.matejdro.pebblenotificationcenter.bluetooth.api.WATCHAPP_UUID
 import com.matejdro.pebblenotificationcenter.bluetooth.images.FakeDrawableExtractor
 import com.matejdro.pebblenotificationcenter.notification.FakeActionOrderRepository
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import okio.Buffer
 import org.junit.jupiter.api.Test
 import si.inova.kotlinova.core.test.TestScopeWithDispatcherProvider
 import si.inova.kotlinova.core.test.time.virtualTimeProvider
@@ -36,6 +38,7 @@ class NotificationDetailsPusherImplTest {
    private val sender = FakePebbleSender(scope.virtualTimeProvider())
    private val packetQueue = PacketQueue(sender, WatchIdentifier("watch"), WATCHAPP_UUID)
    private val notificationRepository = FakeNotificationRepository()
+   private val notificationServiceController = FakeNotificationServiceController()
 
    private val actionOrderRepository = FakeActionOrderRepository()
 
@@ -44,6 +47,7 @@ class NotificationDetailsPusherImplTest {
    private val notificationDetailsPusher = NotificationDetailsPusherImpl(
       packetQueue,
       notificationRepository,
+      notificationServiceController,
       actionOrderRepository,
       drawableExtractor,
       DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
@@ -98,6 +102,7 @@ class NotificationDetailsPusherImplTest {
    fun `Limit the text of the notification to the max packet size`() = scope.runTest {
       setup()
 
+      val body = "a".repeat(100)
       notificationRepository.putNotification(
          12,
          ProcessedNotification(
@@ -106,7 +111,7 @@ class NotificationDetailsPusherImplTest {
                "",
                "",
                "",
-               "a".repeat(100),
+               body,
                Instant.MIN,
             )
          )
@@ -115,22 +120,9 @@ class NotificationDetailsPusherImplTest {
 
       runCurrent()
 
-      sender.sentData.shouldContainExactly(
-         mapOf(
-            0u to PebbleDictionaryItem.UInt8(5),
-            1u to PebbleDictionaryItem.Bytes(
-               byteArrayOf(
-                  12, // Notification id
-
-                  0, // No actions in this test
-                  0, 0, // No image
-               ) +
-                  // 77 'a' characters, followed by the ...
-                  ByteArray(77) { 'a'.code.toByte() } +
-                  byteArrayOf(46, 46, 46)
-            )
-         )
-      )
+      val details = parseChunkedDetailsPackets(bucketId = 12)
+      details.actionCount shouldBe 0
+      details.body shouldBe body
    }
 
    @Test
@@ -232,6 +224,78 @@ class NotificationDetailsPusherImplTest {
    }
 
    @Test
+   fun `Keep core notification actions when optional app actions exceed packet budget`() = scope.runTest {
+      setup()
+      repeat(12) {
+         actionOrderRepository.moveOrder("Native action $it", -20 + it)
+      }
+
+      notificationRepository.putNotification(
+         12,
+         ProcessedNotification(
+            ParsedNotification(
+               "",
+               "",
+               "",
+               "",
+               "Hello",
+               Instant.MIN,
+            ),
+            actions = listOf(
+               Action.Dismiss("Dismiss", 0u),
+               Action.Snooze("Snooze", 1u),
+               Action.PauseApp("Pause app", 2u),
+               Action.PauseConversation("Pause convo", 3u),
+               Action.SilenceApp("Silence app", 4u),
+            ) + List(12) {
+               Action.Native("Native action $it", Any(), (it + 5).toUByte())
+            }
+         ),
+      )
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+
+      runCurrent()
+
+      payloadActionIds(sender.sentData.single().requireBytes(1u)).shouldContain(4)
+   }
+
+   @Test
+   fun `Keep core notification actions when optional tasker actions exceed action count limit`() = scope.runTest {
+      setup()
+      repeat(25) {
+         actionOrderRepository.moveOrder("Tasker $it", -30 + it)
+      }
+
+      notificationRepository.putNotification(
+         12,
+         ProcessedNotification(
+            ParsedNotification(
+               "",
+               "",
+               "",
+               "",
+               "Hello",
+               Instant.MIN,
+            ),
+            actions = List(25) {
+               Action.TaskerTask("Tasker $it", it.toUByte())
+            } + listOf(
+               Action.Dismiss("Dismiss", 25u),
+               Action.Snooze("Snooze", 26u),
+               Action.PauseApp("Pause app", 27u),
+               Action.PauseConversation("Pause convo", 28u),
+               Action.SilenceApp("Silence app", 29u),
+            )
+         ),
+      )
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+
+      runCurrent()
+
+      payloadActionIds(sender.sentData.single().requireBytes(1u)).shouldContain(29)
+   }
+
+   @Test
    fun `Trim action text length`() = scope.runTest {
       setup()
 
@@ -313,13 +377,71 @@ class NotificationDetailsPusherImplTest {
    }
 
    @Test
-   fun `Send blank packet when the notification does not exist`() = scope.runTest {
+   fun `Prioritize long detail body over optional action labels`() = scope.runTest {
       setup()
+
+      val body = "b".repeat(200)
+      notificationRepository.putNotification(
+         12,
+         ProcessedNotification(
+            ParsedNotification(
+               "",
+               "",
+               "",
+               "",
+               body,
+               Instant.MIN,
+            ),
+            actions = List(20) { Action.Dismiss("Very long action title $it", it.toUByte()) }
+         ),
+      )
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+
+      runCurrent()
+
+      val details = parseChunkedDetailsPackets(bucketId = 12)
+      details.body shouldBe body
+      details.actionCount shouldBe 3
+   }
+
+   @Test
+   fun `Do not send details when the notification does not exist`() = scope.runTest {
+      setup()
+      notificationServiceController.returnValue = false
 
       notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
 
       runCurrent()
 
+      notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
+      sender.sentData.shouldContainExactly()
+      notificationRepository.notificationsMarkedAsRead.shouldContainExactly()
+   }
+
+   @Test
+   fun `Resync live notifications before sending details for a missing bucket`() = scope.runTest {
+      setup()
+      notificationServiceController.onResyncActiveNotificationsNow = {
+         notificationRepository.putNotification(
+            12,
+            ProcessedNotification(
+               ParsedNotification(
+                  "",
+                  "",
+                  "",
+                  "",
+                  "Hello",
+                  Instant.MIN,
+               )
+            )
+         )
+      }
+
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+
+      runCurrent()
+
+      notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
       sender.sentData.shouldContainExactly(
          mapOf(
             0u to PebbleDictionaryItem.UInt8(5),
@@ -328,13 +450,47 @@ class NotificationDetailsPusherImplTest {
                   12, // Notification id
 
                   0, // No actions in this test
+
                   0, 0, // No image
 
-                  // No text
+                  // Hello in UTF-8
+                  72,
+                  101,
+                  108,
+                  108,
+                  111
                )
             )
          )
       )
+   }
+
+   @Test
+   fun `Send existing live notification details without resync delay`() = scope.runTest {
+      setup()
+      notificationRepository.putNotification(
+         12,
+         ProcessedNotification(
+            ParsedNotification(
+               key = "live-key",
+               pkg = "com.app",
+               title = "Title",
+               subtitle = "",
+               body = "Short",
+               timestamp = Instant.MIN,
+            )
+         )
+      )
+
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 180, colorWatch = false)
+
+      runCurrent()
+
+      notificationServiceController.resyncActiveNotificationsNowCalled shouldBe false
+      val payload = sender.sentData.single().requireBytes(1u)
+      (payload[1].toInt() and 0xff) shouldBe 0
+      payload.copyOfRange(payload.size - "Short".length, payload.size)
+         .decodeToString() shouldBe "Short"
    }
 
    @Test
@@ -782,9 +938,75 @@ class NotificationDetailsPusherImplTest {
       notificationRepository.nextVibration shouldBe intArrayOf(10, 10, 10, 10)
    }
 
+   private fun parseChunkedDetailsPackets(bucketId: Int): ParsedChunkedDetails {
+      val detailsPackets = sender.sentData.filter {
+         it.getValue(0u) == PebbleDictionaryItem.UInt8(13) ||
+            it.getValue(0u) == PebbleDictionaryItem.UInt8(14)
+      }
+      detailsPackets.first().getValue(0u) shouldBe PebbleDictionaryItem.UInt8(13)
+
+      val initialPayload = detailsPackets.first().requireBytes(1u)
+      (initialPayload[0].toInt() and 0xff) shouldBe bucketId
+      val totalChunks = initialPayload[1].toInt() and 0xff
+      val actionCount = initialPayload[2].toInt() and 0xff
+      var position = 3
+
+      repeat(actionCount) {
+         position++ // Action id
+         while (position < initialPayload.size && initialPayload[position] != 0.toByte()) {
+            position++
+         }
+         position++ // Null terminator
+      }
+
+      val iconSize = ((initialPayload[position].toInt() and 0xff) shl 8) or
+         (initialPayload[position + 1].toInt() and 0xff)
+      position += 2 + iconSize
+
+      val chunks = arrayOfNulls<ByteArray>(totalChunks)
+      chunks[0] = initialPayload.copyOfRange(position, initialPayload.size)
+
+      for (packet in detailsPackets.drop(1)) {
+         val payload = packet.requireBytes(1u)
+         (payload[0].toInt() and 0xff) shouldBe bucketId
+         val chunkIndex = payload[1].toInt() and 0xff
+         (payload[2].toInt() and 0xff) shouldBe totalChunks
+         chunks[chunkIndex] = payload.copyOfRange(3, payload.size)
+      }
+
+      val bodyBytes = Buffer()
+      for (index in 0 until totalChunks) {
+         bodyBytes.write(chunks[index] ?: error("Missing chunk $index"))
+      }
+
+      return ParsedChunkedDetails(
+         actionCount = actionCount,
+         body = bodyBytes.readByteArray().decodeToString(),
+      )
+   }
+
+   private fun payloadActionIds(payload: ByteArray): List<Int> {
+      val actionCount = payload[1].toInt() and 0xff
+      var position = 2
+      return buildList {
+         repeat(actionCount) {
+            add(payload[position++].toInt() and 0xff)
+            while (position < payload.size && payload[position] != 0.toByte()) {
+               position++
+            }
+            position++
+         }
+      }
+   }
+
    private fun TestScope.setup(): Job {
       return backgroundScope.launch {
          packetQueue.runQueue()
       }
    }
+
+   private data class ParsedChunkedDetails(
+      val actionCount: Int,
+      val body: String,
+   )
 }

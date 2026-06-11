@@ -39,6 +39,9 @@ class RuleResolver(private val rulesRepository: RulesRepository) {
       }
 
       val conditionChannels = this[RuleOption.conditionNotificationChannels]
+      if (DIAGNOSTIC_DISABLE_NOTIFICATION_GRANULARITY && conditionChannels.isNotEmpty()) {
+         return false
+      }
       if (conditionChannels.isNotEmpty() && !conditionChannels.contains(notification.channel)) {
          return false
       }
@@ -56,6 +59,8 @@ class RuleResolver(private val rulesRepository: RulesRepository) {
       return true
    }
 }
+
+private const val DIAGNOSTIC_DISABLE_NOTIFICATION_GRANULARITY = false
 
 data class ResolvedRules(
    val involvedRules: List<String>,

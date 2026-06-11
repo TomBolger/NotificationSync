@@ -51,7 +51,14 @@ static void button_back_single(ClickRecognizerRef recognizer, void* context)
 
     if (window_notification_data.menu_displayed)
     {
-        window_notification_action_list_hide();
+        if (window_notification_ui_should_exit_detail_on_back())
+        {
+            send_close_me_without_animation();
+        }
+        else
+        {
+            window_notification_action_list_hide();
+        }
     }
     else if (window_notification_data.detail_open)
     {

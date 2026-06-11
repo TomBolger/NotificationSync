@@ -137,6 +137,14 @@
     <string name="hidden">Hidden</string>
     <string name="never_seen">No notifications yet</string>
     <string name="notifications_count">%1$d notifications</string>
+    <string name="back">Back</string>
+    <string name="generic_error">Something went wrong.</string>
+    <string name="notification_types">Notification types</string>
+    <string name="all_notifications">All notifications</string>
+    <string name="direct_setting">Direct setting</string>
+    <string name="using_default_setting">Using default setting</string>
+    <string name="using_app_setting">Using app setting</string>
+    <string name="no_notification_types">No notification types found yet.</string>
     <string name="notification_settings_title">Settings</string>
     <string name="phone_filters">Phone filters</string>
     <string name="watch_experience">Watch experience</string>
@@ -148,6 +156,8 @@
     <string name="setting_new_notification_interaction_timeout_description">Seconds after a watch button press that a new notification should wait in the list instead of replacing the open notification. Set to 0 to always show the newest notification.</string>
     <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
     <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
+    <string name="setting_wait_for_watchface">Wait until watchface before opening</string>
+    <string name="setting_wait_for_watchface_description">When enabled, notifications wait until the watch returns to a watchface before opening Notification Sync.</string>
     <string name="setting_stock_pebble_os_notifications">Use stock PebbleOS notifications</string>
     <string name="setting_stock_pebble_os_notifications_description">Experimental firmware mode. Sends notifications to the built-in PebbleOS notification list instead of opening the companion watch app.</string>
     <string name="advanced">Advanced</string>

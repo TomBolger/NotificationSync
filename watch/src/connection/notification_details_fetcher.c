@@ -8,9 +8,11 @@
 static void (*change_callback)() = NULL;
 static bool is_fetching = false;
 
+static int16_t current_notification_to_fetch = -1;
 static int16_t next_notification_to_fetch = -1;
 
 static void on_sending_finished(const bool success);
+static void finish_fetching_if_complete(bool complete);
 
 void notification_details_fetcher_fetch(const uint8_t bucket_id)
 {
@@ -20,10 +22,21 @@ void notification_details_fetcher_fetch(const uint8_t bucket_id)
         return;
     }
 
+    if (is_fetching)
+    {
+        if (current_notification_to_fetch != bucket_id)
+        {
+            next_notification_to_fetch = bucket_id;
+        }
+        return;
+    }
+
+    current_notification_to_fetch = bucket_id;
     const bool success = send_notification_opened(bucket_id);
 
     if (!success)
     {
+        current_notification_to_fetch = -1;
         next_notification_to_fetch = bucket_id;
         bluetooth_register_sending_finish(on_sending_finished);
         return;
@@ -47,15 +60,42 @@ void notification_details_fetcher_fetch(const uint8_t bucket_id)
 
 void notification_details_fetcher_on_text_received(const uint8_t* data, const size_t data_size)
 {
+    const uint8_t bucket_id = data[0];
+
+    window_notification_data_receive_more_text(bucket_id, &data[1], data_size - 1);
+    finish_fetching_if_complete(true);
+}
+
+void notification_details_fetcher_on_text_received_v2(const uint8_t* data, const size_t data_size)
+{
+    finish_fetching_if_complete(window_notification_data_receive_more_text_v2(data, data_size));
+}
+
+void notification_details_fetcher_on_text_continuation_received(const uint8_t* data, const size_t data_size)
+{
+    finish_fetching_if_complete(window_notification_data_receive_more_text_v2_continuation(data, data_size));
+}
+
+static void finish_fetching_if_complete(const bool complete)
+{
+    if (!complete)
+    {
+        return;
+    }
+
     is_fetching = false;
+    current_notification_to_fetch = -1;
     if (change_callback != NULL)
     {
         change_callback();
     }
 
-    const uint8_t bucket_id = data[0];
-
-    window_notification_data_receive_more_text(bucket_id, &data[1], data_size - 1);
+    if (next_notification_to_fetch >= 0 && is_phone_connected)
+    {
+        const uint8_t local_next_notification_to_fetch = next_notification_to_fetch;
+        next_notification_to_fetch = -1;
+        notification_details_fetcher_fetch(local_next_notification_to_fetch);
+    }
 }
 
 static void on_sending_finished(const bool success)

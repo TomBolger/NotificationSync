@@ -14,9 +14,25 @@ class FakeNotificationServiceController : NotificationServiceController {
    var lastTriggeredReplyAction: NativeAction? = null
    var lastSnooze: Pair<String, Duration>? = null
    var resyncActiveNotificationsCalled = false
+   var resyncActiveNotificationsNowCalled = false
+   var resyncNotificationNowCalledForKey: String? = null
+   var onResyncActiveNotificationsNow: (suspend () -> Unit)? = null
+   var onResyncNotificationNow: (suspend (String) -> Unit)? = null
 
    override fun resyncActiveNotifications(): Boolean {
       resyncActiveNotificationsCalled = true
+      return returnValue
+   }
+
+   override suspend fun resyncActiveNotificationsNow(): Boolean {
+      resyncActiveNotificationsNowCalled = true
+      onResyncActiveNotificationsNow?.invoke()
+      return returnValue
+   }
+
+   override suspend fun resyncNotificationNow(key: String): Boolean {
+      resyncNotificationNowCalledForKey = key
+      onResyncNotificationNow?.invoke(key)
       return returnValue
    }
 

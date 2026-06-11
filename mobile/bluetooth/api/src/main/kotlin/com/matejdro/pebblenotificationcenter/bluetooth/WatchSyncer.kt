@@ -9,6 +9,8 @@ interface WatchSyncer {
 
    suspend fun init()
 
+   fun updateWatchPayloadLimits(watchBufferSize: Int)
+
    suspend fun clearAllNotifications()
    suspend fun clearNotification(key: String)
 

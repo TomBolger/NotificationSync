@@ -16,6 +16,7 @@ import com.matejdro.pebblenotificationcenter.rules.keys.get
 import dev.zacsweers.metro.Inject
 import dispatch.core.DefaultCoroutineScope
 import io.rebble.pebblekit2.client.PebbleInfoRetriever
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -56,6 +57,7 @@ class NotificationService : NotificationListenerService() {
    private lateinit var watchOpenController: WatchappOpenController
 
    private val mutex = Mutex()
+   private val delayedResyncJobs = HashMap<String, Job>()
 
    private var bound = false
 
@@ -73,6 +75,8 @@ class NotificationService : NotificationListenerService() {
 
    override fun onDestroy() {
       logcat { "Stopping notification service" }
+      delayedResyncJobs.values.forEach { it.cancel() }
+      delayedResyncJobs.clear()
       instance = null
       bound = false
       super.onDestroy()
@@ -91,15 +95,26 @@ class NotificationService : NotificationListenerService() {
 
    fun resyncActiveNotifications() {
       coroutineScope.launch {
-         mutex.withLock {
-            resyncActiveNotificationsLocked()
-         }
+         resyncActiveNotificationsNow()
+      }
+   }
+
+   suspend fun resyncActiveNotificationsNow(): Boolean {
+      return mutex.withLock {
+         resyncActiveNotificationsLocked()
+      }
+   }
+
+   suspend fun resyncNotificationNow(key: String): Boolean {
+      return mutex.withLock {
+         resyncNotificationLocked(key)
       }
    }
 
    override fun onNotificationPosted(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} posted" }
       coroutineScope.launch {
+         var parsedSuccessfully = false
          mutex.withLock {
             val parsed = parseNotification(sbn)
             if (parsed == null) {
@@ -107,6 +122,10 @@ class NotificationService : NotificationListenerService() {
                return@launch
             }
             notificationProcessor.onNotificationPosted(parsed)
+            parsedSuccessfully = true
+         }
+         if (parsedSuccessfully) {
+            scheduleDelayedActiveNotificationResync(sbn.key)
          }
       }
    }
@@ -123,32 +142,64 @@ class NotificationService : NotificationListenerService() {
       )
    }
 
-   private suspend fun resyncActiveNotificationsLocked() {
+   private suspend fun resyncActiveNotificationsLocked(): Boolean {
       val currentNotifications = try {
          activeNotifications
       } catch (exception: SecurityException) {
          errorReporter.report(exception)
-         return
+         return false
       }
 
-      notificationProcessor.onNotificationsCleared()
-      for (sbn in currentNotifications) {
+      val parsedNotifications = currentNotifications.mapNotNull { sbn ->
          val parsed = parseNotification(sbn)
-         if (parsed != null) {
-            notificationProcessor.onNotificationPosted(parsed, suppressVibration = true)
-         } else {
+         if (parsed == null) {
             logcat { "Notification ${sbn.key} has no text. Skipping..." }
          }
+
+         parsed
       }
+
+      notificationProcessor.onActiveNotificationsResynced(parsedNotifications)
+      return true
+   }
+
+   private suspend fun resyncNotificationLocked(key: String): Boolean {
+      val sbn = try {
+         activeNotifications.firstOrNull { it.key == key }
+      } catch (exception: SecurityException) {
+         errorReporter.report(exception)
+         return false
+      } ?: return false
+
+      val parsed = parseNotification(sbn)
+      if (parsed == null) {
+         logcat { "Notification ${sbn.key} has no text. Skipping..." }
+         return false
+      }
+
+      notificationProcessor.onNotificationPosted(parsed, suppressVibration = true)
+      return true
    }
 
    override fun onNotificationRemoved(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} removed" }
+      delayedResyncJobs.remove(sbn.key)?.cancel()
 
       coroutineScope.launch {
          mutex.withLock {
             notificationProcessor.onNotificationDismissed(sbn.key)
          }
+      }
+   }
+
+   private fun scheduleDelayedActiveNotificationResync(key: String) {
+      delayedResyncJobs.remove(key)?.cancel()
+      delayedResyncJobs[key] = coroutineScope.launch {
+         delay(NOTIFICATION_STABILIZATION_DELAY)
+         mutex.withLock {
+            resyncActiveNotificationsLocked()
+         }
+         delayedResyncJobs.remove(key)
       }
    }
 
@@ -247,3 +298,4 @@ class NotificationService : NotificationListenerService() {
 }
 
 private const val CDM_WAIT_ATTEMPTS = 10
+private val NOTIFICATION_STABILIZATION_DELAY = 750.milliseconds

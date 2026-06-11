@@ -15,6 +15,8 @@ static void receive_phone_welcome(const DictionaryIterator* iterator);
 static void receive_sync_restart(const DictionaryIterator* iterator);
 static void receive_sync_next_packet(const DictionaryIterator* iterator);
 static void receive_notification_details_text_packet(const DictionaryIterator* iterator);
+static void receive_notification_details_text_packet_v2(const DictionaryIterator* iterator);
+static void receive_notification_details_continuation_packet(const DictionaryIterator* iterator);
 static void receive_submenu_packet(const DictionaryIterator* iterator);
 static void receive_watch_packet(const DictionaryIterator* received);
 static void receive_vibrate_packet(const DictionaryIterator* iterator);
@@ -168,6 +170,12 @@ static void receive_watch_packet(const DictionaryIterator* received)
     case 5:
         receive_notification_details_text_packet(received);
         break;
+    case 13:
+        receive_notification_details_text_packet_v2(received);
+        break;
+    case 14:
+        receive_notification_details_continuation_packet(received);
+        break;
     case 7:
         receive_vibrate_packet(received);
         break;
@@ -242,6 +250,20 @@ static void receive_notification_details_text_packet(const DictionaryIterator* i
     Tuple* dict_entry = dict_find(iterator, 1);
 
     notification_details_fetcher_on_text_received(dict_entry->value->data, dict_entry->length);
+}
+
+static void receive_notification_details_text_packet_v2(const DictionaryIterator* iterator)
+{
+    Tuple* dict_entry = dict_find(iterator, 1);
+
+    notification_details_fetcher_on_text_received_v2(dict_entry->value->data, dict_entry->length);
+}
+
+static void receive_notification_details_continuation_packet(const DictionaryIterator* iterator)
+{
+    Tuple* dict_entry = dict_find(iterator, 1);
+
+    notification_details_fetcher_on_text_continuation_received(dict_entry->value->data, dict_entry->length);
 }
 
 static void receive_vibrate_packet(const DictionaryIterator* iterator)

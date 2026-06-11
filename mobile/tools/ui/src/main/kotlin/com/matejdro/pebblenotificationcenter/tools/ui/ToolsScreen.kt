@@ -189,6 +189,17 @@ private fun ToolsScreenContent(
          }
 
          item(span = { GridItemSpan(maxLineSpan) }) {
+            SwitchPreference(
+               state.preferences[GlobalPreferenceKeys.waitForWatchfaceBeforeOpening],
+               onValueChange = {
+                  updatePreference(GlobalPreferenceKeys.waitForWatchfaceBeforeOpening, it)
+               },
+               title = { Text(stringResource(R.string.setting_wait_for_watchface)) },
+               summary = { Text(stringResource(R.string.setting_wait_for_watchface_description)) }
+            )
+         }
+
+         item(span = { GridItemSpan(maxLineSpan) }) {
             Preference(
                title = { Text(stringResource(R.string.setting_action_order)) },
                summary = { Text(stringResource(R.string.setting_action_order_description)) },

@@ -63,8 +63,8 @@ class WatchappConnectionsManagerImpl(
 
       synchronized(activeConnections) {
          if (activeConnections.containsKey(watch)) {
-            errorReporter.report(UnknownCauseException("Connection for the $watch is already opened"))
-            return
+            logcat { "Connection for the $watch is already opened, replacing stale connection" }
+            activeConnections.remove(watch)?.scope?.cancel()
          }
 
          createConnection(watch)

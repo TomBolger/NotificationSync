@@ -64,6 +64,15 @@ void window_notification_ui_set_items(const NotificationListItem* items, uint8_t
 void window_notification_ui_redraw();
 void window_notification_ui_cache_current_body();
 void window_notification_ui_cache_body_for_bucket(uint8_t bucket_id, const char* body, size_t body_size);
+void window_notification_ui_cache_details_for_bucket(uint8_t bucket_id, const char* body,
+                                                     size_t body_size, const Action* actions,
+                                                     uint8_t num_actions);
+void window_notification_ui_replace_current_body(uint8_t bucket_id, const char* body, size_t body_size);
+void window_notification_ui_replace_current_details(uint8_t bucket_id, const char* body,
+                                                    size_t body_size, const Action* actions,
+                                                    uint8_t num_actions);
+void window_notification_ui_on_details_cached(uint8_t bucket_id);
+void window_notification_ui_note_actions_updated();
 void window_notification_ui_uncache_body_for_bucket(uint8_t bucket_id);
 void window_notification_ui_note_bucket_updated(uint8_t bucket_id);
 void window_notification_ui_on_bucket_selected();

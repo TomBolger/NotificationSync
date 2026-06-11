@@ -7,6 +7,8 @@ import com.matejdro.pebblenotificationcenter.common.logging.ActionLogger
 import com.matejdro.pebblenotificationcenter.history.HistoryEntry
 import com.matejdro.pebblenotificationcenter.history.HistoryRepository
 import com.matejdro.pebblenotificationcenter.navigation.keys.RuleListScreenKey
+import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
+import com.matejdro.pebblenotificationcenter.notification.model.LightNotificationChannel
 import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
 import com.matejdro.pebblenotificationcenter.rules.RuleMetadata
@@ -16,6 +18,7 @@ import com.matejdro.pebblenotificationcenter.rules.keys.get
 import com.matejdro.pebblenotificationcenter.rules.keys.setTo
 import dev.zacsweers.metro.Inject
 import dispatch.core.withDefault
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -35,10 +38,14 @@ class RuleListViewModel(
    private val actionLogger: ActionLogger,
    private val rulesRepository: RulesRepository,
    private val historyRepository: HistoryRepository,
+   private val notificationServiceController: NotificationServiceController,
    private val context: Context,
 ) : SingleScreenViewModel<RuleListScreenKey>(resources.scope) {
    private val _uiState = MutableStateFlow<Outcome<RuleListState>>(Outcome.Progress())
    val uiState: StateFlow<Outcome<RuleListState>> = _uiState
+
+   private val _appDetailsState = MutableStateFlow<Outcome<NotificationAppDetailsState>?>(null)
+   val appDetailsState: StateFlow<Outcome<NotificationAppDetailsState>?> = _appDetailsState
 
    private val refreshRequests = MutableStateFlow(0)
 
@@ -89,14 +96,87 @@ class RuleListViewModel(
       refreshRequests.value += 1
    }
 
+   fun openAppDetails(app: NotificationAppState) = resources.launchWithExceptionReporting {
+      actionLogger.logAction { "RuleListViewModel.openAppDetails(${app.packageName})" }
+      val packageName = app.packageName ?: return@launchWithExceptionReporting
+
+      _appDetailsState.value = Outcome.Progress()
+      _appDetailsState.value = Outcome.Success(buildAppDetails(packageName, app.name))
+   }
+
+   fun closeAppDetails() {
+      actionLogger.logAction { "RuleListViewModel.closeAppDetails()" }
+      _appDetailsState.value = null
+   }
+
+   fun setAppMasterSwitch(masterSwitch: MasterSwitch) = resources.launchWithExceptionReporting {
+      actionLogger.logAction { "RuleListViewModel.setAppMasterSwitch($masterSwitch)" }
+      val details = appDetailsState.value?.data ?: return@launchWithExceptionReporting
+
+      setAppRule(details.packageName, details.appName, masterSwitch, details.appWide.ruleId)
+      refreshAfterDetailsRuleChange(details.packageName, details.appName)
+   }
+
+   fun setChannelMasterSwitch(channel: NotificationChannelRuleState, masterSwitch: MasterSwitch) {
+      actionLogger.logAction { "RuleListViewModel.setChannelMasterSwitch(${channel.id}, $masterSwitch)" }
+      resources.launchWithExceptionReporting {
+         val details = appDetailsState.value?.data ?: return@launchWithExceptionReporting
+         val ruleId = channel.ruleId ?: rulesRepository.insert("${details.appName}: ${channel.title}")
+
+         rulesRepository.updateRulePreferences(
+            ruleId,
+            RuleOption.conditionAppPackage setTo details.packageName,
+            RuleOption.conditionNotificationChannels setTo setOf(channel.id),
+            RuleOption.masterSwitch setTo masterSwitch,
+         )
+         placeRuleAfterBroaderRules(ruleId)
+         refreshAfterDetailsRuleChange(details.packageName, details.appName)
+      }
+   }
+
    private suspend fun setAppRule(packageName: String, appName: String, enabled: Boolean, existingRuleId: Int?) {
+      setAppRule(packageName, appName, if (enabled) MasterSwitch.SHOW else MasterSwitch.MUTE, existingRuleId)
+   }
+
+   private suspend fun setAppRule(
+      packageName: String,
+      appName: String,
+      masterSwitch: MasterSwitch,
+      existingRuleId: Int?,
+   ) {
       val ruleId = existingRuleId ?: rulesRepository.insert(appName)
       rulesRepository.updateRulePreferences(
          ruleId,
          RuleOption.conditionAppPackage setTo packageName,
          RuleOption.conditionNotificationChannels setTo emptySet(),
-         RuleOption.masterSwitch setTo if (enabled) MasterSwitch.SHOW else MasterSwitch.MUTE,
+         RuleOption.masterSwitch setTo masterSwitch,
       )
+      placeAppWideRuleBeforeChannelRules(ruleId)
+   }
+
+   private suspend fun refreshAfterDetailsRuleChange(packageName: String, appName: String) {
+      refreshRequests.value += 1
+      _appDetailsState.value = Outcome.Success(buildAppDetails(packageName, appName))
+   }
+
+   private suspend fun placeAppWideRuleBeforeChannelRules(ruleId: Int) {
+      if (ruleId <= RULE_ID_DEFAULT_SETTINGS) return
+
+      val rules = rulesRepository.getAll().firstSuccessOrThrow()
+      if (rules.any { it.id == RULE_ID_DEFAULT_SETTINGS } && rules.indexOfFirst { it.id == ruleId } != 1) {
+         rulesRepository.reorder(ruleId, 1)
+      }
+   }
+
+   private suspend fun placeRuleAfterBroaderRules(ruleId: Int) {
+      if (ruleId <= RULE_ID_DEFAULT_SETTINGS) return
+
+      val rules = rulesRepository.getAll().firstSuccessOrThrow()
+      val currentIndex = rules.indexOfFirst { it.id == ruleId }
+      val targetIndex = rules.lastIndex
+      if (currentIndex >= 0 && currentIndex != targetIndex && targetIndex > 0) {
+         rulesRepository.reorder(ruleId, targetIndex)
+      }
    }
 
    @Suppress("LongMethod")
@@ -122,7 +202,7 @@ class RuleListViewModel(
                id = rule.id,
                packageName = packageName,
                masterSwitch = preferences[RuleOption.masterSwitch],
-               appWide = channels.isEmpty(),
+               channels = channels,
             )
          }
       val appRulesByPackage = appRules.groupBy { it.packageName }
@@ -182,6 +262,65 @@ class RuleListViewModel(
       )
    }
 
+   private suspend fun buildAppDetails(
+      packageName: String,
+      appName: String,
+   ): NotificationAppDetailsState {
+      val rules = rulesRepository.getAll().firstSuccessOrThrow()
+      val preferencesByRule = rules.associateWith { rulesRepository.getRulePreferences(it.id).first() }
+      val defaultMasterSwitch = preferencesByRule.entries
+         .firstOrNull { it.key.id == RULE_ID_DEFAULT_SETTINGS }
+         ?.value
+         ?.get(RuleOption.masterSwitch)
+         ?: MasterSwitch.SHOW
+      val appRules = preferencesByRule.entries
+         .mapNotNull { (rule, preferences) ->
+            if (preferences[RuleOption.conditionAppPackage] != packageName) return@mapNotNull null
+
+            AppRule(
+               id = rule.id,
+               packageName = packageName,
+               masterSwitch = preferences[RuleOption.masterSwitch],
+               channels = preferences[RuleOption.conditionNotificationChannels],
+            )
+         }
+      val appWideRule = appRules.lastOrNull { it.appWide }
+      val appWideMasterSwitch = appWideRule?.masterSwitch ?: defaultMasterSwitch
+
+      val channels = notificationServiceController.getNotificationChannels(packageName)
+      val channelsById = LinkedHashMap<String, LightNotificationChannel>()
+      channels.sortedBy { it.title.lowercase() }.forEach { channel ->
+         channelsById[channel.id] = channel
+      }
+      appRules.flatMap { it.channels }.sorted().forEach { channelId ->
+         channelsById.putIfAbsent(channelId, LightNotificationChannel(channelId, channelId))
+      }
+
+      val channelRules = channelsById.values.map { channel ->
+         val matchingChannelRules = appRules.filter { !it.appWide && channel.id in it.channels }
+         val exactChannelRule = matchingChannelRules.lastOrNull { it.channels == setOf(channel.id) }
+
+         NotificationChannelRuleState(
+            id = channel.id,
+            title = channel.title.ifBlank { channel.id },
+            masterSwitch = matchingChannelRules.lastOrNull()?.masterSwitch ?: appWideMasterSwitch,
+            ruleId = exactChannelRule?.id,
+            explicit = matchingChannelRules.isNotEmpty(),
+         )
+      }
+
+      return NotificationAppDetailsState(
+         packageName = packageName,
+         appName = appName,
+         appWide = NotificationAppWideRuleState(
+            masterSwitch = appWideMasterSwitch,
+            ruleId = appWideRule?.id,
+            explicit = appWideRule != null,
+         ),
+         channels = channelRules,
+      )
+   }
+
    @Suppress("DEPRECATION")
    private suspend fun loadInstalledApps(): List<InstalledApp> = withDefault {
       val packageManager = context.packageManager
@@ -215,6 +354,30 @@ data class NotificationAppState(
    val ruleId: Int?,
 )
 
+@Stable
+data class NotificationAppDetailsState(
+   val packageName: String,
+   val appName: String,
+   val appWide: NotificationAppWideRuleState,
+   val channels: List<NotificationChannelRuleState>,
+)
+
+@Stable
+data class NotificationAppWideRuleState(
+   val masterSwitch: MasterSwitch,
+   val ruleId: Int?,
+   val explicit: Boolean,
+)
+
+@Stable
+data class NotificationChannelRuleState(
+   val id: String,
+   val title: String,
+   val masterSwitch: MasterSwitch,
+   val ruleId: Int?,
+   val explicit: Boolean,
+)
+
 private data class InstalledApp(
    val packageName: String,
    val name: String,
@@ -224,8 +387,10 @@ private data class AppRule(
    val id: Int,
    val packageName: String,
    val masterSwitch: MasterSwitch,
-   val appWide: Boolean,
-)
+   val channels: Set<String>,
+) {
+   val appWide: Boolean = channels.isEmpty()
+}
 
 private data class AppHistoryStats(
    val displayName: String,
@@ -255,5 +420,17 @@ private fun List<HistoryEntry>.appStats(): Map<String, AppHistoryStats> {
          count = entries.size,
          lastNotification = latest.time,
       )
+   }
+}
+
+private suspend fun <T> Flow<Outcome<T>>.firstSuccessOrThrow(): T {
+   val result = first {
+      it is Outcome.Success || it is Outcome.Error
+   }
+
+   return when (result) {
+      is Outcome.Success -> result.data
+      is Outcome.Error -> throw result.exception
+      is Outcome.Progress -> error("Result should never be progress")
    }
 }

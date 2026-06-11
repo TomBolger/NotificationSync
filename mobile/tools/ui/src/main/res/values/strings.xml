@@ -15,6 +15,8 @@
     </string>
     <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
     <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
+    <string name="setting_wait_for_watchface">Wait until watchface before opening</string>
+    <string name="setting_wait_for_watchface_description">When enabled, notifications wait until the watch returns to a watchface before opening Notification Sync.</string>
     <string name="setting_notify_on_reconnect">Open missed notifications on reconnect</string>
     <string name="setting_notify_on_reconnect_description">If phone received any non-muted notifications during watch disconnect,
         it will show them on the watch after it reconnects

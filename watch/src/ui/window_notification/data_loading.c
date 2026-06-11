@@ -1,5 +1,7 @@
 #include "data_loading.h"
 
+#include <stdlib.h>
+
 #include "action_list.h"
 #include "idle_handler.h"
 #include "window_notification.h"
@@ -12,6 +14,12 @@ static BucketList* buckets;
 static NotificationListItem list_items[MAX_NOTIFICATION_ITEMS];
 static const uint32_t STORAGE_BUCKET_FLAGS_ID_MIN = 3000;
 static AppTimer* metadata_refresh_timer;
+static char* staged_body_text;
+static size_t staged_body_size;
+static uint8_t staged_body_bucket_id;
+static bool staged_body_active;
+static Action staged_actions[MAX_NOTIFICATION_ACTIONS];
+static uint8_t staged_num_actions;
 
 static size_t bounded_cstring_length(const uint8_t* data, const size_t start, const size_t data_size)
 {
@@ -29,6 +37,69 @@ static void copy_action_text(char* destination, const uint8_t* source, const siz
     const size_t copy_length = MIN(source_length, MAX_NOTIFICATION_ACTION_TEXT - 1);
     memcpy(destination, source, copy_length);
     destination[copy_length] = '\0';
+}
+
+static void reset_staged_body(const uint8_t bucket_id)
+{
+    if (staged_body_text == NULL)
+    {
+        staged_body_text = malloc(MAX_BODY_TEXT_SIZE + 1);
+    }
+    if (staged_body_text == NULL)
+    {
+        staged_body_active = false;
+        return;
+    }
+
+    staged_body_bucket_id = bucket_id;
+    staged_body_size = 0;
+    staged_body_text[0] = '\0';
+    staged_body_active = true;
+    staged_num_actions = 0;
+    memset(staged_actions, 0, sizeof(staged_actions));
+}
+
+static void append_staged_body(const uint8_t bucket_id, const uint8_t* body, const size_t body_size)
+{
+    if (!staged_body_active || staged_body_bucket_id != bucket_id)
+    {
+        return;
+    }
+
+    if (staged_body_size >= MAX_BODY_TEXT_SIZE)
+    {
+        return;
+    }
+
+    const size_t bytes_to_copy = MIN(body_size, MAX_BODY_TEXT_SIZE - staged_body_size);
+    memcpy(&staged_body_text[staged_body_size], body, bytes_to_copy);
+    staged_body_size += bytes_to_copy;
+    staged_body_text[staged_body_size] = '\0';
+}
+
+static void commit_staged_body(const uint8_t bucket_id)
+{
+    if (!staged_body_active || staged_body_bucket_id != bucket_id)
+    {
+        return;
+    }
+
+    if (bucket_id == window_notification_data.currently_selected_bucket)
+    {
+        window_notification_ui_replace_current_details(bucket_id, staged_body_text, staged_body_size,
+                                                       staged_actions, staged_num_actions);
+    }
+    else
+    {
+        window_notification_ui_cache_details_for_bucket(bucket_id, staged_body_text, staged_body_size,
+                                                       staged_actions, staged_num_actions);
+    }
+    staged_body_active = false;
+    free(staged_body_text);
+    staged_body_text = NULL;
+    staged_body_size = 0;
+    staged_num_actions = 0;
+    window_notification_ui_on_details_cached(bucket_id);
 }
 
 static bool is_real_notification_id(const uint8_t id)
@@ -188,10 +259,8 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
     const bool is_current_bucket = bucket_id == window_notification_data.currently_selected_bucket;
     size_t position = 1;
     const uint8_t num_actions = data[0];
-    if (is_current_bucket)
-    {
-        window_notification_data.num_actions = MIN(num_actions, MAX_NOTIFICATION_ACTIONS);
-    }
+    Action packet_actions[MAX_NOTIFICATION_ACTIONS] = {0};
+    const uint8_t packet_num_actions = MIN(num_actions, MAX_NOTIFICATION_ACTIONS);
     for (int i = 0; i < num_actions; i++)
     {
         if (position >= data_size)
@@ -205,15 +274,15 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
         {
             return;
         }
-        if (is_current_bucket && i < MAX_NOTIFICATION_ACTIONS)
+        if (i < MAX_NOTIFICATION_ACTIONS)
         {
             copy_action_text(
-                window_notification_data.actions[i].text,
+                packet_actions[i].text,
                 &data[action_title_position],
                 action_title_length
             );
-            window_notification_data.actions[i].id = action_id;
-            window_notification_data.actions[i].voice = false;
+            packet_actions[i].id = action_id;
+            packet_actions[i].voice = false;
         }
         position += action_title_length + 1;
     }
@@ -230,16 +299,119 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
     position += 2 + icon_bytes_length;
 
     const size_t max_text_size = MIN(MAX_BODY_TEXT_SIZE, data_size - position);
-    window_notification_ui_cache_body_for_bucket(bucket_id, (char*)&data[position], max_text_size);
-    if (!is_current_bucket)
+    if (is_current_bucket)
     {
-        return;
+        window_notification_ui_replace_current_details(bucket_id, (char*)&data[position],
+                                                       max_text_size, packet_actions,
+                                                       packet_num_actions);
+        window_notification_ui_redraw();
+    }
+    else
+    {
+        window_notification_ui_cache_details_for_bucket(bucket_id, (char*)&data[position],
+                                                       max_text_size, packet_actions,
+                                                       packet_num_actions);
+    }
+    window_notification_ui_on_details_cached(bucket_id);
+}
+
+bool window_notification_data_receive_more_text_v2(const uint8_t* data, const size_t data_size)
+{
+    if (window_notification_data.active == false)
+    {
+        return true;
+    }
+    if (data_size < 3)
+    {
+        return true;
     }
 
-    strncpy(window_notification_data.body_text, (char*)&data[position], max_text_size);
-    window_notification_data.body_text[max_text_size] = '\0';
-    window_notification_ui_cache_current_body();
-    window_notification_ui_redraw();
+    const uint8_t bucket_id = data[0];
+    const uint8_t total_chunks = MAX(data[1], 1);
+    const bool is_current_bucket = bucket_id == window_notification_data.currently_selected_bucket;
+    size_t position = 2;
+    const uint8_t num_actions = data[position++];
+    reset_staged_body(bucket_id);
+    staged_num_actions = MIN(num_actions, MAX_NOTIFICATION_ACTIONS);
+    for (int i = 0; i < num_actions; i++)
+    {
+        if (position >= data_size)
+        {
+            return true;
+        }
+        const uint8_t action_id = data[position++];
+        const size_t action_title_position = position;
+        const size_t action_title_length = bounded_cstring_length(data, action_title_position, data_size);
+        if (action_title_position + action_title_length >= data_size)
+        {
+            return true;
+        }
+        if (i < MAX_NOTIFICATION_ACTIONS)
+        {
+            copy_action_text(
+                staged_actions[i].text,
+                &data[action_title_position],
+                action_title_length
+            );
+            staged_actions[i].id = action_id;
+            staged_actions[i].voice = false;
+        }
+        position += action_title_length + 1;
+    }
+
+    if (position + 2 > data_size)
+    {
+        return true;
+    }
+    const size_t icon_bytes_length = read_uint16_from_byte_array(data, position);
+    if (position + 2 + icon_bytes_length > data_size)
+    {
+        return true;
+    }
+    position += 2 + icon_bytes_length;
+
+    append_staged_body(bucket_id, &data[position], data_size - position);
+
+    const bool complete = total_chunks <= 1;
+    if (complete)
+    {
+        commit_staged_body(bucket_id);
+        if (is_current_bucket)
+        {
+            window_notification_ui_redraw();
+        }
+    }
+    return complete;
+}
+
+bool window_notification_data_receive_more_text_v2_continuation(const uint8_t* data, const size_t data_size)
+{
+    if (window_notification_data.active == false)
+    {
+        return true;
+    }
+    if (data_size < 3)
+    {
+        return true;
+    }
+
+    const uint8_t bucket_id = data[0];
+    const uint8_t chunk_index = data[1];
+    const uint8_t total_chunks = MAX(data[2], 1);
+    const bool complete = chunk_index + 1 >= total_chunks;
+    const bool is_current_bucket = bucket_id == window_notification_data.currently_selected_bucket;
+
+    append_staged_body(bucket_id, &data[3], data_size - 3);
+
+    if (complete)
+    {
+        commit_staged_body(bucket_id);
+        if (is_current_bucket)
+        {
+            window_notification_ui_redraw();
+        }
+    }
+    return complete;
 }
 
 void window_notification_data_receive_show_submenu(const uint8_t* data, const size_t data_size)
@@ -318,6 +490,13 @@ void window_notification_data_init()
 
 void window_notification_data_deinit()
 {
+    if (staged_body_text != NULL)
+    {
+        free(staged_body_text);
+        staged_body_text = NULL;
+        staged_body_active = false;
+    }
+
     if (metadata_refresh_timer != NULL)
     {
         app_timer_cancel(metadata_refresh_timer);
