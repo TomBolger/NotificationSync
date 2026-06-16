@@ -21,7 +21,6 @@ import dispatch.core.DefaultCoroutineScope
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.util.sizeInBytes
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import logcat.logcat
@@ -41,33 +40,61 @@ class NotificationDetailsPusherImpl(
    private val errorReporter: ErrorReporter,
 ) : NotificationDetailsPusher {
    private val stringEncoder = LimitingStringEncoder()
-   private var previousDetailsSendingJob: Job? = null
    private var previousVibrationSendingJob: Job? = null
 
    override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean) {
-      previousDetailsSendingJob?.cancel()
-
-      previousDetailsSendingJob = scope.launch {
-         pushNotificationDetailsSafely(bucketId, maxPacketSize, colorWatch, this)
+      scope.launch {
+         pushNotificationDetailsSafely(
+            bucketId,
+            maxPacketSize,
+            DetailsSendMode.SendAndWait,
+            markAsRead = true,
+            includeVibration = true
+         )
       }
+   }
+
+   override suspend fun preloadNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean) {
+      pushNotificationDetailsSafely(
+         bucketId,
+         maxPacketSize,
+         DetailsSendMode.EnqueueOnly,
+         markAsRead = false,
+         includeVibration = false
+      )
+   }
+
+   override suspend fun preloadOpenedNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean) {
+      pushNotificationDetailsSafely(
+         bucketId,
+         maxPacketSize,
+         DetailsSendMode.SendAndWait,
+         markAsRead = true,
+         includeVibration = true
+      )
    }
 
    private suspend fun pushNotificationDetailsSafely(
       bucketId: Int,
       maxPacketSize: Int,
-      colorWatch: Boolean,
-      detailsScope: CoroutineScope,
+      sendMode: DetailsSendMode,
+      markAsRead: Boolean,
+      includeVibration: Boolean,
    ) {
+      var vibrationPattern: IntArray? = null
       try {
          val notification = liveNotificationForDetails(bucketId) ?: return
-         notificationRepository.markAsRead(bucketId)
+         if (markAsRead) {
+            notificationRepository.markAsRead(bucketId)
+         }
+         if (includeVibration) {
+            vibrationPattern = notificationRepository.pollNextVibration()
+         }
 
          val detailsPackets = createDetailsPackets(
             bucketId = bucketId,
             bodyText = notification.systemData.body.replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
             actions = notification.actions,
-            iconDrawable = notification.systemData.iconDrawable,
-            colorWatch = colorWatch,
             maxPacketSize = maxPacketSize,
          )
 
@@ -77,14 +104,16 @@ class NotificationDetailsPusherImpl(
                "(${detailsPackets.encodedActionCount}/${detailsPackets.totalActionCount} actions)"
          }
 
-         detailsScope.launch {
-            for (packet in detailsPackets.packets) {
-               queue.sendPacket(packet, priority = PRIORITY_WATCH_TEXT)
+         for (packet in detailsPackets.packets) {
+            when (sendMode) {
+               DetailsSendMode.SendAndWait -> queue.sendPacket(packet, priority = PRIORITY_WATCH_TEXT)
+               DetailsSendMode.EnqueueOnly -> queue.enqueuePacket(packet, priority = PRIORITY_PRELOAD_WATCH_TEXT)
             }
          }
 
-         pushVibration()
+         pushVibration(vibrationPattern)
       } catch (e: CancellationException) {
+         vibrationPattern?.let(notificationRepository::resetNextVibration)
          throw e
       } catch (e: Exception) {
          errorReporter.report(UnknownCauseException("Failed to push notification details", e))
@@ -109,15 +138,18 @@ class NotificationDetailsPusherImpl(
       bucketId: Int,
       bodyText: String,
       actions: List<Action>,
-      iconDrawable: Any?,
-      colorWatch: Boolean,
       maxPacketSize: Int,
    ): NotificationDetailsPackets {
       val buffer = Buffer()
       buffer.writeUByte(bucketId.toUByte())
 
       val sortedActions = actionOrderRepository.sort(actions)
-      val encodedActions = encodedActionsThatFit(bucketId, sortedActions, maxPacketSize)
+      val bodyReserveBytes = if (bodyText.isNotEmpty()) {
+         DETAIL_BODY_RESERVE_BYTES
+      } else {
+         0
+      }
+      val encodedActions = encodedActionsThatFit(bucketId, sortedActions, maxPacketSize, bodyReserveBytes)
 
       buffer.writeUByte(encodedActions.size.toUByte())
 
@@ -127,13 +159,7 @@ class NotificationDetailsPusherImpl(
          buffer.writeUByte(0u)
       }
 
-      val iconBytes = iconBytesThatFit(
-         bucketId = bucketId,
-         iconDrawable = iconDrawable,
-         colorWatch = colorWatch,
-         payloadSizeBeforeIcon = buffer.size.toInt(),
-         maxPacketSize = maxPacketSize,
-      )
+      val iconBytes = ByteArray(0)
 
       buffer.writeUShort(iconBytes.size.toUShort())
       buffer.write(iconBytes)
@@ -196,9 +222,15 @@ class NotificationDetailsPusherImpl(
       bucketId: Int,
       sortedActions: List<Action>,
       maxPacketSize: Int,
+      bodyReserveBytes: Int,
    ): List<EncodedNotificationAction> {
       val sortedActionsLimited = sortedActions.take(MAX_ACTIONS_TO_SEND)
-      val encodedInRequestedOrder = encodeActionsThatFit(bucketId, sortedActionsLimited, maxPacketSize)
+      val encodedInRequestedOrder = encodeActionsThatFit(
+         bucketId,
+         sortedActionsLimited,
+         maxPacketSize,
+         bodyReserveBytes
+      )
       val allCoreActionsIncluded = sortedActions
          .filter { it.isCoreWatchAction() }
          .all { coreAction -> sortedActionsLimited.any { it.id == coreAction.id } }
@@ -211,13 +243,14 @@ class NotificationDetailsPusherImpl(
          return encodedInRequestedOrder
       }
 
-      return encodeActionsThatFit(bucketId, coreFirstActions, maxPacketSize)
+      return encodeActionsThatFit(bucketId, coreFirstActions, maxPacketSize, bodyReserveBytes)
    }
 
    private fun encodeActionsThatFit(
       bucketId: Int,
       actionsToEncode: List<Action>,
       maxPacketSize: Int,
+      bodyReserveBytes: Int,
    ): List<EncodedNotificationAction> {
       val encodedActions = ArrayList<EncodedNotificationAction>(actionsToEncode.size)
       var payloadSize = 1 + 1 + 1 + 2 // bucket id, v2 chunk count, action count, empty icon length.
@@ -227,7 +260,7 @@ class NotificationDetailsPusherImpl(
             stringEncoder.encodeSizeLimited(action.title.replaceUnsupportedPebbleEmoji(), MAX_ACTIONS_TEXT_BYTES)
                .encodedString
          val candidatePayloadSize = payloadSize + 1 + encodedTitle.size + 1
-         val candidatePacketSize = packetSizeForPayloadSize(candidatePayloadSize)
+         val candidatePacketSize = packetSizeForPayloadSize(candidatePayloadSize + bodyReserveBytes)
 
          if (candidatePacketSize <= maxPacketSize) {
             encodedActions += EncodedNotificationAction(action, encodedTitle)
@@ -385,8 +418,7 @@ class NotificationDetailsPusherImpl(
    // Magic numbers are a whole point of this function (protocol constants).
    // Use is not required for memory-only Buffer
    @Suppress("MagicNumber", "MissingUseCall")
-   private fun pushVibration() {
-      val vibrationPattern = notificationRepository.pollNextVibration()
+   private fun pushVibration(vibrationPattern: IntArray?) {
       logcat { "Next vibration: ${vibrationPattern?.contentToString() ?: "null"}" }
       if (vibrationPattern == null) {
          return
@@ -414,6 +446,11 @@ class NotificationDetailsPusherImpl(
    }
 }
 
+private enum class DetailsSendMode {
+   SendAndWait,
+   EnqueueOnly,
+}
+
 private data class EncodedNotificationAction(
    val action: Action,
    val encodedTitle: ByteArray,
@@ -439,8 +476,11 @@ private const val CONTINUATION_PAYLOAD_HEADER_BYTES = 3
 private const val NOTIFICATION_ICON_SIZE_PX = 32
 private const val MAX_ACTIONS_TO_SEND = 20
 private const val MAX_ACTIONS_TEXT_BYTES = 20
-private const val MAX_DETAIL_BODY_TEXT_BYTES = 4000
+private const val MAX_DETAIL_BODY_TEXT_BYTES = 3500
+private const val DETAIL_BODY_RESERVE_BYTES = 16
 
 interface NotificationDetailsPusher {
    fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
+   suspend fun preloadNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
+   suspend fun preloadOpenedNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
 }

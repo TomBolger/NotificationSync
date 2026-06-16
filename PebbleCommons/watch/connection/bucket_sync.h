@@ -27,6 +27,15 @@ extern bool close_after_sync;
 void bucket_sync_init();
 
 /**
+ * Delete locally persisted buckets in the given range without changing the sync version.
+ *
+ * This is useful for mirror-only data that must not survive as local watch state. The phone
+ * will re-send any still-live buckets because the watch reports its active bucket list during
+ * the next hello packet.
+ */
+void bucket_sync_forget_buckets_from(uint8_t first_bucket_id);
+
+/**
  * Load contents of a bucket into a target array.
  *
  * Target must be an array of a size PERSIST_DATA_MAX_LENGTH (256 bytes for now).

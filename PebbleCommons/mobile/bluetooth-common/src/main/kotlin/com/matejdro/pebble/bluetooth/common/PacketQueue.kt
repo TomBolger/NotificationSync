@@ -28,6 +28,7 @@ class PacketQueue(
    private val newPacketNotification = Channel<Unit>(Channel.CONFLATED)
 
    private val queue = PriorityQueue<Packet>()
+   private var nextSequenceNumber = 0L
 
    /**
     * (Eventually) send a packet to the watch.
@@ -41,7 +42,7 @@ class PacketQueue(
       logcat { "Enqueue packet(id = ${dictionary[0u]}, priority = $priority)" }
 
       val sentNofification = CompletableDeferred<Unit>()
-      val packet = Packet(dictionary, priority, sentNofification)
+      val packet = Packet(dictionary, priority, nextPacketSequenceNumber(), sentNofification)
 
       synchronized(queue) {
          queue.add(packet)
@@ -56,6 +57,19 @@ class PacketQueue(
          }
          throw e
       }
+   }
+
+   /**
+    * Queue a packet without tying its lifetime to the caller's coroutine.
+    */
+   fun enqueuePacket(dictionary: PebbleDictionary, priority: Int = 0) {
+      logcat { "Enqueue packet(id = ${dictionary[0u]}, priority = $priority)" }
+
+      synchronized(queue) {
+         queue.add(Packet(dictionary, priority, nextPacketSequenceNumber(), null))
+      }
+
+      newPacketNotification.trySend(Unit)
    }
 
    /**
@@ -83,7 +97,7 @@ class PacketQueue(
          }
 
          for (packet in finalPackets) {
-            packet.sentNofification.cancel(e)
+            packet.sentNofification?.cancel(e)
          }
 
          throw e
@@ -97,7 +111,7 @@ class PacketQueue(
          do {
             val result = sender.sendDataToPebble(watchappUuid, packet.dictionary, listOf(watch))
             if (result == null) {
-               packet.sentNofification.completeExceptionally(
+               packet.sentNofification?.completeExceptionally(
                   UnrecoverableWatchTransferException("No Pebble app is installed")
                )
                break
@@ -107,7 +121,7 @@ class PacketQueue(
             val retry = when (watchResult) {
                TransmissionResult.Success -> {
                   logcat { "Sent" }
-                  packet.sentNofification.complete(Unit)
+                  packet.sentNofification?.complete(Unit)
                   false
                }
 
@@ -126,7 +140,7 @@ class PacketQueue(
                null,
                -> {
                   logcat { "Sending failed unrecoverably (${watchResult ?: "null"})" }
-                  packet.sentNofification.completeExceptionally(
+                  packet.sentNofification?.completeExceptionally(
                      UnrecoverableWatchTransferException(watchResult?.toString())
                   )
                   false
@@ -139,7 +153,7 @@ class PacketQueue(
             }
          } while (retry)
       } catch (e: CancellationException) {
-         packet.sentNofification.cancel(e)
+         packet.sentNofification?.cancel(e)
          throw e
       }
    }
@@ -147,10 +161,21 @@ class PacketQueue(
    private class Packet(
       val dictionary: PebbleDictionary,
       val priority: Int,
-      val sentNofification: CompletableDeferred<Unit>,
+      val sequenceNumber: Long,
+      val sentNofification: CompletableDeferred<Unit>?,
    ) : Comparable<Packet> {
       override fun compareTo(other: Packet): Int {
-         return -priority.compareTo(other.priority)
+         val priorityComparison = -priority.compareTo(other.priority)
+         if (priorityComparison != 0) {
+            return priorityComparison
+         }
+         return sequenceNumber.compareTo(other.sequenceNumber)
+      }
+   }
+
+   private fun nextPacketSequenceNumber(): Long {
+      return synchronized(queue) {
+         nextSequenceNumber++
       }
    }
 }

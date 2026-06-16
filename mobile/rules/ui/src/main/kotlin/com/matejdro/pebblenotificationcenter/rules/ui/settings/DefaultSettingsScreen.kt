@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
@@ -89,6 +90,7 @@ class DefaultSettingsScreen(
                @Suppress("UNCHECKED_CAST")
                viewModel.updateGlobalPreference(prefKey as PreferenceKeyWithDefault<Any?>, value)
             },
+            resetWatchMirror = viewModel::resetWatchMirror,
          )
       }
    }
@@ -101,6 +103,7 @@ private fun DefaultSettingsContent(
    navigator: Navigator,
    updatePreference: SetPreference,
    updateGlobalPreference: SetPreference,
+   resetWatchMirror: () -> Unit,
 ) {
    val replyDialog = stringListDialog(
       navigator = navigator,
@@ -322,6 +325,13 @@ private fun DefaultSettingsContent(
 
       item { SectionHeader(stringResource(R.string.advanced)) }
       item {
+         ResetMirrorSetting(
+            title = stringResource(R.string.reset_watch_mirror),
+            description = stringResource(R.string.reset_watch_mirror_description),
+            onClick = resetWatchMirror,
+         )
+      }
+      item {
          ToggleSetting(
             title = stringResource(R.string.setting_stock_pebble_os_notifications),
             description = stringResource(R.string.setting_stock_pebble_os_notifications_description),
@@ -367,6 +377,25 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
+private fun ResetMirrorSetting(
+   title: String,
+   description: String,
+   onClick: () -> Unit,
+) {
+   ListItem(
+      headlineContent = { Text(title) },
+      supportingContent = { Text(description, fontSize = 12.sp) },
+      trailingContent = {
+         Button(onClick = onClick) {
+            Text(stringResource(R.string.reset))
+         }
+      },
+      shadowElevation = 0.dp,
+   )
+   HorizontalDivider()
+}
+
+@Composable
 private fun ToggleSetting(
    title: String,
    description: String?,
@@ -397,6 +426,7 @@ private fun ActionSetting(
    title: String,
    description: String?,
    value: String?,
+   actionLabel: String = "Edit",
    onClick: () -> Unit,
 ) {
    ListItem(
@@ -413,7 +443,7 @@ private fun ActionSetting(
       },
       trailingContent = {
          TextButton(onClick = onClick) {
-            Text("Edit")
+            Text(actionLabel)
          }
       },
       modifier = Modifier.clickable(onClick = onClick),

@@ -155,6 +155,24 @@ class NotificationProcessorTest {
    }
 
    @Test
+   fun `Cold active notification resync should sync live phone data without clearing first`() = runTest {
+      val notification = ParsedNotification(
+         "key",
+         "com.app",
+         "Title",
+         "sTitle",
+         "Body",
+         Instant.ofEpochSecond(1_767_554_305)
+      )
+
+      processor.onActiveNotificationsResynced(listOf(notification))
+
+      watchSyncer.clearAllCalled shouldBe false
+      watchSyncer.syncedNotifications.map { it.systemData }.shouldContainExactly(notification)
+      processor.getNotification(1).shouldNotBeNull()
+   }
+
+   @Test
    fun `Active notification resync should only delete known missing notifications`() = runTest {
       val notificationA = ParsedNotification(
          "key-a",
@@ -356,6 +374,34 @@ class NotificationProcessorTest {
          "Body",
          // 19:18:25 GMT | Sunday, January 4, 2026
          Instant.ofEpochSecond(1_767_554_305)
+      )
+
+      processor.onNotificationPosted(notification)
+
+      openController.watchappOpened shouldBe true
+      processor.pollNextVibration().shouldNotBeNull()
+      historyInserter.insertedEntries.shouldHaveSize(1).first().muteReason shouldBe null
+   }
+
+   @Test
+   fun `It should vibrate for silent notifications with an explicit show rule`() = runTest {
+      val ruleId = rulesRepository.insert("Show Teams channel")
+      rulesRepository.updateRulePreferences(
+         ruleId,
+         RuleOption.conditionAppPackage setTo "com.microsoft.teams",
+         RuleOption.conditionNotificationChannels setTo setOf("messages"),
+         RuleOption.masterSwitch setTo MasterSwitch.SHOW,
+      )
+
+      val notification = ParsedNotification(
+         "key",
+         "com.microsoft.teams",
+         "Teams",
+         "Chat",
+         "Message",
+         Instant.ofEpochSecond(1_767_554_305),
+         isSilent = true,
+         channel = "messages",
       )
 
       processor.onNotificationPosted(notification)

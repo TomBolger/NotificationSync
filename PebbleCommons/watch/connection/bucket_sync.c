@@ -29,7 +29,7 @@ bool close_after_sync = false;
 static void (*bucket_deleted_callback)(uint8_t) = NULL;
 
 static uint32_t get_bucket_persist_key(uint8_t bucket_id);
-static void delete_inactive_buckets(const uint8_t* data, const uint8_t new_active_buckets);
+static void delete_inactive_buckets(const uint8_t* data, uint8_t new_active_buckets);
 static bool validate_bucket_data(const uint8_t* data, size_t data_size, size_t position);
 static bool save_bucket_data(const uint8_t* data, size_t data_size, size_t position);
 static void complete_sync(void);
@@ -85,6 +85,44 @@ void bucket_sync_init()
         buckets.count = 0;
         persist_delete(FILE_BUCKET_SYNC_VERSION);
         persist_delete(FILE_BUCKET_LIST);
+    }
+}
+
+void bucket_sync_forget_buckets_from(const uint8_t first_bucket_id)
+{
+    bool changed = false;
+    uint8_t retained_count = 0;
+
+    for (int i = 0; i < buckets.count; i++)
+    {
+        const uint8_t bucket_id = buckets.data[i].id;
+        if (bucket_id >= first_bucket_id)
+        {
+            persist_delete(get_bucket_persist_key(bucket_id));
+            changed = true;
+            if (bucket_deleted_callback != NULL)
+            {
+                bucket_deleted_callback(bucket_id);
+            }
+        }
+        else
+        {
+            buckets.data[retained_count++] = buckets.data[i];
+        }
+    }
+
+    if (!changed)
+    {
+        return;
+    }
+
+    buckets.count = retained_count;
+    persist_write_data(FILE_BUCKET_LIST, buckets.data, buckets.count * sizeof(BucketMetadata));
+
+    void (*local_list_change_callback)() = list_change_callback;
+    if (local_list_change_callback != NULL)
+    {
+        local_list_change_callback();
     }
 }
 
@@ -230,12 +268,6 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
         return;
     }
 
-    void (*local_list_change_callback)() = list_change_callback;
-    if (local_list_change_callback != NULL)
-    {
-        local_list_change_callback();
-    }
-
     if (sync_status == 1)
     {
         complete_sync();
@@ -305,7 +337,8 @@ static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t
         };
 
         const DataChangeCallback local_bucket_data_change_callback = data_change_callback;
-        if (local_bucket_data_change_callback.data_change_callback != NULL)
+        if (!bucket_sync_is_currently_syncing &&
+            local_bucket_data_change_callback.data_change_callback != NULL)
         {
             for (int j = 0; j < buckets.count; j++)
             {
@@ -347,6 +380,12 @@ static void complete_sync(void)
     if (second_syncing_status_callback != NULL)
     {
         second_syncing_status_callback();
+    }
+
+    void (*local_list_change_callback)() = list_change_callback;
+    if (local_list_change_callback != NULL)
+    {
+        local_list_change_callback();
     }
 
     if (close_after_sync)

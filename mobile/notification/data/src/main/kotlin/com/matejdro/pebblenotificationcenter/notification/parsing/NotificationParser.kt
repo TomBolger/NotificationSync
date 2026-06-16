@@ -127,11 +127,13 @@ class NotificationParser(
       val channelId: String?
       val isSilentChannel: Boolean
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-         val channelCast: NotificationChannel? = channel as NotificationChannel?
+         val channelCast: NotificationChannel? = channel as? NotificationChannel
+         val channelIdOnly: String? = channel as? String
 
-         channelId = channelCast?.id
-         isSilentChannel = channelCast == null ||
-            (channelCast.importance < NotificationManager.IMPORTANCE_DEFAULT && !channelCast.shouldVibrate())
+         channelId = channelCast?.id ?: channelIdOnly ?: notification.channelId
+         isSilentChannel = channelCast != null &&
+            channelCast.importance < NotificationManager.IMPORTANCE_DEFAULT &&
+            !channelCast.shouldVibrate()
       } else {
          channelId = null
          isSilentChannel = true

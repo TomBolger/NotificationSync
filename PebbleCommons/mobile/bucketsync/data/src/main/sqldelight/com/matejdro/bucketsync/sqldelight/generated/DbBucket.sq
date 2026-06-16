@@ -25,17 +25,17 @@ updateFlagsSilently:
     UPDATE dbBucket SET flags = :flags WHERE id = :id;
 
 clearBucket:
-   REPLACE INTO dbBucket (id, version, data)
-   VALUES (:id, (SELECT COALESCE(MAX(version) + 1, 1) FROM dbBucket), NULL);
+   REPLACE INTO dbBucket (id, version, data, sortKey, upstreamId, flags, groupId)
+   VALUES (:id, (SELECT COALESCE(MAX(version) + 1, 1) FROM dbBucket), NULL, NULL, NULL, 0, NULL);
 
 clearBuckets:
    UPDATE dbBucket
-    SET data = NULL, version = :newVersion, groupId = NULL
+    SET data = NULL, version = :newVersion, sortKey = NULL, upstreamId = NULL, flags = 0, groupId = NULL
     WHERE id >= :minInclusive AND id <= :maxInclusive;
 
 clearBucketsFromGroupExcept:
    UPDATE dbBucket
-    SET data = NULL, version = :newVersion, groupId = NULL
+    SET data = NULL, version = :newVersion, sortKey = NULL, upstreamId = NULL, flags = 0, groupId = NULL
     WHERE groupId = :groupId AND upstreamId NOT IN :except;
 
 getBucket:

@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.matejdro.pebblenotificationcenter.common.preferences.plus
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
+import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
 import com.matejdro.pebblenotificationcenter.rules.RulesRepository
 import com.matejdro.pebblenotificationcenter.rules.keys.get
@@ -27,8 +28,11 @@ class RuleResolver(private val rulesRepository: RulesRepository) {
       }
 
       return ResolvedRules(
-         matchingRules.mapNotNull { (name, _) -> name },
-         matchingRules.map { (_, preferences) -> preferences }.fold(emptyPreferences(), Preferences::plus)
+         involvedRules = matchingRules.mapNotNull { (name, _) -> name },
+         preferences = matchingRules.map { (_, preferences) -> preferences }.fold(emptyPreferences(), Preferences::plus),
+         hasExplicitShowRule = matchingRules.any { (name, preferences) ->
+            name != null && preferences[RuleOption.masterSwitch] == MasterSwitch.SHOW
+         },
       )
    }
 
@@ -65,6 +69,7 @@ private const val DIAGNOSTIC_DISABLE_NOTIFICATION_GRANULARITY = false
 data class ResolvedRules(
    val involvedRules: List<String>,
    val preferences: Preferences,
+   val hasExplicitShowRule: Boolean,
 )
 
 private fun ParsedNotification.containsRegex(regex: Regex): Boolean {

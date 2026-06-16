@@ -701,6 +701,42 @@ class BucketSyncRepositoryImplTest {
    }
 
    @Test
+   fun `Clear all dynamic removes stale notification identity`() = scope.runTest {
+      repo.init(1, dynamicPool = 2..3)
+
+      repo.updateBucketDynamic("notification-1", byteArrayOf(1), sortKey = -1, flags = 77u, groupId = "group")
+      repo.clearAllDynamic()
+      delay(1.seconds)
+
+      db.getBucketWithUpstreamId("notification-1").executeAsOneOrNull().shouldBeNull()
+
+      val clearedBucket = db.getBucket(2).executeAsOne()
+      clearedBucket.data_.shouldBeNull()
+      clearedBucket.sortKey.shouldBeNull()
+      clearedBucket.upstreamId.shouldBeNull()
+      clearedBucket.flags shouldBe 0
+      clearedBucket.groupId.shouldBeNull()
+   }
+
+   @Test
+   fun `Delete dynamic bucket removes stale notification identity`() = scope.runTest {
+      repo.init(1, dynamicPool = 2..3)
+
+      repo.updateBucketDynamic("notification-1", byteArrayOf(1), sortKey = -1, flags = 77u, groupId = "group")
+      repo.deleteBucketDynamic("notification-1")
+      delay(1.seconds)
+
+      db.getBucketWithUpstreamId("notification-1").executeAsOneOrNull().shouldBeNull()
+
+      val clearedBucket = db.getBucket(2).executeAsOne()
+      clearedBucket.data_.shouldBeNull()
+      clearedBucket.sortKey.shouldBeNull()
+      clearedBucket.upstreamId.shouldBeNull()
+      clearedBucket.flags shouldBe 0
+      clearedBucket.groupId.shouldBeNull()
+   }
+
+   @Test
    fun `Report data changed when clearing all dynamic buckets`() = scope.runTest {
       repo.init(1, dynamicPool = 2..3)
 

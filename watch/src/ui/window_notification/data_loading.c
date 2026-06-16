@@ -194,6 +194,13 @@ void notification_window_ingest_bucket_metadata()
 
     if (count == 0)
     {
+        if (bucket_sync_is_currently_syncing)
+        {
+            set_loading_item(&list_items[0]);
+            window_notification_ui_set_items(list_items, 1, true);
+            return;
+        }
+
         window_notification_ui_set_items(list_items, 0, false);
         return;
     }
@@ -247,10 +254,6 @@ static void on_bucket_updated(const BucketMetadata bucket_metadata, void* contex
 
 void window_notification_data_receive_more_text(const uint8_t bucket_id, const uint8_t* data, const size_t data_size)
 {
-    if (window_notification_data.active == false)
-    {
-        return;
-    }
     if (data_size < 1)
     {
         return;
@@ -317,10 +320,6 @@ void window_notification_data_receive_more_text(const uint8_t bucket_id, const u
 
 bool window_notification_data_receive_more_text_v2(const uint8_t* data, const size_t data_size)
 {
-    if (window_notification_data.active == false)
-    {
-        return true;
-    }
     if (data_size < 3)
     {
         return true;
@@ -386,10 +385,6 @@ bool window_notification_data_receive_more_text_v2(const uint8_t* data, const si
 
 bool window_notification_data_receive_more_text_v2_continuation(const uint8_t* data, const size_t data_size)
 {
-    if (window_notification_data.active == false)
-    {
-        return true;
-    }
     if (data_size < 3)
     {
         return true;

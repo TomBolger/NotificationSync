@@ -4,7 +4,7 @@
 
 #include "ui/layers/dots.h"
 
-#define MAX_BODY_TEXT_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 1200, 1800, 4000, 1800, 4000, 4000, 4000)
+#define MAX_BODY_TEXT_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 1200, 1800, 3470, 1800, 3470, 3470, 3470)
 #define MAX_NOTIFICATION_ITEMS 30
 #define MAX_NOTIFICATION_TITLE 64
 #define MAX_NOTIFICATION_SNIPPET 160
@@ -79,6 +79,7 @@ void window_notification_ui_on_bucket_selected();
 void window_notification_ui_on_bucket_list_updated();
 void window_notification_ui_on_bucket_deleted(uint8_t bucket_id);
 void window_notification_ui_open_phone_launch_detail(uint8_t bucket_id);
+void window_notification_ui_play_or_defer_vibration(const uint32_t* durations, uint32_t num_segments);
 void window_notification_ui_open_selected_detail();
 bool window_notification_ui_should_exit_detail_on_back(void);
 void window_notification_ui_close_detail();

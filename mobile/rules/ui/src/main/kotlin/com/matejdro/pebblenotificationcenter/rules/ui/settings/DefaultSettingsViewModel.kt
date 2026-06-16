@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import com.matejdro.pebblenotificationcenter.bluetooth.WatchMirrorResetter
 import com.matejdro.pebblenotificationcenter.common.logging.ActionLogger
 import com.matejdro.pebblenotificationcenter.navigation.keys.DefaultSettingsScreenKey
 import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
@@ -30,6 +31,7 @@ class DefaultSettingsViewModel(
    private val actionLogger: ActionLogger,
    private val rulesRepository: RulesRepository,
    private val preferenceStore: DataStore<Preferences>,
+   private val watchMirrorResetter: WatchMirrorResetter,
 ) : SingleScreenViewModel<DefaultSettingsScreenKey>(resources.scope) {
    private val _uiState = MutableStateFlow<Outcome<DefaultSettingsState>>(Outcome.Progress())
    val uiState: StateFlow<Outcome<DefaultSettingsState>> = _uiState
@@ -61,6 +63,11 @@ class DefaultSettingsViewModel(
       preferenceStore.edit {
          it[key] = value
       }
+   }
+
+   fun resetWatchMirror() = resources.launchWithExceptionReporting {
+      actionLogger.logAction { "DefaultSettingsViewModel.resetWatchMirror()" }
+      watchMirrorResetter.resetWatchMirror()
    }
 }
 

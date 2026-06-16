@@ -20,6 +20,7 @@ import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.maps.shouldContainKey
+import io.kotest.matchers.maps.shouldNotContainKey
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
@@ -185,15 +186,24 @@ class WatchappConnectionImplTest {
    }
 
    @Test
-   fun `Keep existing buckets when live phone notification resync is unavailable during watch sync`() =
+   fun `Clear existing buckets when live phone notification resync is unavailable during watch sync`() =
       scope.runTest {
+         bucketSyncRepository.init(PROTOCOL_VERSION.toInt(), 2..255)
          bucketSyncRepository.updateBucket(8u, byteArrayOf(9))
+         watchSyncer.onClearAllNotifications = {
+            bucketSyncRepository.clearAllDynamic()
+         }
          notificationServiceController.returnValue = false
 
-         receiveStandardHelloPacket(bufferSize = 61u)
+         receiveStandardHelloPacket(
+            version = 1u,
+            bufferSize = 61u,
+            currentlyActiveBuckets = byteArrayOf(8)
+         )
          runCurrent()
 
          notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
+         watchSyncer.clearAllCalled shouldBe true
          sender.sentData.shouldContainExactly(
             mapOf(
                0u to PebbleDictionaryItem.UInt8(1u),
@@ -201,10 +211,8 @@ class WatchappConnectionImplTest {
                2u to PebbleDictionaryItem.Bytes(
                   byteArrayOf(
                      1, // Status
-                     0, 1, // Latest version
-                     1, // Num of active buckets
-                     8, 0, // Metadata for bucket 8
-                     8, 1, 9, // Sync data for bucket 8
+                     0, 2, // Latest version
+                     0, // Num of active buckets
                   )
                ),
             )
@@ -242,6 +250,32 @@ class WatchappConnectionImplTest {
       runCurrent()
 
       sender.sentData.first().shouldContainKey(3u)
+   }
+
+   @Test
+   fun `Push notification details when watchapp was opened for a notification bucket`() = scope.runTest {
+      watchappOpenController.setNextWatchappOpenNotificationBucket(12)
+
+      receiveStandardHelloPacket(bufferSize = 123u, flags = 1u)
+      runCurrent()
+
+      sender.sentData.first().shouldContainKey(4u)
+      notificationDetailsPusher.lastOpenedPreloadRequestId shouldBe 12
+      notificationDetailsPusher.lastMaxPacketSize shouldBe 123
+      notificationDetailsPusher.lastColorWatch shouldBe true
+   }
+
+   @Test
+   fun `Clear stale watch notifications when live notification resync fails`() = scope.runTest {
+      notificationServiceController.returnValue = false
+      watchappOpenController.setNextWatchappOpenNotificationBucket(12)
+
+      receiveStandardHelloPacket(bufferSize = 123u, flags = 1u)
+      runCurrent()
+
+      watchSyncer.clearAllCalled shouldBe true
+      sender.sentData.first().shouldNotContainKey(4u)
+      notificationDetailsPusher.lastOpenedPreloadRequestId.shouldBeNull()
    }
 
    @Test

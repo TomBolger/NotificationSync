@@ -71,7 +71,9 @@ class NotificationProcessor(
    suspend fun onNotificationPosted(parsedNotification: ParsedNotification, suppressVibration: Boolean = false) {
       val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
       val notification = parsedNotification.withRicherFieldsFrom(previousNotification?.systemData)
-      val (affectedRules, settings) = ruleResolver.resolveRules(notification)
+      val resolvedRules = ruleResolver.resolveRules(notification)
+      val affectedRules = resolvedRules.involvedRules
+      val settings = resolvedRules.preferences
       logcat { "Notification ${notification.key} rules: $affectedRules" }
       for (setting in settings.asMap()) {
          logcat { "   ${setting.key} = ${setting.value}" }
@@ -104,7 +106,8 @@ class NotificationProcessor(
          notification,
          suppressVibration,
          settings,
-         pauseStatusBeforeInsert
+         pauseStatusBeforeInsert,
+         resolvedRules.hasExplicitShowRule,
       )
 
       val regexesToReplace = settings[RuleOption.regexReplacements]
@@ -248,6 +251,7 @@ class NotificationProcessor(
       suppressVibration: Boolean,
       preferences: Preferences,
       pausedBeforeInsert: PauseStatus,
+      hasExplicitShowRule: Boolean,
    ): Pair<MuteReason?, IntArray?> {
       val pattern = (
          notification.overrideVibrationPattern.takeIf { preferences[RuleOption.useNotificationVibrationPattern] }
@@ -282,7 +286,7 @@ class NotificationProcessor(
          return MuteReason.MASTER_SWITCH to null
       }
 
-      if (notification.isSilent && preferences[RuleOption.muteSilentNotifications]) {
+      if (notification.isSilent && preferences[RuleOption.muteSilentNotifications] && !hasExplicitShowRule) {
          logcat { "Not vibrating: silent notification" }
          return MuteReason.SILENT_NOTIFICATION to null
       }

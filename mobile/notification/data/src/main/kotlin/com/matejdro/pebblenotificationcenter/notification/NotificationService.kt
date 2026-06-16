@@ -1,7 +1,6 @@
 package com.matejdro.pebblenotificationcenter.notification
 
 import android.os.Build
-import android.os.Process
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.datastore.core.DataStore
@@ -132,15 +131,30 @@ class NotificationService : NotificationListenerService() {
 
    private suspend fun parseNotification(sbn: StatusBarNotification): ParsedNotification? {
       val ranking = Ranking()
-      currentRanking.getRanking(sbn.key, ranking)
+      val hasRanking = currentRanking.getRanking(sbn.key, ranking)
 
       return notificationParser.parse(
          sbn,
-         getNotificationChannel(sbn),
+         getFastNotificationChannel(sbn, ranking, hasRanking),
          ranking,
          preferenceStore.data.first()[GlobalPreferenceKeys.showMessagingStyleChronologically]
       )
    }
+
+   private fun getFastNotificationChannel(
+      sbn: StatusBarNotification,
+      ranking: Ranking,
+      hasRanking: Boolean,
+   ): Any? =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         if (hasRanking) {
+            ranking.channel ?: sbn.notification.channelId
+         } else {
+            sbn.notification.channelId
+         }
+      } else {
+         null
+      }
 
    private suspend fun resyncActiveNotificationsLocked(): Boolean {
       val currentNotifications = try {
@@ -202,21 +216,6 @@ class NotificationService : NotificationListenerService() {
          delayedResyncJobs.remove(key)
       }
    }
-
-   private suspend fun getNotificationChannel(sbn: StatusBarNotification): Any? =
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-         val cdmActive = waitForCompanionDeviceManager()
-         if (!cdmActive) {
-            logcat { "Companion device manager is not active. Ignoring channels." }
-            return null
-         }
-
-         getNotificationChannels(sbn.packageName, Process.myUserHandle()).firstOrNull {
-            it.id == sbn.notification.channelId
-         }
-      } else {
-         null
-      }
 
    private fun controlListenerHintsAndOpenOnReconnect() {
       val anyWatchConnected = pebbleInfoRetriever.getConnectedWatches().map { it.isNotEmpty() }.distinctUntilChanged()

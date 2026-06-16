@@ -144,23 +144,58 @@ class WatchappConnectionImpl(
       watchMetadata.colorWatch = (flags and 0x01u) != 0u
 
       watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
-      notificationServiceController.resyncActiveNotificationsNow()
+      val resyncedLiveNotifications = notificationServiceController.resyncActiveNotificationsNow()
+      if (!resyncedLiveNotifications) {
+         logcat { "Could not resync live notifications; clearing stale watch sync state" }
+         watchSyncer.clearAllNotifications()
+      }
+      val phoneLaunchNotificationBucket =
+         watchappOpenController.getNextWatchappOpenNotificationBucket().takeIf { resyncedLiveNotifications }
 
       bucketSyncWatchLoop.sendFirstPacketAndStartLoop(
          mapOfNotNull(
             0u to UInt8(1u),
             1u to UInt16(PROTOCOL_VERSION),
             (3u to UInt8(1u)).takeIf { watchappOpenController.isNextWatchappOpenForAutoSync() },
-            watchappOpenController.getNextWatchappOpenNotificationBucket()
-               ?.let { 4u to UInt8(it) },
+            phoneLaunchNotificationBucket?.let { 4u to UInt8(it) },
+            (5u to UInt8(1u)).takeIf { watchappOpenController.isNextWatchappOpenForMirrorReset() },
          ),
          watchVersion,
          watchMetadata.watchBufferSize,
          onBucketsChanged = { pushVibration() },
          currentlyActiveBuckets = activeBuckets,
       )
+      preloadInitialNotificationDetails(phoneLaunchNotificationBucket)
 
       return ReceiveResult.Ack
+   }
+
+   private suspend fun preloadInitialNotificationDetails(phoneLaunchNotificationBucket: Int?) {
+      if (watchMetadata.watchBufferSize <= 0) {
+         return
+      }
+
+      if (phoneLaunchNotificationBucket != null) {
+         notificationDetailsPusher.preloadOpenedNotificationDetails(
+            bucketId = phoneLaunchNotificationBucket,
+            maxPacketSize = watchMetadata.watchBufferSize,
+            colorWatch = watchMetadata.colorWatch
+         )
+      }
+
+      notificationRepository.getAllActiveNotifications()
+         .asSequence()
+         .sortedByDescending { it.systemData.timestamp }
+         .map { it.bucketId }
+         .filter { it > 0 && it != phoneLaunchNotificationBucket }
+         .take(INITIAL_DETAIL_PRELOAD_COUNT)
+         .forEach { bucketId ->
+            notificationDetailsPusher.preloadNotificationDetails(
+               bucketId = bucketId,
+               maxPacketSize = watchMetadata.watchBufferSize,
+               colorWatch = watchMetadata.colorWatch
+            )
+         }
    }
 
    private suspend fun processActionPacket(data: PebbleDictionary): ReceiveResult {
@@ -257,7 +292,10 @@ class WatchappConnectionImpl(
 }
 
 internal const val PRIORITY_USER_INTERACTION = 2
+internal const val PRIORITY_PRELOAD_WATCH_TEXT = -1
 internal const val PRIORITY_WATCH_TEXT = 1
+internal const val PACKET_RESET_WATCH_MIRROR: UByte = 15u
+private const val INITIAL_DETAIL_PRELOAD_COUNT = 5
 
 // This should be sent last, so user has everything visible before watch vibrates
 internal const val PRIORITY_VIBRATION = -1

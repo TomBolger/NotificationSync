@@ -8,7 +8,6 @@
 #include "commons/bytes.h"
 #include "ui/window_image.h"
 #include "ui/window_notification/data_loading.h"
-#include "ui/window_notification/idle_handler.h"
 #include "ui/window_notification/window_notification.h"
 
 static void receive_phone_welcome(const DictionaryIterator* iterator);
@@ -21,6 +20,7 @@ static void receive_submenu_packet(const DictionaryIterator* iterator);
 static void receive_watch_packet(const DictionaryIterator* received);
 static void receive_vibrate_packet(const DictionaryIterator* iterator);
 static void receive_image_packet(const DictionaryIterator* iterator);
+static void receive_reset_watch_mirror_packet(void);
 
 static int close_retries_left = 3;
 static uint8_t active_buckets_holder[MAX_BUCKETS];
@@ -176,6 +176,9 @@ static void receive_watch_packet(const DictionaryIterator* received)
     case 14:
         receive_notification_details_continuation_packet(received);
         break;
+    case 15:
+        receive_reset_watch_mirror_packet();
+        break;
     case 7:
         receive_vibrate_packet(received);
         break;
@@ -199,6 +202,11 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
     if (phone_launch && dict_find(iterator, 3) != NULL)
     {
         bucket_sync_set_auto_close_after_sync();
+    }
+
+    if (dict_find(iterator, 5) != NULL)
+    {
+        bucket_sync_forget_buckets_from(2);
     }
 
     const uint16_t phone_protocol_version = dict_find(iterator, 1)->value->uint16;
@@ -281,14 +289,7 @@ static void receive_vibrate_packet(const DictionaryIterator* iterator)
         segments[i] = read_uint16_from_byte_array(data, i * 2);
     }
 
-    const VibePattern vibe_pattern = {
-        .durations = segments,
-        .num_segments = num_segments,
-    };
-    vibes_cancel();
-    vibes_enqueue_custom_pattern(vibe_pattern);
-
-    idle_handler_notify_received_new_vibration();
+    window_notification_ui_play_or_defer_vibration(segments, num_segments);
 }
 
 static void receive_submenu_packet(const DictionaryIterator* iterator)
@@ -301,4 +302,9 @@ static void receive_image_packet(const DictionaryIterator* iterator)
 {
     const Tuple* data_dict_entry = dict_find(iterator, 1);
     window_image_show(data_dict_entry->value->data, data_dict_entry->length);
+}
+
+static void receive_reset_watch_mirror_packet()
+{
+    bucket_sync_forget_buckets_from(2);
 }

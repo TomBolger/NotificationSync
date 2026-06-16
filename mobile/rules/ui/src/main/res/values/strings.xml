@@ -173,4 +173,7 @@
     <string name="preference_regex_replacement_add_to">With:</string>
     <string name="preference_regex_replacement_add_groups">(You can refer to the captured groups with the $1, $2 etc.)</string>
     <string name="preference_regex_replacement_description">Replace some text in the notification with something else. This can be used to remove unimportant information or make important information more prominent.</string>
+    <string name="reset">Reset</string>
+    <string name="reset_watch_mirror">Reset watch mirror</string>
+    <string name="reset_watch_mirror_description">Clear Notification Sync\'s watch-side notification cache and rebuild it from Android\'s current notification shade.</string>
 </resources>

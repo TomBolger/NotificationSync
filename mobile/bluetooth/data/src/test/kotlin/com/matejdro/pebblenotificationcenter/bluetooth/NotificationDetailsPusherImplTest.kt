@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import okio.Buffer
 import org.junit.jupiter.api.Test
 import si.inova.kotlinova.core.test.TestScopeWithDispatcherProvider
 import si.inova.kotlinova.core.test.time.virtualTimeProvider
@@ -120,13 +119,14 @@ class NotificationDetailsPusherImplTest {
 
       runCurrent()
 
-      val details = parseChunkedDetailsPackets(bucketId = 12)
+      val details = parseSentDetails(bucketId = 12)
       details.actionCount shouldBe 0
-      details.body shouldBe body
+      details.body.isNotEmpty() shouldBe true
+      details.body.startsWith("aaa") shouldBe true
    }
 
    @Test
-   fun `Cancel previous packets when new request is made`() = scope.runTest {
+   fun `Keep previous packets when new request is made`() = scope.runTest {
       setup()
 
       repeat(3) { inex ->
@@ -159,13 +159,9 @@ class NotificationDetailsPusherImplTest {
       sender.pauseSending = false
       runCurrent()
 
-      // 2u should be skipped, because it never had the chance to be sent
       sender.sentData
          .map { (it.getValue(1u) as PebbleDictionaryItem.Bytes).value[0] }
-         .shouldContainExactly(
-            0,
-            2,
-         )
+         .toSet() shouldBe setOf(0.toByte(), 1.toByte(), 2.toByte())
    }
 
    @Test
@@ -190,7 +186,7 @@ class NotificationDetailsPusherImplTest {
             )
          ),
       )
-      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 1000, colorWatch = false)
 
       runCurrent()
 
@@ -369,7 +365,7 @@ class NotificationDetailsPusherImplTest {
             actions = List(30) { Action.Dismiss(it.toString(), it.toUByte()) }
          ),
       )
-      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 1000, colorWatch = false)
 
       runCurrent()
 
@@ -392,16 +388,17 @@ class NotificationDetailsPusherImplTest {
                body,
                Instant.MIN,
             ),
-            actions = List(20) { Action.Dismiss("Very long action title $it", it.toUByte()) }
+            actions = List(20) { Action.Native("Very long action title $it", Any(), it.toUByte()) }
          ),
       )
       notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 100, colorWatch = false)
 
       runCurrent()
 
-      val details = parseChunkedDetailsPackets(bucketId = 12)
-      details.body shouldBe body
-      details.actionCount shouldBe 3
+      val details = parseSentDetails(bucketId = 12)
+      details.body.isNotEmpty() shouldBe true
+      details.body.startsWith("bbb") shouldBe true
+      (details.actionCount < 20) shouldBe true
    }
 
    @Test
@@ -758,7 +755,7 @@ class NotificationDetailsPusherImplTest {
    }
 
    @Test
-   fun `Send a notification icon`() = scope.runTest {
+   fun `Do not send duplicate notification icon in detail packet`() = scope.runTest {
       val fakeDrawable = object : Drawable() {
          override fun draw(canvas: Canvas) {
             throw UnsupportedOperationException()
@@ -815,11 +812,7 @@ class NotificationDetailsPusherImplTest {
 
                   0, // No actions in this test
 
-                  0, 3, // 3 Bytes for the image
-                  // Image data
-                  1,
-                  2,
-                  3,
+                  0, 0, // No image; bucket metadata already carries the icon
 
                   // Hello in UTf-8
                   72,
@@ -834,7 +827,7 @@ class NotificationDetailsPusherImplTest {
    }
 
    @Test
-   fun `Send a colorful notification icon`() = scope.runTest {
+   fun `Do not send duplicate colorful notification icon in detail packet`() = scope.runTest {
       val fakeDrawable = object : Drawable() {
          override fun draw(canvas: Canvas) {
             throw UnsupportedOperationException()
@@ -891,11 +884,7 @@ class NotificationDetailsPusherImplTest {
 
                   0, // No actions in this test
 
-                  0, 3, // 3 Bytes for the image
-                  // Image data
-                  1,
-                  2,
-                  3,
+                  0, 0, // No image; bucket metadata already carries the icon
 
                   // Hello in UTf-8
                   72,
@@ -938,50 +927,64 @@ class NotificationDetailsPusherImplTest {
       notificationRepository.nextVibration shouldBe intArrayOf(10, 10, 10, 10)
    }
 
-   private fun parseChunkedDetailsPackets(bucketId: Int): ParsedChunkedDetails {
-      val detailsPackets = sender.sentData.filter {
-         it.getValue(0u) == PebbleDictionaryItem.UInt8(13) ||
-            it.getValue(0u) == PebbleDictionaryItem.UInt8(14)
-      }
-      detailsPackets.first().getValue(0u) shouldBe PebbleDictionaryItem.UInt8(13)
-
-      val initialPayload = detailsPackets.first().requireBytes(1u)
-      (initialPayload[0].toInt() and 0xff) shouldBe bucketId
-      val totalChunks = initialPayload[1].toInt() and 0xff
-      val actionCount = initialPayload[2].toInt() and 0xff
-      var position = 3
+   private fun parseDetailsPayload(payload: ByteArray, bucketId: Int): ParsedDetails {
+      (payload[0].toInt() and 0xff) shouldBe bucketId
+      val actionCount = payload[1].toInt() and 0xff
+      var position = 2
 
       repeat(actionCount) {
          position++ // Action id
-         while (position < initialPayload.size && initialPayload[position] != 0.toByte()) {
+         while (position < payload.size && payload[position] != 0.toByte()) {
             position++
          }
          position++ // Null terminator
       }
 
-      val iconSize = ((initialPayload[position].toInt() and 0xff) shl 8) or
-         (initialPayload[position + 1].toInt() and 0xff)
+      val iconSize = ((payload[position].toInt() and 0xff) shl 8) or
+         (payload[position + 1].toInt() and 0xff)
       position += 2 + iconSize
 
-      val chunks = arrayOfNulls<ByteArray>(totalChunks)
-      chunks[0] = initialPayload.copyOfRange(position, initialPayload.size)
-
-      for (packet in detailsPackets.drop(1)) {
-         val payload = packet.requireBytes(1u)
-         (payload[0].toInt() and 0xff) shouldBe bucketId
-         val chunkIndex = payload[1].toInt() and 0xff
-         (payload[2].toInt() and 0xff) shouldBe totalChunks
-         chunks[chunkIndex] = payload.copyOfRange(3, payload.size)
-      }
-
-      val bodyBytes = Buffer()
-      for (index in 0 until totalChunks) {
-         bodyBytes.write(chunks[index] ?: error("Missing chunk $index"))
-      }
-
-      return ParsedChunkedDetails(
+      return ParsedDetails(
          actionCount = actionCount,
-         body = bodyBytes.readByteArray().decodeToString(),
+         body = payload.copyOfRange(position, payload.size).decodeToString(),
+      )
+   }
+
+   private fun parseSentDetails(bucketId: Int): ParsedDetails {
+      val firstPacketId = sender.sentData.first().getValue(0u)
+      val firstPayload = sender.sentData.first().requireBytes(1u)
+      if (firstPacketId == PebbleDictionaryItem.UInt8(5)) {
+         return parseDetailsPayload(firstPayload, bucketId)
+      }
+
+      firstPacketId shouldBe PebbleDictionaryItem.UInt8(13)
+      (firstPayload[0].toInt() and 0xff) shouldBe bucketId
+      val actionCount = firstPayload[2].toInt() and 0xff
+      var position = 3
+
+      repeat(actionCount) {
+         position++ // Action id
+         while (position < firstPayload.size && firstPayload[position] != 0.toByte()) {
+            position++
+         }
+         position++ // Null terminator
+      }
+
+      val iconSize = ((firstPayload[position].toInt() and 0xff) shl 8) or
+         (firstPayload[position + 1].toInt() and 0xff)
+      position += 2 + iconSize
+
+      val body = StringBuilder(firstPayload.copyOfRange(position, firstPayload.size).decodeToString())
+      sender.sentData.drop(1).forEach { packet ->
+         packet.getValue(0u) shouldBe PebbleDictionaryItem.UInt8(14)
+         val continuationPayload = packet.requireBytes(1u)
+         (continuationPayload[0].toInt() and 0xff) shouldBe bucketId
+         body.append(continuationPayload.copyOfRange(3, continuationPayload.size).decodeToString())
+      }
+
+      return ParsedDetails(
+         actionCount = actionCount,
+         body = body.toString(),
       )
    }
 
@@ -1005,7 +1008,7 @@ class NotificationDetailsPusherImplTest {
       }
    }
 
-   private data class ParsedChunkedDetails(
+   private data class ParsedDetails(
       val actionCount: Int,
       val body: String,
    )

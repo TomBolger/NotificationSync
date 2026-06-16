@@ -16,6 +16,7 @@ android {
 
 dependencies {
    api(projects.notification.api)
+   api(projects.bluetooth.api)
    api(projects.rules.api)
    api(projects.common)
    api(libs.kotlin.coroutines)

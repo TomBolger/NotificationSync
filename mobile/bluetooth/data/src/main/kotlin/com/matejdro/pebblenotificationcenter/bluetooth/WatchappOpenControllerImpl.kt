@@ -35,6 +35,7 @@ class WatchappOpenControllerImpl(
 ) : WatchappOpenController, BucketSyncWatchappOpenController {
    private var nextWatchappOpenForAutoSync: Boolean = false
    private var nextWatchappOpenNotificationBucket: Int? = null
+   private var nextWatchappOpenForMirrorReset: Boolean = false
    private val lastOpenedApps = HashMap<WatchIdentifier, UUID?>()
    private val deferredOpenJobs = HashMap<WatchIdentifier, Job>()
 
@@ -54,9 +55,18 @@ class WatchappOpenControllerImpl(
       nextWatchappOpenNotificationBucket = bucketId
    }
 
+   override fun isNextWatchappOpenForMirrorReset(): Boolean {
+      return nextWatchappOpenForMirrorReset
+   }
+
+   override fun setNextWatchappOpenForMirrorReset() {
+      nextWatchappOpenForMirrorReset = true
+   }
+
    override fun resetNextWatchappOpen() {
       nextWatchappOpenForAutoSync = false
       nextWatchappOpenNotificationBucket = null
+      nextWatchappOpenForMirrorReset = false
    }
 
    override suspend fun openWatchapp() {

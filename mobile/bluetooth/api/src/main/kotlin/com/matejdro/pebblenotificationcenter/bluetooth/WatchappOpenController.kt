@@ -7,6 +7,8 @@ interface WatchappOpenController {
    fun setNextWatchappOpenForAutoSync()
    fun getNextWatchappOpenNotificationBucket(): Int?
    fun setNextWatchappOpenNotificationBucket(bucketId: Int)
+   fun isNextWatchappOpenForMirrorReset(): Boolean
+   fun setNextWatchappOpenForMirrorReset()
    fun resetNextWatchappOpen()
 
    suspend fun openWatchapp()

@@ -15,6 +15,7 @@ class FakeWatchSyncer : WatchSyncer {
 
    var nextBucketId = 1
    var watchBufferSize = 0
+   var onClearAllNotifications: suspend () -> Unit = {}
    private val bucketIdsByKey = HashMap<String, Int>()
 
    override suspend fun init() {
@@ -27,6 +28,7 @@ class FakeWatchSyncer : WatchSyncer {
    override suspend fun clearAllNotifications() {
       clearAllCalled = true
       bucketIdsByKey.clear()
+      onClearAllNotifications()
    }
 
    override suspend fun clearNotification(key: String) {

@@ -13,8 +13,19 @@ static int16_t next_notification_to_fetch = -1;
 
 static void on_sending_finished(const bool success);
 static void finish_fetching_if_complete(bool complete);
+static void fetch_notification_details(uint8_t bucket_id, bool user_requested);
 
 void notification_details_fetcher_fetch(const uint8_t bucket_id)
+{
+    fetch_notification_details(bucket_id, true);
+}
+
+void notification_details_fetcher_prefetch(const uint8_t bucket_id)
+{
+    fetch_notification_details(bucket_id, false);
+}
+
+static void fetch_notification_details(const uint8_t bucket_id, const bool user_requested)
 {
     if (close_after_sync)
     {
@@ -26,7 +37,14 @@ void notification_details_fetcher_fetch(const uint8_t bucket_id)
     {
         if (current_notification_to_fetch != bucket_id)
         {
-            next_notification_to_fetch = bucket_id;
+            if (user_requested)
+            {
+                next_notification_to_fetch = bucket_id;
+            }
+            else if (next_notification_to_fetch < 0)
+            {
+                next_notification_to_fetch = bucket_id;
+            }
         }
         return;
     }
@@ -37,7 +55,10 @@ void notification_details_fetcher_fetch(const uint8_t bucket_id)
     if (!success)
     {
         current_notification_to_fetch = -1;
-        next_notification_to_fetch = bucket_id;
+        if (user_requested)
+        {
+            next_notification_to_fetch = bucket_id;
+        }
         bluetooth_register_sending_finish(on_sending_finished);
         return;
     }
@@ -94,7 +115,7 @@ static void finish_fetching_if_complete(const bool complete)
     {
         const uint8_t local_next_notification_to_fetch = next_notification_to_fetch;
         next_notification_to_fetch = -1;
-        notification_details_fetcher_fetch(local_next_notification_to_fetch);
+        fetch_notification_details(local_next_notification_to_fetch, true);
     }
 }
 
@@ -106,7 +127,7 @@ static void on_sending_finished(const bool success)
         {
             const uint8_t local_next_notification_to_fetch = next_notification_to_fetch;
             next_notification_to_fetch = -1;
-            notification_details_fetcher_fetch(local_next_notification_to_fetch);
+            fetch_notification_details(local_next_notification_to_fetch, true);
         }
         else
         {

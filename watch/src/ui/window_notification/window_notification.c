@@ -28,13 +28,14 @@
 // PebbleOS source: src/fw/services/timeline/swap_layer.c
 #define INITIAL_SCROLL_PX LAYOUT_BANNER_HEIGHT_RECT
 #define SCROLL_PX 48
-#define REPEATING_SCROLL_PX 24
-#define SWAP_MS 200
+#define REPEATING_SCROLL_PX 72
+#define SWAP_MS 150
 #define DISMISS_FALLBACK_MS 500
 #define PEEK_PX LAYOUT_BANNER_HEIGHT_RECT
 #define FUDGE_PX PEEK_PX
 #define MESSAGE_SWAP_DELAY 3
 #define DETAIL_BODY_CACHE_SLOTS PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 2, 2, 2, 2, 3, 3, 3)
+#define MAX_DEFERRED_VIBE_SEGMENTS 16
 
 typedef enum
 {
@@ -81,6 +82,8 @@ static Window* notification_window;
 static Window* detail_window;
 static MenuLayer* menu_layer;
 static Layer* empty_state_layer;
+static Layer* phone_launch_pending_layer;
+static Animation* phone_launch_pending_animation;
 static ScrollLayer* detail_scroll_layer;
 static Layer* detail_content_layer;
 static Layer* detail_swap_layer;
@@ -114,13 +117,16 @@ static bool phone_launch_detail_pending;
 static int16_t phone_launch_detail_bucket_id = -1;
 static int16_t pending_auto_open_bucket_id = -1;
 static int16_t updated_notification_bucket_id = -1;
+static int16_t pending_manual_swap_bucket_id = -1;
 static bool detail_opened_from_phone_launch;
 static bool detail_arrow_hidden = true;
 static AppTimer* deferred_new_top_timer;
-static AppTimer* pending_detail_open_timer;
-static int16_t pending_detail_open_bucket_id = -1;
-static bool pending_detail_open_from_phone_launch;
 static bool has_seen_real_notification_items;
+static bool phone_launch_pending_exit_animating;
+static uint32_t deferred_phone_launch_vibration[MAX_DEFERRED_VIBE_SEGMENTS];
+static uint32_t deferred_phone_launch_vibration_segments;
+static GRect phone_launch_pending_start_frame;
+static GRect phone_launch_pending_end_frame;
 
 static bool load_selected_detail_data(void);
 static void reload_detail_after_selected_bucket_changed(void);
@@ -137,8 +143,12 @@ static void detail_scroll_to_offset(ScrollLayer* scroll_layer, int16_t offset, b
 static void restore_detail_click_config(void);
 static void sync_menu_selection(MenuRowAlign align, bool animated);
 static void prefetch_detail_for_item(const NotificationListItem* item);
+static void prefetch_detail_around_index(int16_t selected_index);
 static void select_pending_notification_and_open_detail(void);
-static bool platform_prefers_full_detail_before_open(void);
+static bool begin_detail_swap_animation(int8_t delta);
+static void flush_deferred_phone_launch_vibration(void);
+static void phone_launch_pending_layer_update(Layer* layer, GContext* ctx);
+static void start_phone_launch_pending_exit_animation(void);
 
 static bool launched_from_phone_notification(void)
 {
@@ -147,12 +157,17 @@ static bool launched_from_phone_notification(void)
 
 static bool should_hide_list_window_contents(void)
 {
-    return launched_from_phone_notification() && detail_window == NULL;
+    return launched_from_phone_notification() &&
+        (detail_window == NULL || phone_launch_pending_exit_animating);
 }
 
 static void update_list_layer_visibility(void)
 {
     const bool hide_list = should_hide_list_window_contents();
+    if (notification_window != NULL)
+    {
+        window_set_background_color(notification_window, GColorWhite);
+    }
     if (menu_layer != NULL)
     {
         layer_set_hidden(menu_layer_get_layer(menu_layer), hide_list);
@@ -162,6 +177,42 @@ static void update_list_layer_visibility(void)
         layer_set_hidden(empty_state_layer, hide_list || notification_item_count != 0);
         layer_mark_dirty(empty_state_layer);
     }
+    if (phone_launch_pending_layer != NULL)
+    {
+        layer_set_hidden(phone_launch_pending_layer, !hide_list);
+        if (hide_list)
+        {
+            layer_mark_dirty(phone_launch_pending_layer);
+        }
+    }
+}
+
+static void play_vibration_pattern(const uint32_t* durations, const uint32_t num_segments)
+{
+    if (durations == NULL || num_segments == 0)
+    {
+        return;
+    }
+
+    const VibePattern vibe_pattern = {
+        .durations = (uint32_t*)durations,
+        .num_segments = num_segments,
+    };
+    vibes_cancel();
+    vibes_enqueue_custom_pattern(vibe_pattern);
+    idle_handler_notify_received_new_vibration();
+}
+
+static void flush_deferred_phone_launch_vibration(void)
+{
+    if (deferred_phone_launch_vibration_segments == 0 || detail_window == NULL)
+    {
+        return;
+    }
+
+    const uint32_t num_segments = deferred_phone_launch_vibration_segments;
+    deferred_phone_launch_vibration_segments = 0;
+    play_vibration_pattern(deferred_phone_launch_vibration, num_segments);
 }
 
 static void close_failed_detail_window(void* context)
@@ -400,17 +451,24 @@ static const DetailBodyCacheEntry* cached_detail_for_item(const NotificationList
         return NULL;
     }
 
+    const DetailBodyCacheEntry* bucket_only_match = NULL;
     for (uint8_t i = 0; i < ARRAY_LENGTH(detail_body_cache); i++)
     {
         if (detail_body_cache[i].body != NULL &&
-            detail_body_cache[i].bucket_id == item->bucket_id &&
-            detail_body_cache[i].receive_time == item->receive_time)
+            detail_body_cache[i].bucket_id == item->bucket_id)
         {
-            return &detail_body_cache[i];
+            if (detail_body_cache[i].receive_time == item->receive_time)
+            {
+                return &detail_body_cache[i];
+            }
+            if (detail_body_cache[i].receive_time == 0)
+            {
+                bucket_only_match = &detail_body_cache[i];
+            }
         }
     }
 
-    return NULL;
+    return bucket_only_match;
 }
 
 static const char* cached_body_for_item(const NotificationListItem* item)
@@ -422,99 +480,21 @@ static const char* cached_body_for_item(const NotificationListItem* item)
 static const char* body_for_detail_item(const NotificationListItem* item)
 {
     const char* cached_body = cached_body_for_item(item);
-    if (cached_body != NULL)
-    {
-        return cached_body;
-    }
-
-    if (platform_prefers_full_detail_before_open())
-    {
-        return "";
-    }
-
-    return item != NULL ? item->body : "";
-}
-
-static bool platform_prefers_full_detail_before_open(void)
-{
-    return PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT,
-                               false,
-                               false,
-                               false,
-                               false,
-                               true,
-                               true,
-                               true);
+    return cached_body != NULL ? cached_body : item != NULL ? item->body : "";
 }
 
 static bool should_fetch_full_detail_before_open(const NotificationListItem* item)
 {
     const DetailBodyCacheEntry* cached_detail = cached_detail_for_item(item);
-    return platform_prefers_full_detail_before_open() &&
-        item != NULL &&
+    return item != NULL &&
+        notification_item_has_loaded_content(item) &&
         (cached_detail == NULL || !cached_detail->has_actions);
 }
 
 static bool item_has_renderable_detail(const NotificationListItem* item)
 {
-    const DetailBodyCacheEntry* cached_detail = cached_detail_for_item(item);
-    if (!platform_prefers_full_detail_before_open())
-    {
-        return item != NULL;
-    }
-
-    return cached_detail != NULL && cached_detail->has_actions;
-}
-
-static void clear_pending_detail_open(void)
-{
-    if (pending_detail_open_timer != NULL)
-    {
-        app_timer_cancel(pending_detail_open_timer);
-        pending_detail_open_timer = NULL;
-    }
-    pending_detail_open_bucket_id = -1;
-    pending_detail_open_from_phone_launch = false;
-}
-
-static void open_pending_detail_after_cache(void* context)
-{
-    (void)context;
-    pending_detail_open_timer = NULL;
-    if (pending_detail_open_bucket_id <= 0 || detail_window != NULL)
-    {
-        clear_pending_detail_open();
-        return;
-    }
-
-    const int16_t target_index =
-        find_notification_index((uint8_t)pending_detail_open_bucket_id, false);
-    if (target_index < 0)
-    {
-        clear_pending_detail_open();
-        return;
-    }
-
-    window_notification_data.currently_selected_bucket_index = target_index;
-    window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
-    sync_menu_selection(MenuRowAlignCenter, false);
-
-    detail_opened_from_phone_launch = pending_detail_open_from_phone_launch;
-    clear_pending_detail_open();
-    window_notification_ui_open_selected_detail();
-}
-
-static bool request_full_detail_then_open(const NotificationListItem* item)
-{
-    if (!should_fetch_full_detail_before_open(item))
-    {
-        return false;
-    }
-
-    pending_detail_open_bucket_id = item->bucket_id;
-    pending_detail_open_from_phone_launch = detail_opened_from_phone_launch;
-    notification_details_fetcher_fetch(item->bucket_id);
-    return true;
+    return item != NULL &&
+        notification_item_has_loaded_content(item);
 }
 
 static void prefetch_detail_for_item(const NotificationListItem* item)
@@ -524,7 +504,32 @@ static void prefetch_detail_for_item(const NotificationListItem* item)
         return;
     }
 
-    notification_details_fetcher_fetch(item->bucket_id);
+    notification_details_fetcher_prefetch(item->bucket_id);
+}
+
+static void prefetch_detail_around_index(const int16_t selected_index)
+{
+    if (selected_index < 0 || selected_index >= notification_item_count)
+    {
+        return;
+    }
+
+    prefetch_detail_for_item(&notification_items[selected_index]);
+
+    for (int16_t distance = 1; distance <= 2; distance++)
+    {
+        const int16_t next_index = selected_index + distance;
+        if (next_index < notification_item_count)
+        {
+            prefetch_detail_for_item(&notification_items[next_index]);
+        }
+
+        const int16_t previous_index = selected_index - distance;
+        if (previous_index >= 0)
+        {
+            prefetch_detail_for_item(&notification_items[previous_index]);
+        }
+    }
 }
 
 static bool notification_item_exists(const uint8_t bucket_id, const time_t receive_time)
@@ -532,7 +537,7 @@ static bool notification_item_exists(const uint8_t bucket_id, const time_t recei
     for (uint8_t i = 0; i < notification_item_count; i++)
     {
         if (notification_items[i].bucket_id == bucket_id &&
-            notification_items[i].receive_time == receive_time)
+            (receive_time == 0 || notification_items[i].receive_time == receive_time))
         {
             return true;
         }
@@ -582,7 +587,7 @@ static void cache_detail_payload_sized(const uint8_t bucket_id, const time_t rec
                                        const char* body, const size_t body_size,
                                        const Action* actions, const uint8_t num_actions)
 {
-    if (bucket_id == 0 || receive_time == 0 || body == NULL)
+    if (bucket_id == 0 || body == NULL)
     {
         return;
     }
@@ -592,7 +597,9 @@ static void cache_detail_payload_sized(const uint8_t bucket_id, const time_t rec
     {
         if (detail_body_cache[i].body != NULL &&
             detail_body_cache[i].bucket_id == bucket_id &&
-            detail_body_cache[i].receive_time == receive_time)
+            (detail_body_cache[i].receive_time == receive_time ||
+                detail_body_cache[i].receive_time == 0 ||
+                receive_time == 0))
         {
             cache_slot = i;
             break;
@@ -822,6 +829,17 @@ static void draw_row_callback(GContext* ctx, const Layer* cell_layer, MenuIndex*
     const char* title;
     const char* subtitle;
     resolve_pebbleos_cell_text(item, &title, &subtitle);
+    char title_buffer[MAX_NOTIFICATION_TITLE];
+    char subtitle_buffer[MAX_NOTIFICATION_SNIPPET];
+    strncpy(title_buffer, title != NULL ? title : "", sizeof(title_buffer) - 1);
+    title_buffer[sizeof(title_buffer) - 1] = '\0';
+    if (subtitle != NULL)
+    {
+        strncpy(subtitle_buffer, subtitle, sizeof(subtitle_buffer) - 1);
+        subtitle_buffer[sizeof(subtitle_buffer) - 1] = '\0';
+        subtitle = subtitle_buffer;
+    }
+    title = title_buffer;
 
     prv_draw_notification_cell_rect(ctx, cell_layer, title, subtitle, icon_for_id(item->icon_id));
 }
@@ -853,6 +871,151 @@ static void empty_state_layer_update(Layer* layer, GContext* ctx)
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter,
                        NULL);
+}
+
+static int16_t scale_logo_point(const int16_t value)
+{
+    return (value * 3) / 2;
+}
+
+static GPoint logo_point(const GPoint origin, const int16_t x, const int16_t y)
+{
+    return GPoint(origin.x + scale_logo_point(x), origin.y + scale_logo_point(y));
+}
+
+static void draw_phone_launch_logo_line(GContext* ctx, const GPoint a, const GPoint b)
+{
+    for (int8_t dx = -1; dx <= 1; dx++)
+    {
+        for (int8_t dy = -1; dy <= 1; dy++)
+        {
+            graphics_draw_line(ctx,
+                               GPoint(a.x + dx, a.y + dy),
+                               GPoint(b.x + dx, b.y + dy));
+        }
+    }
+}
+
+static void phone_launch_pending_layer_update(Layer* layer, GContext* ctx)
+{
+    const GRect bounds = layer_get_bounds(layer);
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    const int16_t logo_size = scale_logo_point(50);
+    const GPoint origin = GPoint(bounds.origin.x + (bounds.size.w - logo_size) / 2,
+                                 bounds.origin.y + (bounds.size.h - logo_size) / 2 - 2);
+    const GPoint outline[] = {
+        logo_point(origin, 10, 15),
+        logo_point(origin, 10, 27),
+        logo_point(origin, 4, 33),
+        logo_point(origin, 4, 41),
+        logo_point(origin, 44, 41),
+        logo_point(origin, 44, 33),
+        logo_point(origin, 38, 27),
+        logo_point(origin, 38, 15),
+        logo_point(origin, 30, 7),
+        logo_point(origin, 18, 7),
+        logo_point(origin, 10, 15),
+    };
+
+    for (uint8_t i = 1; i < ARRAY_LENGTH(outline); i++)
+    {
+        draw_phone_launch_logo_line(ctx, outline[i - 1], outline[i]);
+    }
+    draw_phone_launch_logo_line(ctx, logo_point(origin, 4, 33), logo_point(origin, 20, 33));
+    draw_phone_launch_logo_line(ctx, logo_point(origin, 24, 6), logo_point(origin, 24, 2));
+    draw_phone_launch_logo_line(ctx, logo_point(origin, 34, 41), logo_point(origin, 36, 47));
+}
+
+static void phone_launch_pending_animation_update(Animation* animation, const AnimationProgress progress)
+{
+    (void)animation;
+
+    if (phone_launch_pending_layer == NULL)
+    {
+        return;
+    }
+
+    GRect frame = phone_launch_pending_start_frame;
+    const int32_t range =
+        (int32_t)phone_launch_pending_end_frame.origin.y -
+        (int32_t)phone_launch_pending_start_frame.origin.y;
+    frame.origin.y = phone_launch_pending_start_frame.origin.y +
+        (int16_t)((range * (int32_t)progress) / ANIMATION_NORMALIZED_MAX);
+    layer_set_frame(phone_launch_pending_layer, frame);
+}
+
+static void phone_launch_pending_animation_stopped(Animation* animation, const bool finished, void* context)
+{
+    (void)animation;
+    (void)finished;
+    (void)context;
+
+    if (phone_launch_pending_animation != NULL)
+    {
+        animation_destroy(phone_launch_pending_animation);
+        phone_launch_pending_animation = NULL;
+    }
+
+    phone_launch_pending_exit_animating = false;
+    if (phone_launch_pending_layer != NULL && notification_window != NULL)
+    {
+        Layer* window_layer = window_get_root_layer(notification_window);
+        layer_set_frame(phone_launch_pending_layer, layer_get_bounds(window_layer));
+    }
+    update_list_layer_visibility();
+}
+
+static void start_phone_launch_pending_exit_animation(void)
+{
+    if (phone_launch_pending_layer == NULL || notification_window == NULL)
+    {
+        phone_launch_pending_exit_animating = false;
+        return;
+    }
+
+    if (phone_launch_pending_animation != NULL)
+    {
+        Animation* animation = phone_launch_pending_animation;
+        phone_launch_pending_animation = NULL;
+        animation_unschedule(animation);
+        animation_destroy(animation);
+    }
+
+    Layer* window_layer = window_get_root_layer(notification_window);
+    phone_launch_pending_start_frame = layer_get_bounds(window_layer);
+    phone_launch_pending_end_frame = phone_launch_pending_start_frame;
+    phone_launch_pending_end_frame.origin.y = -phone_launch_pending_start_frame.size.h;
+
+    layer_set_frame(phone_launch_pending_layer, phone_launch_pending_start_frame);
+    layer_set_hidden(phone_launch_pending_layer, false);
+    layer_mark_dirty(phone_launch_pending_layer);
+
+    phone_launch_pending_animation = animation_create();
+    if (phone_launch_pending_animation == NULL)
+    {
+        phone_launch_pending_exit_animating = false;
+        update_list_layer_visibility();
+        return;
+    }
+
+    phone_launch_pending_exit_animating = true;
+    static const AnimationImplementation implementation =
+    {
+        .update = phone_launch_pending_animation_update,
+    };
+    animation_set_implementation(phone_launch_pending_animation, &implementation);
+    animation_set_duration(phone_launch_pending_animation, 160);
+    animation_set_curve(phone_launch_pending_animation, AnimationCurveEaseIn);
+    animation_set_handlers(phone_launch_pending_animation,
+                           (AnimationHandlers)
+                           {
+                               .stopped = phone_launch_pending_animation_stopped,
+                           },
+                           NULL);
+    animation_schedule(phone_launch_pending_animation);
 }
 
 static void select_callback(MenuLayer* layer, MenuIndex* cell_index, void* context)
@@ -888,12 +1051,8 @@ static void selection_changed_callback(MenuLayer* layer, MenuIndex new_index, Me
 
     window_notification_data.currently_selected_bucket_index = new_index.row;
     window_notification_data.currently_selected_bucket = notification_items[new_index.row].bucket_id;
-    if (pending_detail_open_bucket_id > 0 &&
-        pending_detail_open_bucket_id != window_notification_data.currently_selected_bucket)
-    {
-        clear_pending_detail_open();
-    }
-    prefetch_detail_for_item(&notification_items[new_index.row]);
+    pending_manual_swap_bucket_id = -1;
+    prefetch_detail_around_index(new_index.row);
 }
 
 static void reload_menu_layer(void)
@@ -924,7 +1083,7 @@ static void reload_menu_layer(void)
         MenuRowAlignNone,
         false
     );
-    prefetch_detail_for_item(&notification_items[selected_index]);
+    prefetch_detail_around_index(selected_index);
 }
 
 static void sync_menu_selection(const MenuRowAlign align, const bool animated)
@@ -948,7 +1107,7 @@ static void sync_menu_selection(const MenuRowAlign align, const bool animated)
         align,
         animated
     );
-    prefetch_detail_for_item(&notification_items[selected_index]);
+    prefetch_detail_around_index(selected_index);
 }
 
 static void cancel_deferred_new_top_timer(void)
@@ -981,7 +1140,6 @@ static void select_top_notification_and_open_detail(void)
     }
 
     if (window_notification_data.detail_open &&
-        !top_notification_is_selected() &&
         !item_has_renderable_detail(&notification_items[0]))
     {
         pending_auto_open_bucket_id = notification_items[0].bucket_id;
@@ -1031,7 +1189,6 @@ static void select_pending_notification_and_open_detail(void)
     }
 
     if (window_notification_data.detail_open &&
-        window_notification_data.currently_selected_bucket_index != target_index &&
         !item_has_renderable_detail(&notification_items[target_index]))
     {
         notification_details_fetcher_fetch(notification_items[target_index].bucket_id);
@@ -1161,8 +1318,6 @@ static int16_t find_phone_launch_detail_index(void)
                 return notification_item_has_loaded_content(&notification_items[i]) ? i : -1;
             }
         }
-
-        return -1;
     }
 
     for (uint8_t i = 0; i < notification_item_count; i++)
@@ -1202,28 +1357,47 @@ static void maybe_open_phone_launch_detail(void)
 
     if (detail_window != NULL)
     {
-        if (window_notification_data.currently_selected_bucket_index == target_index)
-        {
-            phone_launch_detail_pending = false;
-            phone_launch_detail_bucket_id = -1;
-            detail_opened_from_phone_launch = true;
-            restore_detail_click_config();
-            return;
-        }
-
         if (idle_handler_should_keep_current_notification())
         {
+            if (!item_has_renderable_detail(&notification_items[target_index]))
+            {
+                notification_details_fetcher_fetch(notification_items[target_index].bucket_id);
+            }
             schedule_deferred_new_top_selection();
             return;
         }
 
-        phone_launch_detail_pending = false;
-        phone_launch_detail_bucket_id = -1;
+        if (!item_has_renderable_detail(&notification_items[target_index]))
+        {
+            notification_details_fetcher_fetch(notification_items[target_index].bucket_id);
+            return;
+        }
+
+        if (window_notification_data.currently_selected_bucket_index == target_index)
+        {
+            phone_launch_detail_pending = false;
+            phone_launch_detail_bucket_id = -1;
+            update_list_layer_visibility();
+            detail_opened_from_phone_launch = true;
+            reload_detail_after_selected_bucket_updated();
+            restore_detail_click_config();
+            flush_deferred_phone_launch_vibration();
+            return;
+        }
+
         window_notification_data.currently_selected_bucket_index = target_index;
         window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
         sync_menu_selection(MenuRowAlignCenter, false);
         detail_opened_from_phone_launch = true;
         reload_detail_after_selected_bucket_changed();
+        if (window_notification_data.currently_selected_bucket_index == target_index &&
+            item_has_renderable_detail(&notification_items[target_index]))
+        {
+            phone_launch_detail_pending = false;
+            phone_launch_detail_bucket_id = -1;
+            update_list_layer_visibility();
+            flush_deferred_phone_launch_vibration();
+        }
         return;
     }
 
@@ -1233,20 +1407,41 @@ static void maybe_open_phone_launch_detail(void)
         return;
     }
 
-    phone_launch_detail_pending = false;
-    phone_launch_detail_bucket_id = -1;
     window_notification_data.currently_selected_bucket_index = target_index;
     window_notification_data.currently_selected_bucket = notification_items[target_index].bucket_id;
     sync_menu_selection(MenuRowAlignCenter, false);
     detail_opened_from_phone_launch = true;
     window_notification_ui_open_selected_detail();
+    if (detail_window != NULL)
+    {
+        phone_launch_detail_pending = false;
+        phone_launch_detail_bucket_id = -1;
+        update_list_layer_visibility();
+        flush_deferred_phone_launch_vibration();
+    }
 }
 
 void window_notification_ui_open_phone_launch_detail(const uint8_t bucket_id)
 {
     phone_launch_detail_pending = true;
     phone_launch_detail_bucket_id = bucket_id > 0 ? bucket_id : -1;
+    update_list_layer_visibility();
     maybe_open_phone_launch_detail();
+}
+
+void window_notification_ui_play_or_defer_vibration(const uint32_t* durations, const uint32_t num_segments)
+{
+    if (launched_from_phone_notification() && phone_launch_detail_pending && detail_window == NULL)
+    {
+        const uint32_t copied_segments = MIN(num_segments, MAX_DEFERRED_VIBE_SEGMENTS);
+        memcpy(deferred_phone_launch_vibration,
+               durations,
+               copied_segments * sizeof(deferred_phone_launch_vibration[0]));
+        deferred_phone_launch_vibration_segments = copied_segments;
+        return;
+    }
+
+    play_vibration_pattern(durations, num_segments);
 }
 
 static int16_t measure_text_height(const char* text, GFont font, const int16_t width)
@@ -1327,36 +1522,6 @@ static const NotificationListItem* detail_relative_item(const int8_t relative_ch
     ];
 }
 
-static int16_t measure_detail_item_height(const NotificationListItem* item, const int16_t width)
-{
-    if (item == NULL)
-    {
-        return PBL_DISPLAY_HEIGHT;
-    }
-
-    const int16_t text_width = width - (CARD_MARGIN * 2);
-    char footer_text[32];
-    const char* header_text = item_header_text(item);
-    const char* body_text = copy_body_without_sender_prefix(detail_item_body_buffer,
-                                                            sizeof(detail_item_body_buffer),
-                                                            body_for_detail_item(item),
-                                                            header_text);
-    format_since_time(footer_text, sizeof(footer_text), item->receive_time);
-
-    int16_t height = STATUS_BAR_LAYER_HEIGHT + LAYOUT_TOP_BANNER_HEIGHT + 3;
-    height += measure_text_height(header_text,
-                                  system_theme_get_font_for_default_size(TextStyleFont_Header),
-                                  text_width) + 3;
-    height += measure_text_height(body_text,
-                                  system_theme_get_font_for_default_size(TextStyleFont_Body),
-                                  text_width) + 3;
-    height += measure_text_height(footer_text,
-                                  system_theme_get_font_for_default_size(TextStyleFont_Footer),
-                                  text_width);
-    height += CARD_BOTTOM_PADDING + LAYOUT_ARROW_HEIGHT;
-    return MAX(height, PBL_DISPLAY_HEIGHT);
-}
-
 static void format_since_time(char* buffer, const size_t buffer_size, const time_t timestamp)
 {
     if (buffer_size == 0)
@@ -1420,6 +1585,32 @@ static void update_detail_metrics(const int16_t width)
 
 // PebbleOS source: src/fw/applib/ui/action_button.c
 // Adapted only where SDK layers are opaque and preferred-content private helpers are unavailable.
+static int16_t measure_detail_item_height(const NotificationListItem* item, const int16_t width)
+{
+    const int16_t text_width = width - (CARD_MARGIN * 2);
+    const char* header_text = item_header_text(item);
+    const char* body_text = copy_body_without_sender_prefix(detail_item_body_buffer,
+                                                            sizeof(detail_item_body_buffer),
+                                                            body_for_detail_item(item),
+                                                            header_text);
+
+    char footer_text[32];
+    format_since_time(footer_text, sizeof(footer_text), item != NULL ? item->receive_time : 0);
+
+    int16_t height = STATUS_BAR_LAYER_HEIGHT + LAYOUT_TOP_BANNER_HEIGHT + 3;
+    height += measure_text_height(header_text,
+                                  system_theme_get_font_for_default_size(TextStyleFont_Header),
+                                  text_width) + 3;
+    height += measure_text_height(body_text,
+                                  system_theme_get_font_for_default_size(TextStyleFont_Body),
+                                  text_width) + 3;
+    height += measure_text_height(footer_text,
+                                  system_theme_get_font_for_default_size(TextStyleFont_Footer),
+                                  text_width);
+    height += CARD_BOTTOM_PADDING + LAYOUT_ARROW_HEIGHT;
+    return MAX(height, PBL_DISPLAY_HEIGHT);
+}
+
 static void action_button_draw(GContext* ctx, Layer* layer, GColor fill_color)
 {
     const GRect bounds = layer_get_bounds(layer);
@@ -1828,13 +2019,39 @@ void window_notification_ui_cache_details_for_bucket(const uint8_t bucket_id, co
             return;
         }
     }
+
+    cache_detail_payload_sized(bucket_id, 0, body, body_size, actions, num_actions);
 }
 
 void window_notification_ui_on_details_cached(const uint8_t bucket_id)
 {
-    if (pending_auto_open_bucket_id == bucket_id && window_notification_data.detail_open)
+    if (pending_manual_swap_bucket_id == bucket_id && window_notification_data.detail_open)
     {
-        if (idle_handler_should_keep_current_notification())
+        const int16_t target_index = find_notification_index(bucket_id, false);
+        const int16_t current_index = window_notification_data.currently_selected_bucket_index;
+        if (target_index >= 0 &&
+            item_has_renderable_detail(&notification_items[target_index]))
+        {
+            const int8_t delta = target_index - current_index;
+            if (delta == 1 || delta == -1)
+            {
+                pending_manual_swap_bucket_id = -1;
+                begin_detail_swap_animation(delta);
+                return;
+            }
+        }
+    }
+
+    if (phone_launch_detail_pending &&
+        (phone_launch_detail_bucket_id <= 0 || phone_launch_detail_bucket_id == bucket_id))
+    {
+        maybe_open_phone_launch_detail();
+        return;
+    }
+
+    if (pending_auto_open_bucket_id == bucket_id)
+    {
+        if (window_notification_data.detail_open && idle_handler_should_keep_current_notification())
         {
             schedule_deferred_new_top_selection();
         }
@@ -1845,12 +2062,6 @@ void window_notification_ui_on_details_cached(const uint8_t bucket_id)
         return;
     }
 
-    if (pending_detail_open_bucket_id != bucket_id || pending_detail_open_timer != NULL)
-    {
-        return;
-    }
-
-    pending_detail_open_timer = app_timer_register(1, open_pending_detail_after_cache, NULL);
 }
 
 void window_notification_ui_replace_current_body(const uint8_t bucket_id, const char* body,
@@ -1870,6 +2081,9 @@ void window_notification_ui_replace_current_details(const uint8_t bucket_id, con
     }
 
     const size_t bytes_to_copy = MIN(body_size, MAX_BODY_TEXT_SIZE);
+    const bool body_changed =
+        strlen(window_notification_data.body_text) != bytes_to_copy ||
+        memcmp(window_notification_data.body_text, body, bytes_to_copy) != 0;
     memcpy(window_notification_data.body_text, body, bytes_to_copy);
     window_notification_data.body_text[bytes_to_copy] = '\0';
     if (actions != NULL)
@@ -1889,6 +2103,10 @@ void window_notification_ui_replace_current_details(const uint8_t bucket_id, con
         actions,
         num_actions
     );
+    if (body_changed)
+    {
+        window_notification_ui_redraw();
+    }
 }
 
 void window_notification_ui_note_actions_updated()
@@ -2107,15 +2325,13 @@ void window_notification_ui_set_items(const NotificationListItem* items, const u
     {
         pending_auto_open_bucket_id = -1;
     }
-    if (pending_detail_open_bucket_id > 0 &&
-        find_notification_index((uint8_t)pending_detail_open_bucket_id, false) < 0)
-    {
-        clear_pending_detail_open();
-    }
     const int16_t pending_auto_open_index =
         pending_auto_open_bucket_id > 0 ?
             find_auto_open_notification_index((uint8_t)pending_auto_open_bucket_id) : -1;
     const bool pending_auto_open_is_ready = pending_auto_open_index >= 0;
+    const bool pending_auto_open_detail_is_renderable =
+        pending_auto_open_is_ready &&
+        item_has_renderable_detail(&notification_items[pending_auto_open_index]);
     const bool should_defer_auto_open =
         allow_generic_auto_open &&
         pending_auto_open_is_ready &&
@@ -2123,7 +2339,12 @@ void window_notification_ui_set_items(const NotificationListItem* items, const u
     const bool should_select_auto_open =
         allow_generic_auto_open &&
         pending_auto_open_is_ready &&
+        pending_auto_open_detail_is_renderable &&
         !should_defer_auto_open;
+    const bool should_fetch_auto_open_detail =
+        allow_generic_auto_open &&
+        pending_auto_open_is_ready &&
+        !pending_auto_open_detail_is_renderable;
 
     window_notification_data.bucket_count = notification_item_count;
     window_notification_data.using_dummy_data = using_dummy_data;
@@ -2167,6 +2388,10 @@ void window_notification_ui_set_items(const NotificationListItem* items, const u
     prune_detail_body_cache();
     update_app_glance();
     reload_menu_layer();
+    if (should_fetch_auto_open_detail)
+    {
+        notification_details_fetcher_fetch(notification_items[pending_auto_open_index].bucket_id);
+    }
     if (window_notification_data.detail_open &&
         previously_selected_bucket != window_notification_data.currently_selected_bucket)
     {
@@ -2238,15 +2463,7 @@ static bool load_selected_detail_data(void)
         &notification_items[window_notification_data.currently_selected_bucket_index];
     const DetailBodyCacheEntry* cached_detail = cached_detail_for_item(item);
     const bool needs_detail_fetch = cached_detail == NULL || !cached_detail->has_actions;
-    const char* body_text = "";
-    if (cached_detail != NULL)
-    {
-        body_text = cached_detail->body;
-    }
-    else if (!platform_prefers_full_detail_before_open())
-    {
-        body_text = item->body;
-    }
+    const char* body_text = body_for_detail_item(item);
 
     window_notification_data.currently_selected_bucket = item->bucket_id;
     window_notification_data.icon_id = item->icon_id;
@@ -2279,6 +2496,15 @@ static bool load_selected_detail_data(void)
     {
         notification_details_fetcher_fetch(item->bucket_id);
     }
+    else
+    {
+        const int16_t next_index = window_notification_data.currently_selected_bucket_index + 1;
+        if (next_index < notification_item_count &&
+            should_fetch_full_detail_before_open(&notification_items[next_index]))
+        {
+            notification_details_fetcher_prefetch(notification_items[next_index].bucket_id);
+        }
+    }
 
     return true;
 }
@@ -2293,39 +2519,26 @@ static bool switch_detail_by_delta(const int8_t delta)
     }
 
     window_notification_action_list_hide();
-    window_notification_data.currently_selected_bucket_index = target_index;
     if (!item_has_renderable_detail(&notification_items[target_index]))
     {
-        pending_auto_open_bucket_id = notification_items[target_index].bucket_id;
+        pending_manual_swap_bucket_id = notification_items[target_index].bucket_id;
         notification_details_fetcher_fetch(notification_items[target_index].bucket_id);
         return false;
     }
 
+    window_notification_data.currently_selected_bucket_index = target_index;
     if (!load_selected_detail_data())
     {
         return false;
     }
 
+    pending_manual_swap_bucket_id = -1;
     reload_menu_layer();
     sync_menu_selection(MenuRowAlignCenter, false);
     reload_detail_content_size();
     detail_scroll_to_edge(delta < 0);
     detail_swap_delay_remaining = MESSAGE_SWAP_DELAY;
     return true;
-}
-
-static void detail_swap_animation_update(Animation* animation, const AnimationProgress progress)
-{
-    (void)animation;
-
-    const int32_t distance =
-        (int32_t)detail_transition_end_offset - (int32_t)detail_transition_start_offset;
-    detail_transition_offset = detail_transition_start_offset +
-        (int16_t)((distance * (int32_t)progress) / ANIMATION_NORMALIZED_MAX);
-    if (detail_swap_layer != NULL)
-    {
-        layer_mark_dirty(detail_swap_layer);
-    }
 }
 
 static void show_detail_swap_layer(const bool show)
@@ -2340,39 +2553,6 @@ static void show_detail_swap_layer(const bool show)
         layer_mark_dirty(detail_swap_layer);
     }
     update_detail_arrow_visibility();
-}
-
-static void detail_swap_animation_stopped(Animation* animation, const bool finished, void* context)
-{
-    (void)animation;
-    (void)context;
-
-    const int8_t delta = detail_transition_delta;
-    if (detail_swap_animation != NULL)
-    {
-        animation_destroy(detail_swap_animation);
-        detail_swap_animation = NULL;
-    }
-
-    detail_transition_delta = 0;
-
-    if (finished && delta != 0)
-    {
-        switch_detail_by_delta(delta);
-    }
-    else
-    {
-        reload_detail_content_size();
-    }
-
-    detail_transition_target_index = -1;
-    detail_transition_current_height = 0;
-    detail_transition_target_height = 0;
-    detail_transition_offset = 0;
-    detail_transition_start_offset = 0;
-    detail_transition_end_offset = 0;
-    show_detail_swap_layer(false);
-    detail_swap_delay_remaining = MESSAGE_SWAP_DELAY;
 }
 
 static void detail_dismiss_animation_update(Animation* animation, const AnimationProgress progress)
@@ -2535,12 +2715,55 @@ static bool begin_detail_dismiss_animation(const bool close_app)
     return true;
 }
 
+static void detail_swap_animation_update(Animation* animation, const AnimationProgress progress)
+{
+    (void)animation;
+
+    const int32_t range =
+        (int32_t)detail_transition_end_offset - (int32_t)detail_transition_start_offset;
+    detail_transition_offset = detail_transition_start_offset +
+        (int16_t)((range * (int32_t)progress) / ANIMATION_NORMALIZED_MAX);
+
+    if (detail_swap_layer != NULL)
+    {
+        layer_mark_dirty(detail_swap_layer);
+    }
+}
+
+static void detail_swap_animation_stopped(Animation* animation, const bool finished, void* context)
+{
+    (void)animation;
+    (void)context;
+
+    const int8_t delta = detail_transition_delta;
+    if (detail_swap_animation != NULL)
+    {
+        animation_destroy(detail_swap_animation);
+        detail_swap_animation = NULL;
+    }
+
+    detail_transition_delta = 0;
+    detail_transition_target_index = -1;
+    detail_transition_current_height = 0;
+    detail_transition_target_height = 0;
+    detail_transition_offset = 0;
+    detail_transition_start_offset = 0;
+    detail_transition_end_offset = 0;
+
+    if (finished && delta != 0)
+    {
+        switch_detail_by_delta(delta);
+    }
+
+    show_detail_swap_layer(false);
+    set_detail_fixed_layers_hidden(false);
+}
+
 static bool begin_detail_swap_animation(const int8_t delta)
 {
     const int16_t target_index =
         window_notification_data.currently_selected_bucket_index + delta;
     if (detail_scroll_layer == NULL || detail_content_layer == NULL ||
-        detail_swap_layer == NULL ||
         target_index < 0 || target_index >= notification_item_count ||
         detail_swap_animation != NULL || detail_transition_delta != 0 ||
         detail_dismiss_active || detail_dismiss_animation != NULL)
@@ -2548,18 +2771,28 @@ static bool begin_detail_swap_animation(const int8_t delta)
         return false;
     }
 
-    // PebbleOS source: src/fw/services/timeline/swap_layer.c::prv_attempt_swap
+    if (!item_has_renderable_detail(&notification_items[target_index]))
+    {
+        pending_manual_swap_bucket_id = notification_items[target_index].bucket_id;
+        notification_details_fetcher_fetch(notification_items[target_index].bucket_id);
+        return false;
+    }
+
+    if (detail_swap_layer == NULL)
+    {
+        return switch_detail_by_delta(delta);
+    }
+
+    const GRect bounds = layer_get_bounds(detail_swap_layer);
     window_notification_action_list_hide();
     detail_transition_delta = delta;
     detail_transition_target_index = target_index;
     detail_transition_current_height = detail_current_content_height;
     detail_transition_target_height =
-        measure_detail_item_height(&notification_items[target_index], PBL_DISPLAY_WIDTH);
+        measure_detail_item_height(&notification_items[target_index], bounds.size.w);
 
     if (delta > 0)
     {
-        // PebbleOS swap-down keeps the current layout at its existing offset and slides both
-        // current and next upward together, then commits the data change after the animation.
         detail_transition_start_offset = -detail_scroll_current_offset(detail_scroll_layer);
         detail_transition_end_offset = -detail_transition_current_height;
     }
@@ -2570,7 +2803,9 @@ static bool begin_detail_swap_animation(const int8_t delta)
             -detail_transition_target_height + (PBL_DISPLAY_HEIGHT - PEEK_PX);
     }
     detail_transition_offset = detail_transition_start_offset;
+
     show_detail_swap_layer(true);
+    set_detail_fixed_layers_hidden(true);
 
     static const AnimationImplementation implementation =
     {
@@ -2588,12 +2823,14 @@ static bool begin_detail_swap_animation(const int8_t delta)
         detail_transition_start_offset = 0;
         detail_transition_end_offset = 0;
         show_detail_swap_layer(false);
+        set_detail_fixed_layers_hidden(false);
         return switch_detail_by_delta(delta);
     }
 
     animation_set_implementation(detail_swap_animation, &implementation);
     animation_set_duration(detail_swap_animation, SWAP_MS);
-    animation_set_curve(detail_swap_animation, AnimationCurveEaseOut);
+    animation_set_curve(detail_swap_animation,
+                        delta > 0 ? AnimationCurveEaseOut : AnimationCurveLinear);
     animation_set_handlers(detail_swap_animation,
                            (AnimationHandlers)
                            {
@@ -2907,13 +3144,6 @@ void window_notification_ui_open_selected_detail()
         return;
     }
 
-    const NotificationListItem* selected_item =
-        &notification_items[window_notification_data.currently_selected_bucket_index];
-    if (request_full_detail_then_open(selected_item))
-    {
-        return;
-    }
-
     window_notification_data.detail_open = true;
     if (!load_selected_detail_data())
     {
@@ -2938,7 +3168,15 @@ void window_notification_ui_open_selected_detail()
         .unload = detail_window_unload,
     });
 
-    window_stack_push(detail_window, !detail_opened_from_phone_launch);
+    if (detail_opened_from_phone_launch)
+    {
+        start_phone_launch_pending_exit_animation();
+    }
+    window_stack_push(detail_window, true);
+    if (detail_opened_from_phone_launch)
+    {
+        flush_deferred_phone_launch_vibration();
+    }
 }
 
 bool window_notification_ui_should_exit_detail_on_back(void)
@@ -2949,6 +3187,7 @@ bool window_notification_ui_should_exit_detail_on_back(void)
 void window_notification_ui_close_detail()
 {
     detail_opened_from_phone_launch = false;
+    pending_manual_swap_bucket_id = -1;
     window_notification_action_list_hide();
     sync_menu_selection(MenuRowAlignCenter, false);
     if (detail_window != NULL)
@@ -3033,6 +3272,13 @@ static void window_load(Window* window)
     empty_state_layer = layer_create(bounds);
     layer_set_update_proc(empty_state_layer, empty_state_layer_update);
     layer_add_child(window_layer, empty_state_layer);
+
+    phone_launch_pending_layer = layer_create(bounds);
+    if (phone_launch_pending_layer != NULL)
+    {
+        layer_set_update_proc(phone_launch_pending_layer, phone_launch_pending_layer_update);
+        layer_add_child(window_layer, phone_launch_pending_layer);
+    }
     update_list_layer_visibility();
 
     window_notification_data.active = true;
@@ -3044,7 +3290,15 @@ static void window_load(Window* window)
 static void window_unload(Window* window)
 {
     cancel_deferred_new_top_timer();
-    clear_pending_detail_open();
+    deferred_phone_launch_vibration_segments = 0;
+    phone_launch_pending_exit_animating = false;
+    if (phone_launch_pending_animation != NULL)
+    {
+        Animation* animation = phone_launch_pending_animation;
+        phone_launch_pending_animation = NULL;
+        animation_unschedule(animation);
+        animation_destroy(animation);
+    }
 
     if (detail_window != NULL)
     {
@@ -3063,6 +3317,11 @@ static void window_unload(Window* window)
     {
         layer_destroy(empty_state_layer);
         empty_state_layer = NULL;
+    }
+    if (phone_launch_pending_layer != NULL)
+    {
+        layer_destroy(phone_launch_pending_layer);
+        phone_launch_pending_layer = NULL;
     }
     unload_icons();
     clear_detail_body_cache();
