@@ -736,6 +736,12 @@ static void finish_phone_launch(const bool may_wait)
         return;
     }
 
+    if (may_wait && !notification_store_is_live())
+    {
+        // Notifications only show once this session's sync from the phone is in.
+        return;
+    }
+
     const uint8_t target = pick_launch_target(may_wait);
     if (target == 0)
     {
@@ -982,17 +988,23 @@ static void on_details_changed(const uint8_t bucket_id)
 // Settings bucket layout (phone: WatchSyncerImpl.syncPreferences): flags, auto close (2), interaction timeout (2),
 // text size.
 #define SETTINGS_TEXT_SIZE_INDEX 5
+#define SETTINGS_SENDER_WEIGHT_INDEX 6
+#define SETTINGS_MESSAGE_WEIGHT_INDEX 7
 
 static void load_text_size(void)
 {
-    uint8_t config[SETTINGS_TEXT_SIZE_INDEX + 1];
+    uint8_t config[SETTINGS_MESSAGE_WEIGHT_INDEX + 1];
     memset(config, 0, sizeof(config));
     config[SETTINGS_TEXT_SIZE_INDEX] = CARD_TEXT_SIZE_DEFAULT;
-    if (bucket_sync_get_bucket_size(1) > SETTINGS_TEXT_SIZE_INDEX)
+    config[SETTINGS_SENDER_WEIGHT_INDEX] = 1;
+    config[SETTINGS_MESSAGE_WEIGHT_INDEX] = 1;
+    const uint8_t size = bucket_sync_get_bucket_size(1);
+    if (size > SETTINGS_TEXT_SIZE_INDEX)
     {
-        bucket_sync_load_bucket_limited(1, config, sizeof(config));
+        bucket_sync_load_bucket_limited(1, config, size < sizeof(config) ? size : sizeof(config));
     }
-    card_set_text_size(config[SETTINGS_TEXT_SIZE_INDEX]);
+    card_set_text_style(config[SETTINGS_TEXT_SIZE_INDEX], config[SETTINGS_SENDER_WEIGHT_INDEX] != 0,
+                        config[SETTINGS_MESSAGE_WEIGHT_INDEX] != 0);
     detail_window_on_style_changed();
 }
 

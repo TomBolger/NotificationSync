@@ -191,37 +191,42 @@ const char* card_body_text(const NotificationItem* item, const char* body)
 }
 
 static uint8_t text_size = CARD_TEXT_SIZE_DEFAULT;
+// Stock PebbleOS: bold sender, bold message.
+static bool sender_bold = true;
+static bool message_bold = true;
 
-void card_set_text_size(const uint8_t size)
+void card_set_text_style(const uint8_t size, const bool bold_sender, const bool bold_message)
 {
     text_size = size <= CARD_TEXT_SIZE_LARGE ? size : CARD_TEXT_SIZE_DEFAULT;
+    sender_bold = bold_sender;
+    message_bold = bold_message;
 }
 
-// Sender in bold, message text in the regular weight, at every size.
+static GFont gothic(const uint8_t points, const bool bold)
+{
+    switch (points)
+    {
+    case 14:
+        return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14);
+    case 18:
+        return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18);
+    case 28:
+        return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_28);
+    default:
+        return fonts_get_system_font(bold ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_24);
+    }
+}
+
 static GFont header_font(void)
 {
-    switch (text_size)
-    {
-    case CARD_TEXT_SIZE_SMALL:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-    case CARD_TEXT_SIZE_LARGE:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-    default:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-    }
+    static const uint8_t points[] = {14, 18, 24};
+    return gothic(points[text_size], sender_bold);
 }
 
 static GFont body_font(void)
 {
-    switch (text_size)
-    {
-    case CARD_TEXT_SIZE_SMALL:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_18);
-    case CARD_TEXT_SIZE_LARGE:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_28);
-    default:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_24);
-    }
+    static const uint8_t points[] = {18, 24, 28};
+    return gothic(points[text_size], message_bold);
 }
 
 static GFont footer_font(void)

@@ -187,43 +187,9 @@ class NotificationProcessor(
          return this
       }
 
-      return copy(
-         subtitle = richerText(
-            current = subtitle,
-            previous = previous.subtitle,
-            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
-         ),
-         body = richerText(
-            current = body,
-            previous = previous.body,
-            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
-         ),
-         nativeActions = if (previous.nativeActions.size > nativeActions.size) {
-            previous.nativeActions
-         } else {
-            nativeActions
-         },
-         iconDrawable = iconDrawable ?: previous.iconDrawable,
-         largeImage = largeImage ?: previous.largeImage,
-      )
-   }
-
-   private fun richerText(current: String, previous: String, preservePreviousByTimestamp: Boolean): String {
-      if (current.isBlank()) {
-         return previous.ifBlank { current }
-      }
-      if (previous.isBlank()) {
-         return current
-      }
-
-      if (preservePreviousByTimestamp && previous.length > current.length) {
-         return previous
-      }
-      if (previous.length > current.length && previous.contains(current)) {
-         return previous
-      }
-
-      return current
+      // A mirror of the shade: the app's latest version of the notification is the truth, even when it is shorter
+      // than what it replaced (e.g. "Photo" updated into the actual photo).
+      return copy(iconDrawable = iconDrawable ?: previous.iconDrawable)
    }
 
    private fun shouldHide(

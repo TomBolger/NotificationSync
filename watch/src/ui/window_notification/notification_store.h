@@ -64,6 +64,12 @@ typedef struct
 
 void notification_store_init(void);
 void notification_store_set_listener(const StoreListener* listener);
+/** The phone answered this session and its first sync was handed over: start showing notifications. */
+void notification_store_on_phone_synced(void);
+/** The phone never sent the rest of this message: show what we have as the whole message. */
+void notification_store_on_details_unavailable(uint8_t bucket_id);
+/** True once notifications come from this session's sync (never from what was saved last time). */
+bool notification_store_is_live(void);
 void notification_store_set_settings_listener(void (*listener)(void));
 
 uint8_t notification_store_count(void);

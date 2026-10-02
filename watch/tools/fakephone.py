@@ -80,7 +80,7 @@ class FakePhone:
         self.pebble = None
         self.appmessage = None
         self.notifications = {}
-        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10) + bytes([1])
+        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10) + bytes([1, 1, 1])
         self.settings_version = 1
         self.version = 1
         self.watch_version = None
@@ -230,7 +230,7 @@ class FakePhone:
 
     def set_text_size(self, size, sync=True):
         """0 = small, 1 = default, 2 = large."""
-        self.settings = self.settings[:5] + bytes([size])
+        self.settings = self.settings[:5] + bytes([size]) + self.settings[6:]
         self.version += 1
         self.settings_version = self.version
         if sync:

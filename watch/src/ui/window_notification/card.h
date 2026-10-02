@@ -46,7 +46,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
 #define CARD_TEXT_SIZE_DEFAULT 1
 #define CARD_TEXT_SIZE_LARGE 2
 
-/** Notification text size, as chosen in the phone app's settings. */
-void card_set_text_size(uint8_t size);
+/** Notification text size and weights, as chosen in the phone app's settings. */
+void card_set_text_style(uint8_t size, bool bold_sender, bool bold_message);
 
 void card_format_since(char* buffer, size_t size, time_t timestamp);

@@ -77,6 +77,7 @@ static void hold_cancel(void);
 #define HOLD_SWAP_MS 240
 #define HOLD_BUMP_MS 600
 #define HOLD_RETRY_MS 100
+#define HOLD_PARTIAL_MAX_WAITS 10
 #define HOLD_RELEASE_PX 8
 #define HOLD_RELEASE_MS 140
 
@@ -84,6 +85,7 @@ static int8_t hold_direction;
 static bool hold_active;
 static bool hold_bumped;
 static bool hold_in_step;
+static uint8_t hold_partial_waits;
 static AppTimer* hold_timer;
 static int16_t hold_press_target;
 // Slope (x1000) the hold swap curve ends with; see hold_swap_curve().
@@ -176,6 +178,23 @@ static const CardMetrics* metrics_for(const uint8_t bucket)
 static bool current_is_partial(void)
 {
     return current_bucket != 0 && notification_store_is_partial(current_bucket);
+}
+
+static uint8_t partial_waited_bucket;
+
+/**
+ * At the end of a message whose rest is still on its way: the first attempt to move on waits for it (and hurries
+ * it along), any further attempt moves on anyway, so a slow or lost transfer can never trap you on a card.
+ */
+static bool wait_for_rest_of_message(void)
+{
+    if (!current_is_partial() || partial_waited_bucket == current_bucket)
+    {
+        return false;
+    }
+    partial_waited_bucket = current_bucket;
+    notification_store_want_details(current_bucket, true);
+    return true;
 }
 
 static int16_t card_height(const uint8_t bucket)
@@ -647,11 +666,10 @@ static void scroll_to(const int16_t target, const bool repeating)
 
 static void handle_swap_attempt(const int8_t direction, const bool repeating)
 {
-    if (direction > 0 && current_is_partial())
+    if (direction > 0 && wait_for_rest_of_message())
     {
-        // Reached the end of what has loaded so far. Don't skip past the rest of this message: hurry the text
-        // along and stay put; the card simply grows when it lands.
-        notification_store_want_details(current_bucket, true);
+        // Reached the end of what has loaded so far: hurry the text along and stay put; the card simply grows when
+        // it lands. Pressing again moves on regardless.
         return;
     }
 
@@ -763,6 +781,7 @@ static void hold_begin(void* context)
     }
     hold_active = true;
     hold_bumped = false;
+    hold_partial_waits = 0;
     // Remember where the press was headed so a press that only just turned into a hold still travels as far.
     hold_press_target = anim_kind == AnimScroll && animation != NULL ? anim_to : offset;
     hold_step();
@@ -805,9 +824,10 @@ static void hold_step(void)
         hold_bumped = false;
         start_animation(AnimScroll, offset, end, duration_for(end - offset, HOLD_SPEED_PX_S), AnimationCurveLinear);
     }
-    else if (direction > 0 && current_is_partial())
+    else if (direction > 0 && current_is_partial() && hold_partial_waits < HOLD_PARTIAL_MAX_WAITS)
     {
-        // The rest of this message is on its way: wait for it, then keep scrolling.
+        // The rest of this message is on its way: wait for it (up to a second), then keep scrolling.
+        hold_partial_waits++;
         notification_store_want_details(current_bucket, true);
         hold_wait(HOLD_RETRY_MS);
     }
@@ -820,6 +840,7 @@ static void hold_step(void)
     else
     {
         hold_bumped = false;
+        hold_partial_waits = 0;
         swap_at(direction, false, HOLD_SPEED_PX_S);
     }
     hold_in_step = false;
@@ -998,7 +1019,7 @@ static void down_double_click_handler(ClickRecognizerRef recognizer, void* conte
         return;
     }
     finish_animation();
-    if (offset != 0 && !current_is_partial())
+    if (offset != 0)
     {
         notify_interaction();
         swap(1, true);
@@ -1136,9 +1157,9 @@ static void touch_drag_ended(const int16_t dy, const int32_t velocity, void* con
     }
     if (raw > max + PULL_TO_SWAP_PX)
     {
-        if (current_is_partial())
+        if (wait_for_rest_of_message())
         {
-            notification_store_want_details(current_bucket, true);
+            // Pull again to move on anyway.
         }
         else if (swap(1, true))
         {

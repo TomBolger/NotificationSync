@@ -301,6 +301,7 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
     {
         bucket_sync_on_start_received(sync->value->data, sync->length);
     }
+    notification_store_on_phone_synced();
 
     if (phone_launch)
     {

@@ -35,5 +35,9 @@ object GlobalPreferenceKeys {
    /** Notification text size on the watch: 0 = small, 1 = default, 2 = large. */
    val watchTextSize = IntPreferenceKeyWithDefault("watch_text_size", 1)
 
+   /** Sender name and message text weights on the watch. Bold for both is how PebbleOS draws them. */
+   val watchSenderBold = BooleanPreferenceKeyWithDefault("watch_sender_bold", true)
+   val watchMessageBold = BooleanPreferenceKeyWithDefault("watch_message_bold", true)
+
    val notifyOnReconnect = BooleanPreferenceKeyWithDefault("notify_on_reconnect", true)
 }

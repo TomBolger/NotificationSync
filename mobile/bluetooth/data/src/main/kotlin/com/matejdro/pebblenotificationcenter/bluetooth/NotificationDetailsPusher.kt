@@ -39,7 +39,7 @@ class NotificationDetailsPusherImpl(
    private val drawableExtractor: DrawableExtractor,
    private val scope: DefaultCoroutineScope,
    private val errorReporter: ErrorReporter,
-   private val watchMetadata: WatchMetadata = WatchMetadata(),
+   private val watchMetadata: WatchMetadata,
 ) : NotificationDetailsPusher {
    private val stringEncoder = LimitingStringEncoder()
    private var previousVibrationSendingJob: Job? = null

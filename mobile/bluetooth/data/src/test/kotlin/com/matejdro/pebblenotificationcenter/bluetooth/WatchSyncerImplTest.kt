@@ -36,6 +36,7 @@ class WatchSyncerImplTest {
       bucketSyncRepository,
       preferences,
       DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
+      notificationImageStore = com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages,
    )
 
    @Test
@@ -502,6 +503,8 @@ class WatchSyncerImplTest {
                   0,
                   10,
                   1, // Default text size
+                  1, // Bold sender
+                  1, // Bold message
                )
             )
          )
@@ -531,6 +534,8 @@ class WatchSyncerImplTest {
                   0,
                   10,
                   1, // Default text size
+                  1, // Bold sender
+                  1, // Bold message
                )
             )
          )
@@ -560,6 +565,8 @@ class WatchSyncerImplTest {
                   0,
                   10,
                   1, // Default text size
+                  1, // Bold sender
+                  1, // Bold message
                )
             )
          )
@@ -589,6 +596,8 @@ class WatchSyncerImplTest {
                   0,
                   10,
                   1, // Default text size
+                  1, // Bold sender
+                  1, // Bold message
                )
             )
          )
@@ -619,6 +628,8 @@ class WatchSyncerImplTest {
                   0,
                   30,
                   1, // Default text size
+                  1, // Bold sender
+                  1, // Bold message
                )
             )
          )

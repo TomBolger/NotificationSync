@@ -12,7 +12,6 @@ import com.matejdro.pebble.bluetooth.common.util.fixPebbleIndentation
 import com.matejdro.pebble.bluetooth.common.util.writeUByte
 import com.matejdro.pebble.bluetooth.common.util.writeUInt
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
-import com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages
 import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageStore
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
@@ -39,7 +38,7 @@ class WatchSyncerImpl(
    private val preferenceStore: DataStore<Preferences>,
    private val defaultScope: DefaultCoroutineScope,
    private val stockNotificationTransport: StockNotificationTransport = NoOpStockNotificationTransport,
-   private val notificationImageStore: NotificationImageStore = NoNotificationImages,
+   private val notificationImageStore: NotificationImageStore,
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
    private var maxWatchSyncBucketPayloadBytes = BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES
@@ -218,6 +217,8 @@ class WatchSyncerImpl(
             buffer.writeUShort(autoClose.toUShort())
             buffer.writeUShort(interactionTimeout.toUShort())
             buffer.writeByte(preferences[GlobalPreferenceKeys.watchTextSize].coerceIn(0, 2))
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchSenderBold]) 1 else 0)
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchMessageBold]) 1 else 0)
 
             bucketSyncRepository.updateBucket(
                1u,

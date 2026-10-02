@@ -51,6 +51,7 @@ class NotificationDetailsPusherImplTest {
       drawableExtractor,
       DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
       {},
+      com.matejdro.pebble.bluetooth.WatchMetadata(),
    )
 
    @Test

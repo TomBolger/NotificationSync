@@ -149,10 +149,23 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     item->loaded = true;
 }
 
+// A mirror, not a store: what was saved on the watch last time is never shown. Notifications appear once the phone
+// has answered and finished syncing in this session; from then on every update comes straight through.
+static bool phone_answered;
+static bool live;
+
 static void rebuild_items(void)
 {
     const BucketList* buckets = bucket_sync_get_bucket_list();
     item_count = 0;
+    if (!live && phone_answered && !bucket_sync_is_currently_syncing)
+    {
+        live = true;
+    }
+    if (!live)
+    {
+        return;
+    }
     for (int i = 0; i < buckets->count && item_count < STORE_MAX_ITEMS; i++)
     {
         if (buckets->data[i].id == SETTINGS_BUCKET_ID || is_hidden(buckets->data[i].id))
@@ -282,6 +295,21 @@ void notification_store_on_details_received(const uint8_t bucket_id, const char*
     if (listener != NULL && listener->details_changed != NULL)
     {
         listener->details_changed(bucket_id);
+    }
+}
+
+void notification_store_on_details_unavailable(const uint8_t bucket_id)
+{
+    for (uint8_t i = 0; i < item_count; i++)
+    {
+        if (items[i].bucket_id == bucket_id && !items[i].summary_complete)
+        {
+            items[i].summary_complete = true;
+            if (listener != NULL && listener->details_changed != NULL)
+            {
+                listener->details_changed(bucket_id);
+            }
+        }
     }
 }
 
@@ -485,6 +513,20 @@ void notification_store_hide(const uint8_t bucket_id)
     hidden_buckets[slot] = bucket_id;
     hidden_until[slot] = time(NULL) + HIDE_SECONDS;
     on_bucket_list_changed();
+}
+
+void notification_store_on_phone_synced(void)
+{
+    phone_answered = true;
+    if (!live)
+    {
+        on_bucket_list_changed();
+    }
+}
+
+bool notification_store_is_live(void)
+{
+    return live;
 }
 
 void notification_store_set_listener(const StoreListener* new_listener)

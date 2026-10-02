@@ -213,6 +213,16 @@ private fun DefaultSettingsContent(
                selected = globalPreferences[GlobalPreferenceKeys.watchTextSize],
                onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchTextSize, it) },
             )
+            WeightRow(
+               title = "Sender",
+               bold = globalPreferences[GlobalPreferenceKeys.watchSenderBold],
+               onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchSenderBold, it) },
+            )
+            WeightRow(
+               title = "Message",
+               bold = globalPreferences[GlobalPreferenceKeys.watchMessageBold],
+               onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchMessageBold, it) },
+            )
             GroupDivider()
             NumberRow(
                title = stringResource(R.string.notification_timeout),
@@ -446,6 +456,32 @@ private fun TextSizeRow(
                   )
                }
             }
+         }
+      },
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+   )
+}
+
+@Composable
+private fun WeightRow(
+   title: String,
+   bold: Boolean,
+   onSelect: (Boolean) -> Unit,
+) {
+   ListItem(
+      headlineContent = { Text(title) },
+      trailingContent = {
+         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+               selected = !bold,
+               onClick = { onSelect(false) },
+               label = { Text("Regular") },
+            )
+            FilterChip(
+               selected = bold,
+               onClick = { onSelect(true) },
+               label = { Text("Bold", fontWeight = FontWeight.Bold) },
+            )
          }
       },
       colors = ListItemDefaults.colors(containerColor = Color.Transparent),

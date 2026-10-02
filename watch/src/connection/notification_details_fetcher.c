@@ -75,6 +75,11 @@ static void on_timer(void* context)
             queue[0] = in_flight;
             queue_length++;
         }
+        else
+        {
+            // The phone has no more text for it (e.g. the notification changed under us): stop waiting for it.
+            notification_store_on_details_unavailable(in_flight.bucket_id);
+        }
         notify_status();
     }
 
