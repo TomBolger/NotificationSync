@@ -42,14 +42,14 @@ class NotificationDetailsPusherImpl(
    private val stringEncoder = LimitingStringEncoder()
    private var previousVibrationSendingJob: Job? = null
 
-   override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean) {
+   override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean, prefetch: Boolean) {
       scope.launch {
          pushNotificationDetailsSafely(
             bucketId,
             maxPacketSize,
             DetailsSendMode.SendAndWait,
-            markAsRead = true,
-            includeVibration = true
+            markAsRead = !prefetch,
+            includeVibration = !prefetch
          )
       }
    }
@@ -104,11 +104,20 @@ class NotificationDetailsPusherImpl(
                "(${detailsPackets.encodedActionCount}/${detailsPackets.totalActionCount} actions)"
          }
 
-         for (packet in detailsPackets.packets) {
-            when (sendMode) {
-               DetailsSendMode.SendAndWait -> queue.sendPacket(packet, priority = PRIORITY_WATCH_TEXT)
-               DetailsSendMode.EnqueueOnly -> queue.enqueuePacket(packet, priority = PRIORITY_PRELOAD_WATCH_TEXT)
-            }
+         // Queue every chunk of this notification together. Waiting for each chunk separately let other
+         // details packets slip in between chunks, which the watch (assembling one message at a time) had to
+         // throw away.
+         val priority = when (sendMode) {
+            DetailsSendMode.SendAndWait -> PRIORITY_WATCH_TEXT
+            DetailsSendMode.EnqueueOnly -> PRIORITY_PRELOAD_WATCH_TEXT
+         }
+         val packets = detailsPackets.packets
+         for (packet in packets.dropLast(1)) {
+            queue.enqueuePacket(packet, priority = priority)
+         }
+         when (sendMode) {
+            DetailsSendMode.SendAndWait -> queue.sendPacket(packets.last(), priority = priority)
+            DetailsSendMode.EnqueueOnly -> queue.enqueuePacket(packets.last(), priority = priority)
          }
 
          pushVibration(vibrationPattern)
@@ -480,7 +489,7 @@ private const val MAX_DETAIL_BODY_TEXT_BYTES = 3500
 private const val DETAIL_BODY_RESERVE_BYTES = 16
 
 interface NotificationDetailsPusher {
-   fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
+   fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean, prefetch: Boolean = false)
    suspend fun preloadNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
    suspend fun preloadOpenedNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean)
 }

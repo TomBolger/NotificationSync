@@ -4,6 +4,7 @@
 #include "commons/connection/bucket_sync.h"
 #include "connection/packets.h"
 #include "layers/status_bar.h"
+#include "window_notification/notification_store.h"
 
 static CustomStatusBarLayer* status_bar = NULL;
 
@@ -72,13 +73,6 @@ static void update_data()
     }
 }
 
-static void on_bucket_data_update(const BucketMetadata bucket_metadata, void* context)
-{
-    if (bucket_metadata.id == 1)
-    {
-        update_data();
-    }
-}
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 static void window_load(Window* window)
@@ -113,13 +107,13 @@ static void window_load(Window* window)
 static void window_show(Window* window)
 {
     custom_status_bar_set_active(status_bar, true);
-    bucket_sync_set_bucket_data_change_callback(on_bucket_data_update, NULL);
+    notification_store_set_settings_listener(update_data);
 }
 
 static void window_hide(Window* window)
 {
     custom_status_bar_set_active(status_bar, false);
-    bucket_sync_clear_bucket_data_change_callback(on_bucket_data_update, NULL);
+    notification_store_set_settings_listener(NULL);
 }
 
 static void window_unload(Window* window)

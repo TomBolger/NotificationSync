@@ -10,3 +10,4 @@ void window_notification_action_list_hide();
 void window_notification_action_list_move_up();
 void window_notification_action_list_move_down();
 void window_notification_action_select();
+void window_notification_action_list_receive_submenu(const uint8_t* data, size_t data_size);

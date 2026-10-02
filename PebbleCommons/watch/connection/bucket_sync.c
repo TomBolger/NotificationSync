@@ -28,6 +28,82 @@ bool close_after_sync = false;
 
 static void (*bucket_deleted_callback)(uint8_t) = NULL;
 
+// Change notifications are collected while a sync is in progress and delivered once the sync
+// finishes, so listeners always observe a consistent bucket list instead of a half-applied one.
+static uint8_t pending_changed_buckets[MAX_BUCKETS + 1];
+static uint8_t pending_changed_count = 0;
+static uint8_t pending_deleted_buckets[MAX_BUCKETS + 1];
+static uint8_t pending_deleted_count = 0;
+
+static void remember_bucket_id(uint8_t* list, uint8_t* count, const uint8_t bucket_id)
+{
+    for (uint8_t i = 0; i < *count; i++)
+    {
+        if (list[i] == bucket_id)
+        {
+            return;
+        }
+    }
+
+    if (*count < MAX_BUCKETS + 1)
+    {
+        list[(*count)++] = bucket_id;
+    }
+}
+
+static void forget_bucket_id(uint8_t* list, uint8_t* count, const uint8_t bucket_id)
+{
+    for (uint8_t i = 0; i < *count; i++)
+    {
+        if (list[i] == bucket_id)
+        {
+            list[i] = list[--(*count)];
+            return;
+        }
+    }
+}
+
+static void dispatch_pending_bucket_changes(void)
+{
+    // Copy first: callbacks may trigger another sync step that appends to the pending lists.
+    uint8_t deleted[MAX_BUCKETS + 1];
+    const uint8_t deleted_count = pending_deleted_count;
+    memcpy(deleted, pending_deleted_buckets, deleted_count);
+    pending_deleted_count = 0;
+
+    uint8_t changed[MAX_BUCKETS + 1];
+    const uint8_t changed_count = pending_changed_count;
+    memcpy(changed, pending_changed_buckets, changed_count);
+    pending_changed_count = 0;
+
+    for (uint8_t i = 0; i < deleted_count; i++)
+    {
+        void (*local_deleted_callback)(uint8_t) = bucket_deleted_callback;
+        if (local_deleted_callback != NULL)
+        {
+            local_deleted_callback(deleted[i]);
+        }
+    }
+
+    for (uint8_t i = 0; i < changed_count; i++)
+    {
+        const DataChangeCallback local_callback = data_change_callback;
+        if (local_callback.data_change_callback == NULL)
+        {
+            break;
+        }
+
+        for (int j = 0; j < buckets.count; j++)
+        {
+            if (buckets.data[j].id == changed[i])
+            {
+                local_callback.data_change_callback(buckets.data[j], local_callback.context);
+                break;
+            }
+        }
+    }
+}
+
 static uint32_t get_bucket_persist_key(uint8_t bucket_id);
 static void delete_inactive_buckets(const uint8_t* data, uint8_t new_active_buckets);
 static bool validate_bucket_data(const uint8_t* data, size_t data_size, size_t position);
@@ -336,20 +412,7 @@ static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t
             return false;
         };
 
-        const DataChangeCallback local_bucket_data_change_callback = data_change_callback;
-        if (!bucket_sync_is_currently_syncing &&
-            local_bucket_data_change_callback.data_change_callback != NULL)
-        {
-            for (int j = 0; j < buckets.count; j++)
-            {
-                if (buckets.data[j].id == id)
-                {
-                    local_bucket_data_change_callback.data_change_callback(buckets.data[j],
-                                                                           local_bucket_data_change_callback.context);
-                    break;
-                }
-            }
-        }
+        remember_bucket_id(pending_changed_buckets, &pending_changed_count, id);
 
         position += size;
     }
@@ -382,6 +445,8 @@ static void complete_sync(void)
         second_syncing_status_callback();
     }
 
+    dispatch_pending_bucket_changes();
+
     void (*local_list_change_callback)() = list_change_callback;
     if (local_list_change_callback != NULL)
     {
@@ -397,6 +462,17 @@ static void complete_sync(void)
 
 static void finish_failed_sync(void)
 {
+    const bool had_pending_changes = pending_changed_count > 0 || pending_deleted_count > 0;
+    dispatch_pending_bucket_changes();
+    if (had_pending_changes)
+    {
+        void (*local_list_change_callback)() = list_change_callback;
+        if (local_list_change_callback != NULL)
+        {
+            local_list_change_callback();
+        }
+    }
+
     bucket_sync_is_currently_syncing = false;
     void (*local_syncing_callback)() = syncing_status_callback;
     if (local_syncing_callback != NULL)
@@ -428,10 +504,8 @@ static void delete_inactive_buckets(const uint8_t* data, const uint8_t new_activ
         if (!bucket_exists)
         {
             persist_delete(get_bucket_persist_key(old_bucket_id));
-            if (bucket_deleted_callback != NULL)
-            {
-                bucket_deleted_callback(old_bucket_id);
-            }
+            forget_bucket_id(pending_changed_buckets, &pending_changed_count, old_bucket_id);
+            remember_bucket_id(pending_deleted_buckets, &pending_deleted_count, old_bucket_id);
         }
     }
 }

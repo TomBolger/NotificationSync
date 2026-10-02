@@ -74,10 +74,14 @@ class WatchappConnectionImpl(
 
          4u -> {
             if (watchMetadata.watchBufferSize > 0) {
+               // Key 2 marks a speculative prefetch: the user has not opened this notification yet, so it must
+               // not be marked as read and must not consume the pending vibration.
+               val prefetch = (data[2u] as? PebbleDictionaryItem.UInt32)?.value == 1u
                notificationDetailsPusher.pushNotificationDetails(
                   bucketId = data.requireUint(1u).toInt(),
                   maxPacketSize = watchMetadata.watchBufferSize,
-                  colorWatch = watchMetadata.colorWatch
+                  colorWatch = watchMetadata.colorWatch,
+                  prefetch = prefetch,
                )
             }
 

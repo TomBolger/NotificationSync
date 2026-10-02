@@ -10,29 +10,6 @@ static TextLayer* main_text;
 static TextLayer* app_name_text;
 static CustomStatusBarLayer* status_bar;
 static const char* status_text;
-static bool auto_switch = false;
-
-static void close_on_empty_and_no_sync()
-{
-    if (!bucket_sync_is_currently_syncing)
-    {
-        send_close_me();
-    }
-}
-
-static void switch_to_notification_window()
-{
-    window_stack_pop(true);
-    window_notification_show();
-}
-
-static void on_bucket_data_update(const BucketMetadata bucket_metadata, void* context)
-{
-    if (auto_switch && bucket_metadata.id != 1)
-    {
-        switch_to_notification_window();
-    }
-}
 
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 static void window_load(Window* window)
@@ -63,7 +40,7 @@ static void window_load(Window* window)
     text_layer_set_text_color(app_name_text, GColorWhite);
     text_layer_set_background_color(app_name_text, GColorClear);
     text_layer_set_font(app_name_text, fonts_get_system_font(FONT_KEY_GOTHIC_14));
-    text_layer_set_text(app_name_text, "Notify Center");
+    text_layer_set_text(app_name_text, "Notifications");
 
     layer_add_child(window_layer, text_layer_get_layer(main_text));
     layer_add_child(window_layer, status_bar->layer);
@@ -73,28 +50,11 @@ static void window_load(Window* window)
 static void window_show(Window* window)
 {
     custom_status_bar_set_active(status_bar, true);
-
-    if (auto_switch)
-    {
-        BucketList* buckets = bucket_sync_get_bucket_list();
-        for (int i = 0; i < buckets->count; i++)
-        {
-            if (buckets->data[i].id != 1)
-            {
-                app_timer_register(50, switch_to_notification_window, NULL);
-                return;
-            }
-        }
-
-        bucket_sync_set_bucket_data_change_callback(on_bucket_data_update, NULL);
-    }
 }
 
 static void window_hide(Window* window)
 {
     custom_status_bar_set_active(status_bar, false);
-    bucket_sync_clear_bucket_data_change_callback(on_bucket_data_update, NULL);
-    bucket_sync_register_second_syncing_status_changed_callback(NULL);
 }
 
 static void window_unload(Window* window)
@@ -120,10 +80,9 @@ static void window_status_buttons_config()
     window_multi_click_subscribe(BUTTON_ID_BACK, 2, 2, 150, true, button_back_double);
 }
 
-static void window_status_show(const char* text, bool switch_on_load)
+static void window_status_show(const char* text)
 {
     status_text = text;
-    auto_switch = switch_on_load;
 
     Window* window = window_create();
     window_set_window_handlers(window, (WindowHandlers)
@@ -139,29 +98,9 @@ static void window_status_show(const char* text, bool switch_on_load)
     window_stack_push(window, false);
 }
 
-void window_status_show_empty()
-{
-    if (launch_reason() == APP_LAUNCH_PHONE)
-    {
-        if (bucket_sync_is_currently_syncing)
-        {
-            bucket_sync_register_second_syncing_status_changed_callback(close_on_empty_and_no_sync);
-            window_status_show("No notifications.", true);
-        }
-        else
-        {
-            send_close_me();
-        }
-    }
-    else
-    {
-        window_status_show("No notifications.", true);
-    }
-}
-
 void window_status_show_error(const char* text)
 {
-    window_status_show(text, false);
+    window_status_show(text);
 }
 
 void bluetooth_show_error(const char* text)

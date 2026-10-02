@@ -7,7 +7,7 @@
 #include "../ui/window_status.h"
 #include "commons/bytes.h"
 #include "ui/window_image.h"
-#include "ui/window_notification/data_loading.h"
+#include "ui/window_notification/action_list.h"
 #include "ui/window_notification/window_notification.h"
 
 static void receive_phone_welcome(const DictionaryIterator* iterator);
@@ -39,7 +39,11 @@ void send_watch_welcome()
     }
 
     DictionaryIterator* iterator;
-    app_message_outbox_begin(&iterator);
+    if (app_message_outbox_begin(&iterator) != APP_MSG_OK)
+    {
+        // Outbox busy (e.g. a reconnect raced another message). The phone re-requests the welcome itself.
+        return;
+    }
     dict_write_uint8(iterator, 0, 0);
     dict_write_uint16(iterator, 1, PROTOCOL_VERSION);
     dict_write_uint16(iterator, 2, bucket_sync_current_version);
@@ -51,7 +55,7 @@ void send_watch_welcome()
     bluetooth_app_message_outbox_send();
 }
 
-bool send_notification_opened(const uint8_t id)
+bool send_notification_opened(const uint8_t id, const bool prefetch)
 {
     DictionaryIterator* iterator;
     const AppMessageResult res = app_message_outbox_begin(&iterator);
@@ -63,6 +67,11 @@ bool send_notification_opened(const uint8_t id)
 
     dict_write_uint8(iterator, 0, 4);
     dict_write_uint8(iterator, 1, id);
+    if (prefetch)
+    {
+        // Phone should not treat a speculative fetch as the user having read the notification.
+        dict_write_uint8(iterator, 2, 1);
+    }
     bluetooth_app_message_outbox_send();
     return true;
 }
@@ -154,7 +163,12 @@ bool send_setting(const uint8_t id, const uint8_t value)
 
 static void receive_watch_packet(const DictionaryIterator* received)
 {
-    const uint8_t packet_id = dict_find(received, 0)->value->uint8;
+    const Tuple* packet_id_tuple = dict_find(received, 0);
+    if (packet_id_tuple == NULL)
+    {
+        return;
+    }
+    const uint8_t packet_id = packet_id_tuple->value->uint8;
 
     switch (packet_id)
     {
@@ -196,6 +210,16 @@ static void receive_watch_packet(const DictionaryIterator* received)
     }
 }
 
+static const Tuple* data_tuple(const DictionaryIterator* iterator, const uint32_t key)
+{
+    const Tuple* tuple = dict_find(iterator, key);
+    if (tuple == NULL || tuple->type != TUPLE_BYTE_ARRAY)
+    {
+        return NULL;
+    }
+    return tuple;
+}
+
 static void receive_phone_welcome(const DictionaryIterator* iterator)
 {
     const bool phone_launch = launch_reason() == APP_LAUNCH_PHONE;
@@ -206,10 +230,12 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
 
     if (dict_find(iterator, 5) != NULL)
     {
+        notification_details_fetcher_reset();
         bucket_sync_forget_buckets_from(2);
     }
 
-    const uint16_t phone_protocol_version = dict_find(iterator, 1)->value->uint16;
+    const Tuple* version = dict_find(iterator, 1);
+    const uint16_t phone_protocol_version = version != NULL ? version->value->uint16 : 0;
     if (phone_protocol_version != PROTOCOL_VERSION)
     {
         if (phone_protocol_version > PROTOCOL_VERSION)
@@ -223,70 +249,84 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
         return;
     }
 
-    // ReSharper disable once CppLocalVariableMayBeConst
-    Tuple* dict_entry = dict_find(iterator, 2);
+    const Tuple* sync = data_tuple(iterator, 2);
+    if (sync != NULL)
+    {
+        bucket_sync_on_start_received(sync->value->data, sync->length);
+    }
 
-    bucket_sync_on_start_received(dict_entry->value->data, dict_entry->length);
     if (phone_launch)
     {
         const Tuple* launch_bucket_entry = dict_find(iterator, 4);
-        const uint8_t launch_bucket_id =
-            launch_bucket_entry != NULL ? launch_bucket_entry->value->uint8 : 0;
+        const uint8_t launch_bucket_id = launch_bucket_entry != NULL ? launch_bucket_entry->value->uint8 : 0;
         window_notification_ui_open_phone_launch_detail(launch_bucket_id);
     }
+
 }
 
 static void receive_sync_restart(const DictionaryIterator* iterator)
 {
-    // ReSharper disable once CppLocalVariableMayBeConst
-    Tuple* dict_entry = dict_find(iterator, 1);
-
-    bucket_sync_on_start_received(dict_entry->value->data, dict_entry->length);
+    const Tuple* sync = data_tuple(iterator, 1);
+    if (sync != NULL)
+    {
+        bucket_sync_on_start_received(sync->value->data, sync->length);
+    }
 }
 
 static void receive_sync_next_packet(const DictionaryIterator* iterator)
 {
-    // ReSharper disable once CppLocalVariableMayBeConst
-    Tuple* dict_entry = dict_find(iterator, 1);
-
-    bucket_sync_on_next_packet_received(dict_entry->value->data, dict_entry->length);
+    const Tuple* sync = data_tuple(iterator, 1);
+    if (sync != NULL)
+    {
+        bucket_sync_on_next_packet_received(sync->value->data, sync->length);
+    }
 }
 
 static void receive_notification_details_text_packet(const DictionaryIterator* iterator)
 {
-    // ReSharper disable once CppLocalVariableMayBeConst
-    Tuple* dict_entry = dict_find(iterator, 1);
-
-    notification_details_fetcher_on_text_received(dict_entry->value->data, dict_entry->length);
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data != NULL)
+    {
+        notification_details_fetcher_on_text_received(data->value->data, data->length);
+    }
 }
 
 static void receive_notification_details_text_packet_v2(const DictionaryIterator* iterator)
 {
-    Tuple* dict_entry = dict_find(iterator, 1);
-
-    notification_details_fetcher_on_text_received_v2(dict_entry->value->data, dict_entry->length);
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data != NULL)
+    {
+        notification_details_fetcher_on_text_received_v2(data->value->data, data->length);
+    }
 }
 
 static void receive_notification_details_continuation_packet(const DictionaryIterator* iterator)
 {
-    Tuple* dict_entry = dict_find(iterator, 1);
-
-    notification_details_fetcher_on_text_continuation_received(dict_entry->value->data, dict_entry->length);
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data != NULL)
+    {
+        notification_details_fetcher_on_text_continuation_received(data->value->data, data->length);
+    }
 }
 
 static void receive_vibrate_packet(const DictionaryIterator* iterator)
 {
-    const Tuple* dict_entry = dict_find(iterator, 1);
-
-    const size_t size = dict_entry->length;
-    const uint8_t* data = dict_entry->value->data;
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data == NULL)
+    {
+        return;
+    }
 
     static uint32_t segments[100];
-    const uint16_t num_segments = size / 2;
+    uint16_t num_segments = data->length / 2;
+    if (num_segments > ARRAY_LENGTH(segments))
+    {
+        num_segments = ARRAY_LENGTH(segments);
+    }
 
     for (int i = 0; i < num_segments; i++)
     {
-        segments[i] = read_uint16_from_byte_array(data, i * 2);
+        segments[i] = read_uint16_from_byte_array(data->value->data, i * 2);
     }
 
     window_notification_ui_play_or_defer_vibration(segments, num_segments);
@@ -294,17 +334,24 @@ static void receive_vibrate_packet(const DictionaryIterator* iterator)
 
 static void receive_submenu_packet(const DictionaryIterator* iterator)
 {
-    const Tuple* data_dict_entry = dict_find(iterator, 1);
-    window_notification_data_receive_show_submenu(data_dict_entry->value->data, data_dict_entry->length);
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data != NULL)
+    {
+        window_notification_action_list_receive_submenu(data->value->data, data->length);
+    }
 }
 
 static void receive_image_packet(const DictionaryIterator* iterator)
 {
-    const Tuple* data_dict_entry = dict_find(iterator, 1);
-    window_image_show(data_dict_entry->value->data, data_dict_entry->length);
+    const Tuple* data = data_tuple(iterator, 1);
+    if (data != NULL)
+    {
+        window_image_show(data->value->data, data->length);
+    }
 }
 
 static void receive_reset_watch_mirror_packet()
 {
+    notification_details_fetcher_reset();
     bucket_sync_forget_buckets_from(2);
 }

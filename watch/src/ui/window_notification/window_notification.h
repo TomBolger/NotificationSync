@@ -2,51 +2,18 @@
 #include <pebble.h>
 #include <stdint.h>
 
-#include "ui/layers/dots.h"
+#include "notification_store.h"
 
-#define MAX_BODY_TEXT_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 1200, 1800, 3470, 1800, 3470, 3470, 3470)
-#define MAX_NOTIFICATION_ITEMS 30
-#define MAX_NOTIFICATION_TITLE 64
-#define MAX_NOTIFICATION_SNIPPET 160
-#define MAX_NOTIFICATION_ACTIONS 20
-#define MAX_NOTIFICATION_ACTION_TEXT 21
-
-typedef struct
-{
-    uint8_t id;
-    char text[MAX_NOTIFICATION_ACTION_TEXT];
-    bool voice;
-} Action;
-
-typedef struct
-{
-    uint8_t bucket_id;
-    time_t receive_time;
-    uint8_t icon_id;
-    uint8_t color_id;
-    enum DotState state;
-    char app_name[MAX_NOTIFICATION_TITLE];
-    char title[MAX_NOTIFICATION_TITLE];
-    char body[MAX_NOTIFICATION_SNIPPET];
-} NotificationListItem;
-
+/**
+ * State shared with the action menu (action_list.c). Everything else about the UI is private to
+ * window_notification.c (list + launch flow) and detail_window.c (the notification cards).
+ */
 typedef struct
 {
     bool active;
     bool detail_open;
-    bool using_dummy_data;
 
     uint8_t currently_selected_bucket;
-    int16_t currently_selected_bucket_index;
-    uint8_t bucket_count;
-    enum DotState dot_states[MAX_NOTIFICATION_ITEMS];
-
-    uint8_t icon_id;
-    uint8_t color_id;
-    char title_text[MAX_NOTIFICATION_TITLE];
-    char subtitle_text[MAX_NOTIFICATION_TITLE];
-    char body_text[MAX_BODY_TEXT_SIZE + 40];
-    time_t receive_time;
 
     uint8_t num_actions;
     Action actions[MAX_NOTIFICATION_ACTIONS];
@@ -60,29 +27,23 @@ typedef struct
 extern NotificationWindowData window_notification_data;
 
 void window_notification_show();
-void window_notification_ui_set_items(const NotificationListItem* items, uint8_t count, bool using_dummy_data);
-void window_notification_ui_redraw();
-void window_notification_ui_cache_current_body();
-void window_notification_ui_cache_body_for_bucket(uint8_t bucket_id, const char* body, size_t body_size);
-void window_notification_ui_cache_details_for_bucket(uint8_t bucket_id, const char* body,
-                                                     size_t body_size, const Action* actions,
-                                                     uint8_t num_actions);
-void window_notification_ui_replace_current_body(uint8_t bucket_id, const char* body, size_t body_size);
-void window_notification_ui_replace_current_details(uint8_t bucket_id, const char* body,
-                                                    size_t body_size, const Action* actions,
-                                                    uint8_t num_actions);
-void window_notification_ui_on_details_cached(uint8_t bucket_id);
-void window_notification_ui_note_actions_updated();
-void window_notification_ui_uncache_body_for_bucket(uint8_t bucket_id);
-void window_notification_ui_note_bucket_updated(uint8_t bucket_id);
-void window_notification_ui_on_bucket_selected();
-void window_notification_ui_on_bucket_list_updated();
-void window_notification_ui_on_bucket_deleted(uint8_t bucket_id);
+
+/** Phone told us which notification it launched the app for (0 = unknown). */
 void window_notification_ui_open_phone_launch_detail(uint8_t bucket_id);
+
+/** Phone asked us to vibrate for a new notification. */
 void window_notification_ui_play_or_defer_vibration(const uint32_t* durations, uint32_t num_segments);
-void window_notification_ui_open_selected_detail();
-bool window_notification_ui_should_exit_detail_on_back(void);
-void window_notification_ui_close_detail();
-void window_notification_ui_scroll_detail_up(ClickRecognizerRef recognizer, void* context);
-void window_notification_ui_scroll_detail_down(ClickRecognizerRef recognizer, void* context);
+
+/** The user dismissed this notification from the watch and the request reached the phone. */
+void window_notification_ui_on_dismiss_sent(uint8_t bucket_id);
+
+/** True when the phone opened the app for a notification (back exits, like a PebbleOS popup). */
+bool window_notification_ui_is_popup_session(void);
+
+/** Something that can interrupt (the action menu) closed; deferred work may run now. */
+void window_notification_ui_on_menu_closed(void);
+
 GColor window_notification_ui_get_primary_color();
+
+/** Bucket of the alert the user has not acknowledged yet (for periodic reminder vibration), or 0. */
+uint8_t window_notification_ui_unacknowledged_alert(void);
