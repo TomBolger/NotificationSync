@@ -7,6 +7,7 @@
 #include "detail_window.h"
 #include "idle_handler.h"
 #include "notification_store.h"
+#include "touch_gesture.h"
 #include "connection/packets.h"
 #include "commons/connection/bucket_sync.h"
 
@@ -281,6 +282,212 @@ static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex o
         list_selected_bucket = item->bucket_id;
         notification_store_want_details(item->bucket_id, false);
     }
+}
+
+// ------------------------------------------------------------------------------------------------ list touch
+
+#define LIST_FLING_DECELERATION 2600
+#define LIST_FLING_MIN_MS 180
+#define LIST_FLING_MAX_MS 900
+
+static TouchGesture list_touch;
+static int16_t list_drag_base;
+static bool list_dragging;
+static Animation* list_fling;
+static int16_t list_fling_from;
+static int16_t list_fling_to;
+
+static int16_t list_max_offset(void)
+{
+    const int16_t content = notification_store_count() * LIST_CELL_HEIGHT;
+    const int16_t max = content - PBL_DISPLAY_HEIGHT;
+    return max > 0 ? max : 0;
+}
+
+static int16_t list_offset(void)
+{
+    return -scroll_layer_get_content_offset(menu_layer_get_scroll_layer(menu_layer)).y;
+}
+
+static void set_list_offset(const int16_t value)
+{
+    scroll_layer_set_content_offset(menu_layer_get_scroll_layer(menu_layer), GPoint(0, -value), false);
+}
+
+/** After the list comes to rest, highlight the row in the middle of the screen (without scrolling). */
+static void select_row_at_center(void)
+{
+    if (menu_layer == NULL || notification_store_count() == 0)
+    {
+        return;
+    }
+    int16_t row = (list_offset() + PBL_DISPLAY_HEIGHT / 2) / LIST_CELL_HEIGHT;
+    if (row >= notification_store_count())
+    {
+        row = notification_store_count() - 1;
+    }
+    if (row < 0)
+    {
+        row = 0;
+    }
+    menu_layer_set_selected_index(menu_layer, MenuIndex(0, row), MenuRowAlignNone, false);
+}
+
+static void list_fling_update(Animation* animation, const AnimationProgress progress)
+{
+    (void)animation;
+    if (menu_layer == NULL)
+    {
+        return;
+    }
+    const int32_t range = (int32_t)list_fling_to - list_fling_from;
+    set_list_offset(list_fling_from + (int16_t)((range * (int32_t)progress) / ANIMATION_NORMALIZED_MAX));
+}
+
+static void list_fling_stopped(Animation* animation, const bool finished, void* context)
+{
+    (void)finished;
+    (void)context;
+    if (animation == list_fling)
+    {
+        list_fling = NULL;
+        select_row_at_center();
+    }
+}
+
+static void stop_list_fling(void)
+{
+    Animation* running = list_fling;
+    list_fling = NULL;
+    if (running != NULL)
+    {
+        animation_unschedule(running);
+    }
+}
+
+static void list_touch_down(void* context)
+{
+    (void)context;
+    idle_handler_notify_user_interacted();
+    stop_list_fling();
+    list_drag_base = list_offset();
+    list_dragging = false;
+}
+
+static void list_drag_moved(const int16_t dy, void* context)
+{
+    (void)context;
+    list_dragging = true;
+    int16_t value = list_drag_base - dy;
+    const int16_t max = list_max_offset();
+    if (value < 0)
+    {
+        value /= 3;
+    }
+    else if (value > max)
+    {
+        value = max + (value - max) / 3;
+    }
+    set_list_offset(value);
+}
+
+static void list_drag_ended(const int16_t dy, const int32_t velocity, void* context)
+{
+    (void)dy;
+    (void)context;
+    if (!list_dragging)
+    {
+        return;
+    }
+    list_dragging = false;
+
+    const int32_t speed = velocity < 0 ? -velocity : velocity;
+    int32_t travel = (speed * speed) / (2 * LIST_FLING_DECELERATION);
+    if (velocity > 0)
+    {
+        travel = -travel;
+    }
+    const int16_t from = list_offset();
+    int32_t target = from + travel;
+    const int16_t max = list_max_offset();
+    target = target < 0 ? 0 : (target > max ? max : target);
+
+    uint32_t duration = (uint32_t)((speed * 1000) / LIST_FLING_DECELERATION);
+    duration = duration < LIST_FLING_MIN_MS ? LIST_FLING_MIN_MS :
+        (duration > LIST_FLING_MAX_MS ? LIST_FLING_MAX_MS : duration);
+
+    if (target == from)
+    {
+        select_row_at_center();
+        return;
+    }
+
+    static const AnimationImplementation implementation = {
+        .update = list_fling_update,
+    };
+    list_fling_from = from;
+    list_fling_to = (int16_t)target;
+    list_fling = animation_create();
+    if (list_fling == NULL)
+    {
+        set_list_offset((int16_t)target);
+        select_row_at_center();
+        return;
+    }
+    animation_set_implementation(list_fling, &implementation);
+    animation_set_duration(list_fling, duration);
+    animation_set_curve(list_fling, AnimationCurveEaseOut);
+    animation_set_handlers(list_fling, (AnimationHandlers){.stopped = list_fling_stopped}, NULL);
+    if (!animation_schedule(list_fling))
+    {
+        list_fling = NULL;
+        set_list_offset((int16_t)target);
+        select_row_at_center();
+    }
+}
+
+static void list_tap(const GPoint point, void* context)
+{
+    (void)context;
+    const int16_t row = (list_offset() + point.y) / LIST_CELL_HEIGHT;
+    const NotificationItem* item = notification_store_item(row);
+    if (item == NULL)
+    {
+        return;
+    }
+    menu_layer_set_selected_index(menu_layer, MenuIndex(0, row), MenuRowAlignNone, false);
+    list_selected_bucket = item->bucket_id;
+    open_detail(item->bucket_id, true);
+}
+
+static void list_swipe_back(void* context)
+{
+    (void)context;
+    send_close_me();
+}
+
+static const TouchGestureHandlers list_touch_handlers = {
+    .touch_down = list_touch_down,
+    .tap = list_tap,
+    .drag_moved = list_drag_moved,
+    .drag_ended = list_drag_ended,
+    .swipe_back = list_swipe_back,
+    .edge_swipe_up = NULL,
+};
+
+static void on_touch(const TouchEvent* event, void* context)
+{
+    (void)context;
+    if (detail_window_handle_touch(event))
+    {
+        return;
+    }
+    if (list_window == NULL || menu_layer == NULL || window_stack_get_top_window() != list_window ||
+        notification_store_count() == 0 || waiting_for_launch_target)
+    {
+        return;
+    }
+    touch_gesture_feed(&list_touch, event, &list_touch_handlers, NULL);
 }
 
 static void sync_list_selection(void)
@@ -802,6 +1009,13 @@ static void window_load(Window* window)
     layer_set_update_proc(splash_layer, splash_layer_update);
     layer_add_child(root, splash_layer);
 
+    window_set_touch_bridge_disabled(window, true);
+    touch_gesture_reset(&list_touch);
+    if (touch_service_is_enabled())
+    {
+        touch_service_subscribe(on_touch, NULL);
+    }
+
     window_notification_data.active = true;
     window_notification_action_list_init(window);
     sync_list_selection();
@@ -817,6 +1031,9 @@ static void window_unload(Window* window)
         app_timer_cancel(phone_timeout_timer);
         phone_timeout_timer = NULL;
     }
+    touch_service_unsubscribe();
+    stop_list_fling();
+    touch_gesture_reset(&list_touch);
     detail_window_close(false);
     window_notification_action_list_deinit();
 

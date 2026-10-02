@@ -34,5 +34,7 @@ void detail_window_play_dismissed(uint8_t bucket_id);
 /** Open the action menu once actions for the current card are available. */
 void detail_window_open_actions(void);
 
-/** Hide/show the "busy" splash used while the app was launched by the phone. */
 bool detail_window_is_animating(void);
+
+/** Feed a raw touch event. Returns false when the detail window is not the one on screen. */
+bool detail_window_handle_touch(const TouchEvent* event);

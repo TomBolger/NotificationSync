@@ -80,6 +80,8 @@ static void on_action_menu_closed(ActionMenu* menu, const ActionMenuItem* perfor
 
     if (action_menu == menu)
     {
+        // The app owns touch everywhere else (raw subscription); the system menu only while it is up.
+        app_touch_navigation_enable(false);
         action_menu = NULL;
         window_notification_data.menu_displayed = false;
         window_notification_ui_on_menu_closed();
@@ -290,6 +292,7 @@ void window_notification_action_list_deinit()
         action_menu_close(action_menu, false);
         action_menu = NULL;
     }
+    app_touch_navigation_enable(false);
 
     active_voice_action_valid = false;
     active_voice_notification_id = 0;
@@ -364,9 +367,12 @@ void window_notification_action_list_show()
     };
 
     window_notification_data.menu_displayed = true;
+    // Let the system's touch handling drive its ActionMenu (tap an action, drag to scroll, swipe back).
+    app_touch_navigation_enable(true);
     action_menu = action_menu_open(&config);
     if (action_menu == NULL)
     {
+        app_touch_navigation_enable(false);
         action_menu_hierarchy_destroy(root_level, NULL, NULL);
         window_notification_data.menu_displayed = false;
         vibes_double_pulse();

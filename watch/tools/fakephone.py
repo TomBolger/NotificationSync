@@ -142,6 +142,33 @@ class FakePhone:
             self._qmp("send-key", {"keys": [{"type": "qcode", "data": QMP_KEYS[button]}], "hold-time": hold_ms})
             time.sleep(gap + hold_ms / 1000.0)
 
+    # Touch (Emery/Gabbro QEMU only). Coordinates are in screen pixels.
+    def _touch_move(self, x, y, size=(200, 228)):
+        self._qmp("input-send-event", {"events": [
+            {"type": "abs", "data": {"axis": "x", "value": int(x * 32767 / size[0])}},
+            {"type": "abs", "data": {"axis": "y", "value": int(y * 32767 / size[1])}},
+        ]})
+
+    def _touch_button(self, down):
+        self._qmp("input-send-event", {"events": [{"type": "btn", "data": {"down": down, "button": "left"}}]})
+
+    def tap(self, x, y):
+        self._touch_move(x, y)
+        self._touch_button(True)
+        time.sleep(0.08)
+        self._touch_button(False)
+
+    def drag(self, x0, y0, x1, y1, duration=0.3, steps=10, hold_end=0.0):
+        """Drag from (x0, y0) to (x1, y1). hold_end pauses before lifting (kills the fling)."""
+        self._touch_move(x0, y0)
+        self._touch_button(True)
+        for i in range(1, steps + 1):
+            time.sleep(duration / steps)
+            self._touch_move(x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps)
+        if hold_end:
+            time.sleep(hold_end)
+        self._touch_button(False)
+
     def screenshot(self, path):
         ppm = path + ".ppm"
         self._qmp("screendump", {"filename": ppm})

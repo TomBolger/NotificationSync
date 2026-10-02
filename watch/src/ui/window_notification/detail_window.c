@@ -3,6 +3,7 @@
 #include "action_list.h"
 #include "card.h"
 #include "notification_store.h"
+#include "touch_gesture.h"
 #include "window_notification.h"
 
 // Scrolling behaviour mirrors PebbleOS src/fw/services/timeline/swap_layer.c (rectangular displays).
@@ -38,7 +39,6 @@ static const DetailCallbacks* callbacks;
 
 static Window* window;
 static Layer* card_layer;
-static Layer* arrow_layer;
 static Layer* action_dot_layer;
 
 static uint8_t current_bucket;
@@ -46,7 +46,7 @@ static int16_t last_known_index;
 static int16_t offset;
 static int8_t swap_delay_remaining = MESSAGE_SWAP_DELAY;
 
-static MetricsEntry metrics_cache[3];
+static MetricsEntry metrics_cache[4];
 static uint8_t metrics_next_slot;
 
 static Animation* animation;
@@ -177,19 +177,12 @@ static int16_t max_scroll(void)
 
 static void refresh_decorations(void)
 {
-    if (arrow_layer == NULL)
+    if (card_layer == NULL)
     {
         return;
     }
 
-    // PebbleOS swap_layer.c prv_update_arrow: show the "more below" arrow only while at the top.
     const bool idle = anim_kind == AnimNone || anim_kind == AnimScroll;
-    const bool at_top = offset == 0;
-    const bool taller_than_screen = current_bucket != 0 && card_height(current_bucket) > PBL_DISPLAY_HEIGHT;
-    const bool show_arrow = idle && anim_kind == AnimNone && at_top &&
-        (taller_than_screen || neighbor(1) != NULL || current_is_partial());
-    layer_set_hidden(arrow_layer, !show_arrow);
-
     const NotificationItem* item = notification_store_item_by_bucket(current_bucket);
     layer_set_hidden(action_dot_layer, !(idle && item != NULL && item->loaded));
 
@@ -197,6 +190,66 @@ static void refresh_decorations(void)
 }
 
 // ------------------------------------------------------------------------------------------------ drawing
+
+/** Whether this card has anything below its first screen (more text, or another notification after it). */
+static bool card_wants_arrow(const uint8_t bucket)
+{
+    const int16_t index = notification_store_index_of(bucket);
+    if (index < 0)
+    {
+        return false;
+    }
+    return card_height(bucket) > PBL_DISPLAY_HEIGHT ||
+        notification_store_is_partial(bucket) ||
+        index + 1 < notification_store_count();
+}
+
+static void draw_down_arrow(GContext* ctx, const int16_t y)
+{
+    const int16_t width = PBL_DISPLAY_WIDTH;
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, GRect(0, y, width, CARD_ARROW_HEIGHT), 0, GCornerNone);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    const int16_t center_x = width / 2;
+    for (int16_t row = 0; row <= 5; row++)
+    {
+        graphics_draw_line(ctx, GPoint(center_x - 5 + row, y + 7 + row), GPoint(center_x + 5 - row, y + 7 + row));
+    }
+}
+
+/**
+ * The "more below" arrow belongs to a card's first screen (PebbleOS swap_layer.c shows it only while the card
+ * sits at the top). Drawing it with the card instead of as a fixed overlay means it slides in together with an
+ * incoming card, and slides off the bottom edge as soon as you start scrolling, instead of popping on and off.
+ */
+static void draw_card_arrow(GContext* ctx, const uint8_t bucket, const int16_t card_y)
+{
+    if (!card_wants_arrow(bucket))
+    {
+        return;
+    }
+
+    const int16_t resting_y = PBL_DISPLAY_HEIGHT - CARD_ARROW_HEIGHT;
+    int16_t y;
+    if (card_y >= 0)
+    {
+        y = card_y + resting_y;
+    }
+    else
+    {
+        const int16_t scrolled = -card_y;
+        if (scrolled >= CARD_ARROW_HEIGHT)
+        {
+            return;
+        }
+        y = resting_y + scrolled;
+    }
+
+    if (y < PBL_DISPLAY_HEIGHT)
+    {
+        draw_down_arrow(ctx, y);
+    }
+}
 
 static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
 {
@@ -242,8 +295,12 @@ static void card_layer_update(Layer* layer, GContext* ctx)
     {
         // The previous card slides down from above, pushing the current one off the bottom.
         const int16_t other_height = card_height(anim_other_bucket);
-        draw_card(ctx, anim_other_bucket, -other_height - anim_start_offset + anim_value);
-        draw_card(ctx, current_bucket, -anim_start_offset + anim_value);
+        const int16_t other_y = -other_height - anim_start_offset + anim_value;
+        const int16_t current_y = -anim_start_offset + anim_value;
+        draw_card(ctx, current_bucket, current_y);
+        draw_card_arrow(ctx, current_bucket, current_y);
+        draw_card(ctx, anim_other_bucket, other_y);
+        draw_card_arrow(ctx, anim_other_bucket, other_y);
         return;
     }
 
@@ -256,21 +313,15 @@ static void card_layer_update(Layer* layer, GContext* ctx)
     if (next != NULL && current_y + height < bounds.size.h)
     {
         draw_card(ctx, next->bucket_id, current_y + height);
+        if (anim_kind == AnimSwapDown)
+        {
+            // The incoming card brings its own arrow with it.
+            draw_card_arrow(ctx, next->bucket_id, current_y + height);
+        }
     }
+    draw_card_arrow(ctx, current_bucket, current_y);
 }
 
-static void arrow_layer_update(Layer* layer, GContext* ctx)
-{
-    const GRect bounds = layer_get_bounds(layer);
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-    graphics_context_set_stroke_color(ctx, GColorBlack);
-    const int16_t center_x = bounds.size.w / 2;
-    for (int16_t y = 0; y <= 5; y++)
-    {
-        graphics_draw_line(ctx, GPoint(center_x - 5 + y, 7 + y), GPoint(center_x + 5 - y, 7 + y));
-    }
-}
 
 static void action_dot_update(Layer* layer, GContext* ctx)
 {
@@ -796,6 +847,182 @@ static void click_config_provider(void* context)
     window_single_click_subscribe(BUTTON_ID_BACK, back_handler);
 }
 
+// ------------------------------------------------------------------------------------------------ touch
+
+// Momentum: how quickly a flick slows down, in px/s².
+#define FLING_DECELERATION 2600
+#define FLING_MIN_MS 180
+#define FLING_MAX_MS 900
+// How far past the top/bottom of a card you pull before letting go switches notification.
+#define PULL_TO_SWAP_PX 56
+#define RUBBER_BAND_DIVISOR 3
+
+static TouchGesture touch;
+static int16_t drag_base_offset;
+static bool dragging;
+
+static void stop_motion_for_touch(void)
+{
+    if (anim_kind == AnimScroll && animation != NULL)
+    {
+        // Catch a scrolling/flinging card where it is right now.
+        anim_to = offset;
+        finish_animation();
+    }
+    else
+    {
+        finish_animation();
+    }
+}
+
+static int16_t rubber_banded(const int16_t raw, const int16_t max)
+{
+    if (raw < 0)
+    {
+        return raw / RUBBER_BAND_DIVISOR;
+    }
+    if (raw > max)
+    {
+        return max + (raw - max) / RUBBER_BAND_DIVISOR;
+    }
+    return raw;
+}
+
+static void touch_down(void* context)
+{
+    (void)context;
+    notify_interaction();
+    stop_motion_for_touch();
+    drag_base_offset = offset;
+    dragging = false;
+}
+
+static void touch_drag_moved(const int16_t dy, void* context)
+{
+    (void)context;
+    if (current_bucket == 0 || anim_kind != AnimNone)
+    {
+        return;
+    }
+    if (!dragging)
+    {
+        dragging = true;
+        window_notification_action_list_hide();
+    }
+    offset = rubber_banded(drag_base_offset - dy, max_scroll());
+    refresh_decorations();
+}
+
+static void touch_drag_ended(const int16_t dy, const int32_t velocity, void* context)
+{
+    (void)context;
+    if (!dragging || current_bucket == 0)
+    {
+        dragging = false;
+        return;
+    }
+    dragging = false;
+
+    const int16_t max = max_scroll();
+    const int16_t raw = drag_base_offset - dy;
+
+    if (raw < -PULL_TO_SWAP_PX && swap(-1, false))
+    {
+        return;
+    }
+    if (raw > max + PULL_TO_SWAP_PX)
+    {
+        if (current_is_partial())
+        {
+            notification_store_want_details(current_bucket, true);
+        }
+        else if (swap(1, true))
+        {
+            return;
+        }
+    }
+
+    // Momentum: keep travelling in the flick direction and ease to a stop. Finger moving down (positive
+    // velocity) scrolls the content back toward the top.
+    const int32_t speed = velocity < 0 ? -velocity : velocity;
+    int32_t travel = (speed * speed) / (2 * FLING_DECELERATION);
+    if (velocity > 0)
+    {
+        travel = -travel;
+    }
+    int32_t target = (int32_t)offset + travel;
+    if (target < 0)
+    {
+        target = 0;
+    }
+    if (target > max)
+    {
+        target = max;
+    }
+
+    uint32_t duration = (uint32_t)((speed * 1000) / FLING_DECELERATION);
+    if (duration < FLING_MIN_MS)
+    {
+        duration = FLING_MIN_MS;
+    }
+    if (duration > FLING_MAX_MS)
+    {
+        duration = FLING_MAX_MS;
+    }
+
+    if (target != offset &&
+        !start_animation(AnimScroll, offset, (int16_t)target, duration, AnimationCurveEaseOut))
+    {
+        offset = (int16_t)target;
+    }
+    refresh_decorations();
+}
+
+static void touch_tap(const GPoint point, void* context)
+{
+    (void)point;
+    (void)context;
+    if (!window_notification_data.menu_displayed)
+    {
+        detail_window_open_actions();
+    }
+}
+
+static void touch_swipe_back(void* context)
+{
+    (void)context;
+    if (callbacks != NULL && callbacks->back_pressed != NULL)
+    {
+        callbacks->back_pressed();
+    }
+}
+
+static void touch_edge_swipe_up(void* context)
+{
+    (void)context;
+    // Flick from the bottom edge: straight to the top of the next notification.
+    swap(1, true);
+}
+
+static const TouchGestureHandlers touch_handlers = {
+    .touch_down = touch_down,
+    .tap = touch_tap,
+    .drag_moved = touch_drag_moved,
+    .drag_ended = touch_drag_ended,
+    .swipe_back = touch_swipe_back,
+    .edge_swipe_up = touch_edge_swipe_up,
+};
+
+bool detail_window_handle_touch(const TouchEvent* event)
+{
+    if (window == NULL || window_stack_get_top_window() != window || window_notification_data.menu_displayed)
+    {
+        return false;
+    }
+    touch_gesture_feed(&touch, event, &touch_handlers, NULL);
+    return true;
+}
+
 // ------------------------------------------------------------------------------------------------ window
 
 static void window_load(Window* w)
@@ -806,10 +1033,6 @@ static void window_load(Window* w)
     card_layer = layer_create(bounds);
     layer_set_update_proc(card_layer, card_layer_update);
     layer_add_child(root, card_layer);
-
-    arrow_layer = layer_create(GRect(0, bounds.size.h - CARD_ARROW_HEIGHT, bounds.size.w, CARD_ARROW_HEIGHT));
-    layer_set_update_proc(arrow_layer, arrow_layer_update);
-    layer_add_child(root, arrow_layer);
 
     action_dot_layer = layer_create(bounds);
     layer_set_update_proc(action_dot_layer, action_dot_update);
@@ -838,11 +1061,11 @@ static void window_unload(Window* w)
     dismiss_bucket = 0;
 
     layer_destroy(action_dot_layer);
-    layer_destroy(arrow_layer);
     layer_destroy(card_layer);
     action_dot_layer = NULL;
-    arrow_layer = NULL;
     card_layer = NULL;
+    touch_gesture_reset(&touch);
+    dragging = false;
 
     window_destroy(w);
     window = NULL;
@@ -885,6 +1108,8 @@ void detail_window_open(const uint8_t bucket_id, const bool animated)
     window_notification_data.detail_open = true;
     window_set_background_color(window, GColorWhite);
     window_set_click_config_provider(window, click_config_provider);
+    // Touch is handled by this window itself (finger-tracked scrolling), not by the system's button emulation.
+    window_set_touch_bridge_disabled(window, true);
     window_set_window_handlers(window, (WindowHandlers){
         .load = window_load,
         .unload = window_unload,
