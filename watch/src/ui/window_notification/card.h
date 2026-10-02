@@ -40,4 +40,11 @@ void card_measure(const NotificationItem* item, const char* body, int16_t width,
 void card_draw(GContext* ctx, const NotificationItem* item, const char* body, const CardMetrics* metrics,
                int16_t width, int16_t origin_y, int16_t counter_index, int16_t counter_total);
 
+#define CARD_TEXT_SIZE_SMALL 0
+#define CARD_TEXT_SIZE_DEFAULT 1
+#define CARD_TEXT_SIZE_LARGE 2
+
+/** Notification text size, as chosen in the phone app's settings. */
+void card_set_text_size(uint8_t size);
+
 void card_format_since(char* buffer, size_t size, time_t timestamp);

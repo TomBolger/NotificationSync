@@ -32,5 +32,8 @@ object GlobalPreferenceKeys {
    )
    val showMessagingStyleChronologically = BooleanPreferenceKeyWithDefault("show_messaging_style_chronologically", false)
 
+   /** Notification text size on the watch: 0 = small, 1 = default, 2 = large. */
+   val watchTextSize = IntPreferenceKeyWithDefault("watch_text_size", 1)
+
    val notifyOnReconnect = BooleanPreferenceKeyWithDefault("notify_on_reconnect", true)
 }

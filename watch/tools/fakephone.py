@@ -71,7 +71,7 @@ class FakePhone:
         self.pebble = None
         self.appmessage = None
         self.notifications = {}
-        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10)
+        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10) + bytes([1])
         self.settings_version = 1
         self.version = 1
         self.watch_version = None
@@ -142,6 +142,11 @@ class FakePhone:
             self._qmp("send-key", {"keys": [{"type": "qcode", "data": QMP_KEYS[button]}], "hold-time": hold_ms})
             time.sleep(gap + hold_ms / 1000.0)
 
+    def key(self, button, down):
+        """Raw key down/up, for press-and-hold."""
+        self._qmp("input-send-event", {"events": [
+            {"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": QMP_KEYS[button]}}}]})
+
     # Touch (Emery/Gabbro QEMU only). Coordinates are in screen pixels.
     def _touch_move(self, x, y, size=(200, 228)):
         self._qmp("input-send-event", {"events": [
@@ -210,6 +215,14 @@ class FakePhone:
     def remove(self, bucket_id, sync=True):
         self.notifications.pop(bucket_id, None)
         self.version += 1
+        if sync:
+            self.sync()
+
+    def set_text_size(self, size, sync=True):
+        """0 = small, 1 = default, 2 = large."""
+        self.settings = self.settings[:5] + bytes([size])
+        self.version += 1
+        self.settings_version = self.version
         if sync:
             self.sync()
 

@@ -501,6 +501,7 @@ class WatchSyncerImplTest {
                   0x58,
                   0,
                   10,
+                  1, // Default text size
                )
             )
          )
@@ -529,6 +530,7 @@ class WatchSyncerImplTest {
                   0x58,
                   0,
                   10,
+                  1, // Default text size
                )
             )
          )
@@ -557,6 +559,7 @@ class WatchSyncerImplTest {
                   0x58,
                   0,
                   10,
+                  1, // Default text size
                )
             )
          )
@@ -585,6 +588,7 @@ class WatchSyncerImplTest {
                   0x04,
                   0,
                   10,
+                  1, // Default text size
                )
             )
          )
@@ -614,6 +618,7 @@ class WatchSyncerImplTest {
                   0x58,
                   0,
                   30,
+                  1, // Default text size
                )
             )
          )

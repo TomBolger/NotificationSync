@@ -44,7 +44,7 @@ static void toggle_phone_mute()
 
 static void update_data()
 {
-    const bool bucket_exists = bucket_sync_load_bucket(1, preferences);
+    const bool bucket_exists = bucket_sync_load_bucket_limited(1, preferences, sizeof(preferences));
     if (!bucket_exists)
     {
         return;

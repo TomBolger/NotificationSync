@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
@@ -207,6 +209,11 @@ private fun DefaultSettingsContent(
 
       item {
          SettingsGroup("On the watch") {
+            TextSizeRow(
+               selected = globalPreferences[GlobalPreferenceKeys.watchTextSize],
+               onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchTextSize, it) },
+            )
+            GroupDivider()
             NumberRow(
                title = stringResource(R.string.notification_timeout),
                description = stringResource(R.string.notification_timeout_description),
@@ -413,6 +420,35 @@ private fun SwitchRow(
       },
       colors = ListItemDefaults.colors(containerColor = Color.Transparent),
       modifier = Modifier.clickable { onCheckedChange(!checked) },
+   )
+}
+
+@Composable
+private fun TextSizeRow(
+   selected: Int,
+   onSelect: (Int) -> Unit,
+) {
+   val options = listOf("Small" to MaterialTheme.typography.labelMedium, "Default" to MaterialTheme.typography.labelLarge, "Large" to MaterialTheme.typography.titleMedium)
+   ListItem(
+      headlineContent = { Text("Text size") },
+      supportingContent = {
+         Column {
+            Text("How big notification text is on the watch.")
+            Row(
+               horizontalArrangement = Arrangement.spacedBy(8.dp),
+               modifier = Modifier.padding(top = 8.dp),
+            ) {
+               options.forEachIndexed { index, (label, style) ->
+                  FilterChip(
+                     selected = selected == index,
+                     onClick = { onSelect(index) },
+                     label = { Text(label, style = style) },
+                  )
+               }
+            }
+         }
+      },
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
    )
 }
 

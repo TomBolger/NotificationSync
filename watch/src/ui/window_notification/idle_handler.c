@@ -200,5 +200,5 @@ static bool load_config(uint8_t* config, const size_t config_size)
     config[CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX + 1] =
         DEFAULT_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS & 0xff;
 
-    return bucket_sync_load_bucket(1, config);
+    return bucket_sync_load_bucket_limited(1, config, (uint8_t)config_size);
 }

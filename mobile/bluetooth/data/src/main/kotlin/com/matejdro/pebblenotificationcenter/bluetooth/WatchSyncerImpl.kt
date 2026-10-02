@@ -207,6 +207,7 @@ class WatchSyncerImpl(
             buffer.writeByte(flags.toInt())
             buffer.writeUShort(autoClose.toUShort())
             buffer.writeUShort(interactionTimeout.toUShort())
+            buffer.writeByte(preferences[GlobalPreferenceKeys.watchTextSize].coerceIn(0, 2))
 
             bucketSyncRepository.updateBucket(
                1u,

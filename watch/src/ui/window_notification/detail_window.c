@@ -14,7 +14,6 @@
 #define FUDGE_PX PEEK_PX
 #define SCROLL_MS 200
 #define SWAP_MS 200
-#define SCROLL_REPEAT_MS 200
 #define MESSAGE_SWAP_DELAY 3
 #define DISMISS_FALLBACK_MS 500
 #define ACTIONS_WAIT_MS 5000
@@ -66,6 +65,24 @@ static AppTimer* actions_timer;
 
 static void finish_animation(void);
 static void settle_on(uint8_t bucket, int16_t new_offset);
+static void hold_step(void);
+static void hold_cancel(void);
+
+// Press-and-hold: one continuous, even scroll (no stepping), a short bump at the end of each message,
+// then straight on into the next one.
+#define HOLD_START_MS 120
+#define HOLD_SPEED_PX_S 180
+#define HOLD_BUMP_MS 600
+#define HOLD_RETRY_MS 100
+#define HOLD_RELEASE_PX 8
+#define HOLD_RELEASE_MS 140
+
+static int8_t hold_direction;
+static bool hold_active;
+static bool hold_bumped;
+static bool hold_in_step;
+static AppTimer* hold_timer;
+static int16_t hold_press_target;
 
 // ------------------------------------------------------------------------------------------------ model helpers
 
@@ -405,6 +422,11 @@ static void animation_stopped(Animation* anim, const bool finished, void* contex
     {
         refresh_decorations();
     }
+
+    if (finished && hold_active && kind != AnimDismiss)
+    {
+        hold_step();
+    }
 }
 
 static bool start_animation(const AnimKind kind, const int16_t from, const int16_t to, const uint32_t duration,
@@ -510,7 +532,15 @@ static void settle_on(const uint8_t bucket, int16_t new_offset)
     }
 }
 
-static bool swap(const int8_t direction, const bool to_top)
+static uint32_t duration_for(const int16_t distance, const uint16_t speed_px_s)
+{
+    const int32_t d = distance < 0 ? -distance : distance;
+    const uint32_t ms = (uint32_t)((d * 1000) / speed_px_s);
+    return ms > 0 ? ms : 1;
+}
+
+/** speed_px_s == 0: the stock snappy swap. Otherwise an even, linear slide at that speed (press-and-hold). */
+static bool swap_at(const int8_t direction, const bool to_top, const uint16_t speed_px_s)
 {
     const NotificationItem* target = neighbor(direction);
     if (target == NULL)
@@ -525,7 +555,10 @@ static bool swap(const int8_t direction, const bool to_top)
     if (direction > 0)
     {
         // Slide the current card (from wherever it is scrolled) up and out; the next card ends at the top.
-        return start_animation(AnimSwapDown, offset, card_height(current_bucket), SWAP_MS, AnimationCurveEaseOut) ||
+        const int16_t height = card_height(current_bucket);
+        return start_animation(AnimSwapDown, offset, height,
+                               speed_px_s ? duration_for(height - offset, speed_px_s) : SWAP_MS,
+                               speed_px_s ? AnimationCurveLinear : AnimationCurveEaseOut) ||
             (settle_on(target->bucket_id, 0), true);
     }
 
@@ -541,11 +574,17 @@ static bool swap(const int8_t direction, const bool to_top)
     {
         distance = PBL_DISPLAY_HEIGHT - PEEK_PX + offset;
     }
-    if (!start_animation(AnimSwapUp, 0, distance, SWAP_MS, AnimationCurveEaseOut))
+    if (!start_animation(AnimSwapUp, 0, distance, speed_px_s ? duration_for(distance, speed_px_s) : SWAP_MS,
+                         speed_px_s ? AnimationCurveLinear : AnimationCurveEaseOut))
     {
         settle_on(target->bucket_id, to_top ? 0 : target_height - PBL_DISPLAY_HEIGHT + PEEK_PX);
     }
     return true;
+}
+
+static bool swap(const int8_t direction, const bool to_top)
+{
+    return swap_at(direction, to_top, 0);
 }
 
 static void scroll_to(const int16_t target, const bool repeating)
@@ -643,6 +682,133 @@ static void attempt_scroll(const int8_t direction, const bool repeating)
     }
 }
 
+// ------------------------------------------------------------------------------------------------ press and hold
+
+static void stop_scroll_in_place(void)
+{
+    if (anim_kind == AnimScroll && animation != NULL)
+    {
+        anim_to = offset;
+        finish_animation();
+    }
+}
+
+static void hold_timer_fired(void* context)
+{
+    (void)context;
+    hold_timer = NULL;
+    hold_step();
+}
+
+static void hold_wait(const uint32_t ms)
+{
+    if (hold_timer != NULL)
+    {
+        app_timer_cancel(hold_timer);
+    }
+    hold_timer = app_timer_register(ms, hold_timer_fired, NULL);
+}
+
+static void hold_begin(void* context)
+{
+    (void)context;
+    hold_timer = NULL;
+    if (hold_direction == 0 || window == NULL || window_notification_data.menu_displayed)
+    {
+        return;
+    }
+    hold_active = true;
+    hold_bumped = false;
+    // Remember where the press was headed so a press that only just turned into a hold still travels as far.
+    hold_press_target = anim_kind == AnimScroll && animation != NULL ? anim_to : offset;
+    hold_step();
+}
+
+static void hold_step(void)
+{
+    if (!hold_active || hold_in_step || window == NULL || current_bucket == 0)
+    {
+        return;
+    }
+    if (window_notification_data.menu_displayed)
+    {
+        hold_cancel();
+        return;
+    }
+    if (animation != NULL && anim_kind != AnimScroll)
+    {
+        // A swap or dismiss is playing; carry on when it lands.
+        return;
+    }
+
+    hold_in_step = true;
+    // Pick up from wherever the press animation has got to, at a steady speed.
+    stop_scroll_in_place();
+
+    const int8_t direction = hold_direction;
+    const int16_t end = direction > 0 ? max_scroll() : 0;
+    if (offset != end)
+    {
+        hold_bumped = false;
+        start_animation(AnimScroll, offset, end, duration_for(end - offset, HOLD_SPEED_PX_S), AnimationCurveLinear);
+    }
+    else if (direction > 0 && current_is_partial())
+    {
+        // The rest of this message is on its way: wait for it, then keep scrolling.
+        notification_store_want_details(current_bucket, true);
+        hold_wait(HOLD_RETRY_MS);
+    }
+    else if (!hold_bumped)
+    {
+        // Bump: rest at the end of the message for a moment, so it can be read or acted on.
+        hold_bumped = true;
+        hold_wait(HOLD_BUMP_MS);
+    }
+    else
+    {
+        hold_bumped = false;
+        swap_at(direction, false, HOLD_SPEED_PX_S);
+    }
+    hold_in_step = false;
+}
+
+static void hold_cancel(void)
+{
+    hold_active = false;
+    hold_direction = 0;
+    hold_bumped = false;
+    if (hold_timer != NULL)
+    {
+        app_timer_cancel(hold_timer);
+        hold_timer = NULL;
+    }
+}
+
+static void hold_release(void)
+{
+    const bool was_active = hold_active;
+    const int8_t direction = hold_direction;
+    hold_cancel();
+    if (!was_active || anim_kind != AnimScroll || animation == NULL)
+    {
+        // A plain press, or a swap that will finish on its own.
+        return;
+    }
+
+    stop_scroll_in_place();
+    int16_t target = offset + direction * HOLD_RELEASE_PX;
+    if ((direction > 0 && target < hold_press_target) || (direction < 0 && target > hold_press_target))
+    {
+        target = hold_press_target;
+    }
+    const int16_t max = max_scroll();
+    target = target < 0 ? 0 : (target > max ? max : target);
+    if (target != offset)
+    {
+        start_animation(AnimScroll, offset, target, HOLD_RELEASE_MS, AnimationCurveEaseOut);
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ actions
 
 static bool copy_actions_for_current(void)
@@ -734,31 +900,17 @@ static void raw_scroll_handler(ClickRecognizerRef recognizer, void* context)
         }
         return;
     }
+    hold_cancel();
     attempt_scroll(direction_of(recognizer), false);
+    hold_direction = direction_of(recognizer);
+    hold_timer = app_timer_register(HOLD_START_MS, hold_begin, NULL);
 }
 
-static void repeating_scroll_handler(ClickRecognizerRef recognizer, void* context)
+static void raw_scroll_up_handler(ClickRecognizerRef recognizer, void* context)
 {
+    (void)recognizer;
     (void)context;
-    if (!click_recognizer_is_repeating(recognizer))
-    {
-        return;
-    }
-
-    notify_interaction();
-    if (window_notification_data.menu_displayed)
-    {
-        if (direction_of(recognizer) < 0)
-        {
-            window_notification_action_list_move_up();
-        }
-        else
-        {
-            window_notification_action_list_move_down();
-        }
-        return;
-    }
-    attempt_scroll(direction_of(recognizer), true);
+    hold_release();
 }
 
 static void up_double_click_handler(ClickRecognizerRef recognizer, void* context)
@@ -835,12 +987,10 @@ static void back_handler(ClickRecognizerRef recognizer, void* context)
 
 static void click_config_provider(void* context)
 {
-    window_raw_click_subscribe(BUTTON_ID_UP, raw_scroll_handler, NULL, context);
-    window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, repeating_scroll_handler);
+    window_raw_click_subscribe(BUTTON_ID_UP, raw_scroll_handler, raw_scroll_up_handler, context);
     window_multi_click_subscribe(BUTTON_ID_UP, 2, 2, 100, false, up_double_click_handler);
 
-    window_raw_click_subscribe(BUTTON_ID_DOWN, raw_scroll_handler, NULL, context);
-    window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, repeating_scroll_handler);
+    window_raw_click_subscribe(BUTTON_ID_DOWN, raw_scroll_handler, raw_scroll_up_handler, context);
     window_multi_click_subscribe(BUTTON_ID_DOWN, 2, 2, 100, false, down_double_click_handler);
 
     window_single_click_subscribe(BUTTON_ID_SELECT, select_handler);
@@ -892,6 +1042,7 @@ static void touch_down(void* context)
 {
     (void)context;
     notify_interaction();
+    hold_cancel();
     stop_motion_for_touch();
     drag_base_offset = offset;
     dragging = false;
@@ -1045,6 +1196,7 @@ static void window_unload(Window* w)
 {
     window_notification_action_list_hide();
     cancel_actions_wait();
+    hold_cancel();
 
     Animation* running = animation;
     animation = NULL;
@@ -1279,6 +1431,22 @@ void detail_window_on_list_changed(const uint8_t* changed_buckets, const uint8_t
         }
     }
 
+    refresh_decorations();
+}
+
+void detail_window_on_style_changed(void)
+{
+    invalidate_metrics();
+    if (window == NULL)
+    {
+        return;
+    }
+    finish_animation();
+    const int16_t max = max_scroll();
+    if (offset > max)
+    {
+        offset = max;
+    }
     refresh_decorations();
 }
 

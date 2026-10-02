@@ -188,19 +188,42 @@ const char* card_body_text(const NotificationItem* item, const char* body)
     return body;
 }
 
+static uint8_t text_size = CARD_TEXT_SIZE_DEFAULT;
+
+void card_set_text_size(const uint8_t size)
+{
+    text_size = size <= CARD_TEXT_SIZE_LARGE ? size : CARD_TEXT_SIZE_DEFAULT;
+}
+
 static GFont header_font(void)
 {
-    return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+    switch (text_size)
+    {
+    case CARD_TEXT_SIZE_SMALL:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+    case CARD_TEXT_SIZE_LARGE:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    default:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+    }
 }
 
 static GFont body_font(void)
 {
-    return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    switch (text_size)
+    {
+    case CARD_TEXT_SIZE_SMALL:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+    case CARD_TEXT_SIZE_LARGE:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+    default:
+        return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    }
 }
 
 static GFont footer_font(void)
 {
-    return fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    return fonts_get_system_font(text_size == CARD_TEXT_SIZE_SMALL ? FONT_KEY_GOTHIC_14 : FONT_KEY_GOTHIC_18);
 }
 
 static int16_t text_height(const char* text, const GFont font, const int16_t width, const GTextOverflowMode mode)

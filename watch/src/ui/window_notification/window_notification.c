@@ -239,7 +239,9 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
         subtitle = NULL;
     }
 
-    const int16_t text_left = inset + (icon_size.w > 25 ? icon_size.w : 25);
+    // A little breathing room between the icon and the text.
+    const int16_t icon_gap = 5;
+    const int16_t text_left = inset + (icon_size.w > 25 ? icon_size.w : 25) + icon_gap;
     const GRect text_box = grect_inset(bounds, GEdgeInsets(0, 5, 0, text_left));
     const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     const GFont subtitle_font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
@@ -970,9 +972,27 @@ static void on_details_changed(const uint8_t bucket_id)
     }
 }
 
+// Settings bucket layout (phone: WatchSyncerImpl.syncPreferences): flags, auto close (2), interaction timeout (2),
+// text size.
+#define SETTINGS_TEXT_SIZE_INDEX 5
+
+static void load_text_size(void)
+{
+    uint8_t config[SETTINGS_TEXT_SIZE_INDEX + 1];
+    memset(config, 0, sizeof(config));
+    config[SETTINGS_TEXT_SIZE_INDEX] = CARD_TEXT_SIZE_DEFAULT;
+    if (bucket_sync_get_bucket_size(1) > SETTINGS_TEXT_SIZE_INDEX)
+    {
+        bucket_sync_load_bucket_limited(1, config, sizeof(config));
+    }
+    card_set_text_size(config[SETTINGS_TEXT_SIZE_INDEX]);
+    detail_window_on_style_changed();
+}
+
 static void on_settings_changed(void)
 {
     idle_handler_register_timers();
+    load_text_size();
 }
 
 static const StoreListener store_listener = {
@@ -1067,6 +1087,7 @@ void window_notification_show()
 
     detail_window_set_callbacks(&detail_callbacks);
     notification_store_set_listener(&store_listener);
+    load_text_size();
 
     window_set_background_color(list_window, GColorWhite);
     window_set_window_handlers(list_window, (WindowHandlers){
