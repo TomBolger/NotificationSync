@@ -3,6 +3,7 @@
 package com.matejdro.pebblenotificationcenter.bluetooth
 
 import android.graphics.drawable.Drawable
+import com.matejdro.pebble.bluetooth.WatchMetadata
 import com.matejdro.pebble.bluetooth.common.PacketQueue
 import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionScope
 import com.matejdro.pebble.bluetooth.common.util.LimitingStringEncoder
@@ -38,6 +39,7 @@ class NotificationDetailsPusherImpl(
    private val drawableExtractor: DrawableExtractor,
    private val scope: DefaultCoroutineScope,
    private val errorReporter: ErrorReporter,
+   private val watchMetadata: WatchMetadata = WatchMetadata(),
 ) : NotificationDetailsPusher {
    private val stringEncoder = LimitingStringEncoder()
    private var previousVibrationSendingJob: Job? = null
@@ -95,7 +97,12 @@ class NotificationDetailsPusherImpl(
             bucketId = bucketId,
             // Same text the summary was cut from (see watchBody), so the summary is an exact prefix of this.
             bodyText = notification.systemData.watchBody().replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
-            actions = notification.actions,
+            // A watch that shows the photo in the notification itself (like PebbleOS) has no use for "Show image".
+            actions = if (watchMetadata.inlineNotificationImages) {
+               notification.actions.filterNot { it is Action.ShowImage }
+            } else {
+               notification.actions
+            },
             maxPacketSize = maxPacketSize,
          )
 

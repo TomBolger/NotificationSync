@@ -31,14 +31,14 @@ from libpebble2.services.appmessage import AppMessageService, ByteArray, Uint8, 
 from libpebble2.services.install import AppInstaller
 
 APP_UUID = uuidlib.UUID("1c5f3908-e3ea-419b-ae55-7f167ea8fafa")
-PROTOCOL_VERSION = 9
+PROTOCOL_VERSION = 10
 
 QMP_KEYS = {"back": "left", "select": "right", "up": "up", "down": "down"}
 
 
 class Notification:
     def __init__(self, bucket_id, app, title, body, icon=0, color=0, timestamp=None, actions=None,
-                 unread=True):
+                 unread=True, image=None):
         self.bucket_id = bucket_id
         self.app = app
         self.title = title
@@ -49,9 +49,18 @@ class Notification:
         self.actions = actions or ["Dismiss", "Snooze", "Reply"]
         self.unread = unread
         self.version = 0
+        # Optional PIL image attached to the notification (shown inline on Emery).
+        self.image = image
+
+    def image_aspect(self):
+        if self.image is None:
+            return 0
+        w, h = self.image.size
+        return max(4, min(24, (h * 16 + w // 2) // w))
 
     def bucket_bytes(self, limit=220):
-        data = struct.pack(">IBB", int(self.timestamp), self.icon, self.color)
+        tag = (id(self.image) & 0xFF) or 1 if self.image is not None else 0
+        data = struct.pack(">IBBBB", int(self.timestamp), self.icon, self.color, self.image_aspect(), tag)
         data += self.app.encode()[:24] + b"\0"
         data += self.title.encode()[:40] + b"\0"
         remaining = limit - len(data)
@@ -79,6 +88,7 @@ class FakePhone:
         self.connected_to_app = False
         self.next_launch_bucket = None
         self.details_requests = []
+        self.image_requests = []
         self.actions_received = []
         self.ignore_detail_requests = False
         self.detail_chunk_size = None
@@ -190,7 +200,7 @@ class FakePhone:
             return None
         return max(self.notifications.values(), key=lambda n: (n.timestamp, n.bucket_id)).bucket_id
 
-    def add(self, app, title, body, sync=True, **kwargs):
+    def add(self, app, title, body, sync=True, **kwargs):  # image=PIL.Image attaches a photo
         bucket_id = self._next_bucket
         self._next_bucket += 1
         if self._next_bucket > 15:
@@ -327,6 +337,51 @@ class FakePhone:
         elif packet_id == 8:
             self.connected_to_app = False
             self.stop()
+        elif packet_id == 16:
+            self.image_requests.append((data[1], data[2], data[3]))
+            self.send_image(data[1], data[2], data[3])
+
+    def send_image(self, bucket_id, width, height):
+        """Serve a notification photo the way the phone app does: centre-crop, 16 colours, 4 bpp."""
+        from PIL import Image
+        n = self.notifications.get(bucket_id)
+        if n is None or n.image is None:
+            self._send({0: Uint8(16), 1: ByteArray(bytes([bucket_id, 0x04, 0, 0]))})
+            return
+        src = n.image.convert("RGB")
+        sw, sh = src.size
+        if sw * height > sh * width:
+            cw = sh * width // height
+            src = src.crop(((sw - cw) // 2, 0, (sw - cw) // 2 + cw, sh))
+        else:
+            ch = sw * height // width
+            src = src.crop((0, (sh - ch) // 2, sw, (sh - ch) // 2 + ch))
+        src = src.resize((width, height), Image.BILINEAR)
+        q = src.quantize(16, dither=Image.FLOYDSTEINBERG)
+        pal = q.getpalette()[:48]
+        colors = len(set(q.getdata()))
+        palette = bytes(0xC0 | ((round(pal[i * 3] / 85)) << 4) | ((round(pal[i * 3 + 1] / 85)) << 2)
+                        | round(pal[i * 3 + 2] / 85) for i in range(16))
+        idx = list(q.getdata())
+        stride = (width + 1) // 2
+        pixels = bytearray(stride * height)
+        for y in range(height):
+            for x in range(width):
+                v = idx[y * width + x] & 0x0F
+                b = y * stride + x // 2
+                pixels[b] |= (v << 4) if x % 2 == 0 else v
+        budget = (self.watch_buffer or 2000) - 40
+        header = struct.pack(">HHB", width, height, 16) + palette
+        offset = 0
+        first = True
+        while offset < len(pixels) or first:
+            room = budget - 4 - (len(header) if first else 0)
+            chunk = bytes(pixels[offset:offset + room])
+            flags = (0x01 if first else 0) | (0x02 if offset + len(chunk) >= len(pixels) else 0)
+            payload = bytes([bucket_id, flags]) + struct.pack(">H", offset) + (header if first else b"") + chunk
+            self._send({0: Uint8(16), 1: ByteArray(payload)})
+            offset += len(chunk)
+            first = False
 
     def _on_welcome(self, data):
         self.watch_buffer = data.get(3, 0)

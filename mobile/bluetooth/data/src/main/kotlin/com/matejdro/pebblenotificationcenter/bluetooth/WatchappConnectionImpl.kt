@@ -11,6 +11,7 @@ import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionGraph
 import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionScope
 import com.matejdro.pebble.bluetooth.common.util.requireUint
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageServer
 import com.matejdro.pebblenotificationcenter.notification.ActionHandler
 import com.matejdro.pebblenotificationcenter.notification.NotificationRepository
 import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
@@ -51,6 +52,7 @@ class WatchappConnectionImpl(
    private val watch: WatchIdentifier,
    private val preferenceStore: DataStore<Preferences>,
    private val watchMetadata: WatchMetadata,
+   private val notificationImageServer: NotificationImageServer,
 ) : WatchAppConnection {
 
    private var reInitRequestJob: Job? = null
@@ -106,6 +108,16 @@ class WatchappConnectionImpl(
             processSettingSetPacket(data)
          }
 
+         16u -> {
+            // The watch brought a card with a photo on screen and wants its pixels at the size of the band.
+            notificationImageServer.onImageRequested(
+               bucketId = data.requireUint(1u).toInt(),
+               width = data.requireUint(2u).toInt(),
+               height = data.requireUint(3u).toInt(),
+            )
+            ReceiveResult.Ack
+         }
+
          else -> {
             logcat { "Unknown packet ID. Nacking..." }
             ReceiveResult.Nack
@@ -151,6 +163,7 @@ class WatchappConnectionImpl(
 
       val flags = data.requireUint(4u)
       watchMetadata.colorWatch = (flags and 0x01u) != 0u
+      watchMetadata.inlineNotificationImages = (flags and 0x02u) != 0u
 
       watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
       val resyncedLiveNotifications = notificationServiceController.resyncActiveNotificationsNow()

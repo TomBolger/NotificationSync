@@ -6,6 +6,7 @@
 #include "card.h"
 #include "detail_window.h"
 #include "idle_handler.h"
+#include "notification_image.h"
 #include "notification_store.h"
 #include "touch_gesture.h"
 #include "connection/packets.h"
@@ -654,6 +655,7 @@ static void on_detail_card_shown(const uint8_t bucket_id)
 {
     notification_store_mark_seen(bucket_id);
     list_selected_bucket = bucket_id;
+    notification_image_request(bucket_id);
     if (bucket_id == launch_target_bucket && deferred_vibration_segments > 0)
     {
         flush_deferred_vibration();
@@ -956,6 +958,11 @@ static void on_list_changed(const uint8_t* changed, const uint8_t changed_count)
     }
 
     detail_window_on_list_changed(changed, changed_count);
+    notification_image_on_list_changed();
+    if (detail_window_is_open())
+    {
+        notification_image_request(detail_window_current_bucket());
+    }
     sync_list_selection();
     update_app_glance();
     try_finish_phone_launch();
@@ -1055,6 +1062,7 @@ static void window_unload(Window* window)
     stop_list_fling();
     touch_gesture_reset(&list_touch);
     detail_window_close(false);
+    notification_image_clear();
     window_notification_action_list_deinit();
 
     menu_layer_destroy(menu_layer);
@@ -1087,6 +1095,7 @@ void window_notification_show()
 
     detail_window_set_callbacks(&detail_callbacks);
     notification_store_set_listener(&store_listener);
+    notification_image_set_listener(detail_window_on_image_changed);
     load_text_size();
 
     window_set_background_color(list_window, GColorWhite);

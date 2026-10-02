@@ -15,6 +15,8 @@ typedef struct
     int16_t header_height;
     int16_t body_height;
     int16_t footer_height;
+    /** Band reserved for an attached photo, padding included (0 for none). */
+    int16_t image_height;
     int16_t total_height;
     bool open_ended;
 } CardMetrics;

@@ -30,6 +30,10 @@ typedef struct
     time_t receive_time;
     uint8_t icon_id;
     uint8_t color_id;
+    /** Height/width of the attached photo in sixteenths, 0 for none (see notification_image.h). */
+    uint8_t image_aspect;
+    /** Changes when the photo does, so a rewritten notification with a new photo fetches it again. */
+    uint8_t image_tag;
     char app_name[STORE_APP_NAME_SIZE];
     char title[STORE_TITLE_SIZE];
     char summary[STORE_SUMMARY_SIZE];

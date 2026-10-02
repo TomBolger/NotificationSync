@@ -1489,6 +1489,15 @@ void detail_window_on_list_changed(const uint8_t* changed_buckets, const uint8_t
     refresh_decorations();
 }
 
+void detail_window_on_image_changed(const uint8_t bucket_id)
+{
+    (void)bucket_id;
+    if (card_layer != NULL)
+    {
+        layer_mark_dirty(card_layer);
+    }
+}
+
 void detail_window_on_style_changed(void)
 {
     invalidate_metrics();

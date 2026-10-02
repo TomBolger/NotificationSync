@@ -12,6 +12,8 @@ import com.matejdro.pebble.bluetooth.common.util.fixPebbleIndentation
 import com.matejdro.pebble.bluetooth.common.util.writeUByte
 import com.matejdro.pebble.bluetooth.common.util.writeUInt
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageStore
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.any
@@ -37,6 +39,7 @@ class WatchSyncerImpl(
    private val preferenceStore: DataStore<Preferences>,
    private val defaultScope: DefaultCoroutineScope,
    private val stockNotificationTransport: StockNotificationTransport = NoOpStockNotificationTransport,
+   private val notificationImageStore: NotificationImageStore = NoNotificationImages,
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
    private var maxWatchSyncBucketPayloadBytes = BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES
@@ -90,6 +93,11 @@ class WatchSyncerImpl(
       buffer.writeUInt(epochSecond.toUInt())
       buffer.writeUByte(notificationData.pebbleOsIconId().toUByte())
       buffer.writeUByte(notificationData.pebbleOsColorId().toUByte())
+      // Attached photo: its shape, so the watch can reserve the band before the pixels arrive, and a tag that
+      // changes with the photo. Both 0 when there is none.
+      val image = notificationImageStore.prepare(notificationData)
+      buffer.writeUByte((image?.aspect ?: 0).toUByte())
+      buffer.writeUByte((image?.tag ?: 0).toUByte())
 
       buffer.write(
          utf8Encoder.encodeSizeLimited(
@@ -166,12 +174,14 @@ class WatchSyncerImpl(
 
    override suspend fun clearAllNotifications() {
       summaryCompleteByKey.clear()
+      notificationImageStore.forgetAll()
       bucketSyncRepository.clearAllDynamic()
       stockNotificationTransport.deleteAll()
    }
 
    override suspend fun clearNotification(key: String) {
       summaryCompleteByKey.remove(key)
+      notificationImageStore.forget(key)
       bucketSyncRepository.deleteBucketDynamic(key)
       stockNotificationTransport.delete(key)
       logcat { "Deleting Notification $key from the store" }

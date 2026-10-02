@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#include "notification_image.h"
+
 #define DEFAULT_NOTIFICATION_COLOR GColorFolly
 #define ICON_VERTICAL_OFFSET -1
 // A few pixels more than stock between the banner and the sender, so the compact layout breathes a little.
@@ -293,6 +295,9 @@ void card_measure(const NotificationItem* item, const char* body, const int16_t 
     int16_t height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT + HEADER_TOP_GAP;
     height += metrics->header_height + 3;
     height += metrics->body_height + 3;
+    // PebbleOS: the photo goes below the message text, above the time.
+    metrics->image_height = notification_image_band_height(item, text_width);
+    height += metrics->image_height;
     height += metrics->footer_height;
     height += CARD_BOTTOM_PADDING + CARD_ARROW_HEIGHT;
     metrics->total_height = height > PBL_DISPLAY_HEIGHT ? height : PBL_DISPLAY_HEIGHT;
@@ -381,7 +386,21 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
             graphics_draw_text(ctx, "...", body_font(), GRect(CARD_MARGIN, y, text_width, metrics->footer_height + 4),
                                GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
         }
+        y += metrics->footer_height;
+        if (metrics->image_height > 0 && y < screen_height && y + metrics->image_height > 0)
+        {
+            notification_image_draw(ctx, item, CARD_MARGIN, y, text_width);
+        }
         return;
+    }
+
+    if (metrics->image_height > 0)
+    {
+        if (y < screen_height && y + metrics->image_height > 0)
+        {
+            notification_image_draw(ctx, item, CARD_MARGIN, y, text_width);
+        }
+        y += metrics->image_height;
     }
 
     if (y < screen_height && y + metrics->footer_height > 0)

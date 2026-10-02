@@ -8,6 +8,7 @@
 #include "commons/bytes.h"
 #include "ui/window_image.h"
 #include "ui/window_notification/action_list.h"
+#include "ui/window_notification/notification_image.h"
 #include "ui/window_notification/window_notification.h"
 
 static void receive_phone_welcome(const DictionaryIterator* iterator);
@@ -48,7 +49,8 @@ void send_watch_welcome()
     dict_write_uint16(iterator, 1, PROTOCOL_VERSION);
     dict_write_uint16(iterator, 2, bucket_sync_current_version);
     dict_write_uint16(iterator, 3, appmessage_max_size);
-    dict_write_uint8(iterator, 4, PBL_IF_COLOR_ELSE(1, 0));
+    // Bit 0: colour screen. Bit 1: shows photos inline in notifications (packet 16).
+    dict_write_uint8(iterator, 4, PBL_IF_COLOR_ELSE(1, 0) | (NOTIFICATION_IMAGE_SUPPORTED ? 2 : 0));
     dict_write_uint16(iterator, 5, PBL_DISPLAY_WIDTH);
     dict_write_uint16(iterator, 6, PBL_DISPLAY_HEIGHT);
     dict_write_data(iterator, 7, active_buckets_holder, active_buckets->count);
@@ -177,6 +179,30 @@ bool send_setting(const uint8_t id, const uint8_t value)
     return true;
 }
 
+bool send_image_request(const uint8_t bucket_id, const uint16_t width, const uint16_t height)
+{
+    DictionaryIterator* iterator;
+    if (app_message_outbox_begin(&iterator) != APP_MSG_OK)
+    {
+        return false;
+    }
+    dict_write_uint8(iterator, 0, 16);
+    dict_write_uint8(iterator, 1, bucket_id);
+    dict_write_uint16(iterator, 2, width);
+    dict_write_uint16(iterator, 3, height);
+    bluetooth_app_message_outbox_send();
+    return true;
+}
+
+static void receive_notification_image_packet(const DictionaryIterator* iterator)
+{
+    const Tuple* data = dict_find(iterator, 1);
+    if (data != NULL && data->type == TUPLE_BYTE_ARRAY)
+    {
+        notification_image_receive(data->value->data, data->length);
+    }
+}
+
 static void receive_watch_packet(const DictionaryIterator* received)
 {
     const Tuple* packet_id_tuple = dict_find(received, 0);
@@ -220,6 +246,9 @@ static void receive_watch_packet(const DictionaryIterator* received)
         break;
     case 12:
         send_watch_welcome();
+        break;
+    case 16:
+        receive_notification_image_packet(received);
         break;
     default:
         break;

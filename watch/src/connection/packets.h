@@ -9,4 +9,6 @@ bool send_action_trigger(uint8_t notification_id, uint8_t action_id, uint8_t men
 void send_close_me();
 void send_close_me_without_animation();
 bool send_setting(uint8_t id, uint8_t value);
+/** Ask the phone for the photo attached to a notification, at exactly this size (packet 16). */
+bool send_image_request(uint8_t bucket_id, uint16_t width, uint16_t height);
 void packets_init();

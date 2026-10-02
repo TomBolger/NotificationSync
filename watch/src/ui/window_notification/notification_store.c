@@ -91,7 +91,7 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
 
     uint8_t data[256];
     const uint8_t size = bucket_sync_get_bucket_size(metadata.id);
-    if (size < 6 || !bucket_sync_load_bucket(metadata.id, data))
+    if (size < 8 || !bucket_sync_load_bucket_limited(metadata.id, data, sizeof(data) - 1))
     {
         return;
     }
@@ -99,8 +99,10 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     item->receive_time = read_uint32_from_byte_array(data, 0);
     item->icon_id = data[4];
     item->color_id = data[5];
+    item->image_aspect = data[6];
+    item->image_tag = data[7];
 
-    size_t position = 6;
+    size_t position = 8;
     const size_t app_name_length = bounded_strlen(data, position, size);
     if (position + app_name_length >= size)
     {

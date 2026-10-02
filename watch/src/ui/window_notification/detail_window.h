@@ -39,5 +39,8 @@ bool detail_window_is_animating(void);
 /** Text size or another layout setting changed: re-measure every card. */
 void detail_window_on_style_changed(void);
 
+/** A notification's photo arrived (or turned out not to exist): redraw. */
+void detail_window_on_image_changed(uint8_t bucket_id);
+
 /** Feed a raw touch event. Returns false when the detail window is not the one on screen. */
 bool detail_window_handle_touch(const TouchEvent* event);
