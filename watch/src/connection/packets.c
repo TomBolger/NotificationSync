@@ -76,6 +76,22 @@ bool send_notification_opened(const uint8_t id, const bool prefetch)
     return true;
 }
 
+bool send_mark_read(const uint8_t id)
+{
+    DictionaryIterator* iterator;
+    if (app_message_outbox_begin(&iterator) != APP_MSG_OK)
+    {
+        return false;
+    }
+
+    // Packet 4 with key 3: user opened this notification; details are already on the watch.
+    dict_write_uint8(iterator, 0, 4);
+    dict_write_uint8(iterator, 1, id);
+    dict_write_uint8(iterator, 3, 1);
+    bluetooth_app_message_outbox_send();
+    return true;
+}
+
 bool send_action_trigger(const uint8_t notification_id, const uint8_t action_id, const uint8_t menu_id, const char* text)
 {
     DictionaryIterator* iterator;

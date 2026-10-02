@@ -29,6 +29,11 @@ static FetchRequest queue[QUEUE_SIZE];
 static uint8_t queue_length = 0;
 static AppTimer* timer = NULL;
 
+// Notifications the user looked at whose read state still has to reach the phone.
+#define MARK_READ_SLOTS 6
+static uint8_t mark_read_pending[MARK_READ_SLOTS];
+static uint8_t mark_read_count = 0;
+
 // Multi-packet (v2) details are assembled here until the last chunk arrives.
 static uint8_t staging_bucket = 0;
 static char* staging_body = NULL;
@@ -96,8 +101,26 @@ static void remove_queued(const uint8_t index)
 
 static void pump(void)
 {
-    if (has_in_flight || queue_length == 0 || close_after_sync)
+    if (has_in_flight || close_after_sync)
     {
+        return;
+    }
+
+    if (queue_length == 0)
+    {
+        if (mark_read_count == 0)
+        {
+            return;
+        }
+        if (is_phone_connected && !is_currently_sending_data && send_mark_read(mark_read_pending[0]))
+        {
+            memmove(&mark_read_pending[0], &mark_read_pending[1], mark_read_count - 1);
+            mark_read_count--;
+        }
+        if (mark_read_count > 0 && timer == NULL)
+        {
+            timer = app_timer_register(SEND_RETRY_MS, on_timer, NULL);
+        }
         return;
     }
 
@@ -208,6 +231,24 @@ void notification_details_fetcher_cancel(const uint8_t bucket_id)
         notify_status();
         pump();
     }
+}
+
+void notification_details_fetcher_mark_read(const uint8_t bucket_id)
+{
+    for (uint8_t i = 0; i < mark_read_count; i++)
+    {
+        if (mark_read_pending[i] == bucket_id)
+        {
+            return;
+        }
+    }
+    if (mark_read_count == MARK_READ_SLOTS)
+    {
+        memmove(&mark_read_pending[0], &mark_read_pending[1], MARK_READ_SLOTS - 1);
+        mark_read_count--;
+    }
+    mark_read_pending[mark_read_count++] = bucket_id;
+    pump();
 }
 
 void notification_details_fetcher_reset(void)

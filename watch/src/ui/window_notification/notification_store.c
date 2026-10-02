@@ -336,6 +336,7 @@ void notification_store_mark_seen(const uint8_t bucket_id)
     const uint8_t flag = 1;
     persist_write_data(STORAGE_SEEN_FLAG_MIN + bucket_id, &flag, 1);
     items[index].unread = false;
+    notification_details_fetcher_mark_read(bucket_id);
 }
 
 bool notification_store_any_wants_periodic_vibration(void)

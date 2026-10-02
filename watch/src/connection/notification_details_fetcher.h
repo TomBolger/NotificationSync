@@ -19,6 +19,9 @@ void notification_details_fetcher_fetch(uint8_t bucket_id);
 /** Fetch details we will probably need soon. Does not mark the notification as read on the phone. */
 void notification_details_fetcher_prefetch(uint8_t bucket_id);
 
+/** Tell the phone the user saw this notification (marks it read there, stops reminder buzzes). */
+void notification_details_fetcher_mark_read(uint8_t bucket_id);
+
 /** Forget any queued or in-flight request for this bucket (e.g. it was deleted). */
 void notification_details_fetcher_cancel(uint8_t bucket_id);
 

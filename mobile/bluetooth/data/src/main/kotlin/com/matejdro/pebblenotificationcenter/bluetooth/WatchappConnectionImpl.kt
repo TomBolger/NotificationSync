@@ -73,6 +73,11 @@ class WatchappConnectionImpl(
          }
 
          4u -> {
+            if ((data[3u] as? PebbleDictionaryItem.UInt32)?.value == 1u) {
+               // Watch already has the details (prefetched) and only reports that the user read it.
+               notificationRepository.markAsRead(data.requireUint(1u).toInt())
+               return ReceiveResult.Ack
+            }
             if (watchMetadata.watchBufferSize > 0) {
                // Key 2 marks a speculative prefetch: the user has not opened this notification yet, so it must
                // not be marked as read and must not consume the pending vibration.
