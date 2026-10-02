@@ -145,8 +145,14 @@ static const CardMetrics* metrics_for(const uint8_t bucket)
     entry->bucket = bucket;
     entry->valid = true;
     card_measure(notification_store_item_by_bucket(bucket), notification_store_body(bucket), PBL_DISPLAY_WIDTH,
-                 &entry->metrics);
+                 notification_store_is_partial(bucket), &entry->metrics);
     return &entry->metrics;
+}
+
+/** The current card only shows the beginning of its text; the rest is on the way. */
+static bool current_is_partial(void)
+{
+    return current_bucket != 0 && notification_store_is_partial(current_bucket);
 }
 
 static int16_t card_height(const uint8_t bucket)
@@ -161,7 +167,8 @@ static int16_t max_scroll(void)
         return 0;
     }
     int16_t max = card_height(current_bucket) - PBL_DISPLAY_HEIGHT;
-    if (neighbor(1) != NULL)
+    // A partial card has no end yet, so it never reveals the next card underneath it.
+    if (neighbor(1) != NULL && !current_is_partial())
     {
         max += PEEK_PX;
     }
@@ -180,7 +187,7 @@ static void refresh_decorations(void)
     const bool at_top = offset == 0;
     const bool taller_than_screen = current_bucket != 0 && card_height(current_bucket) > PBL_DISPLAY_HEIGHT;
     const bool show_arrow = idle && anim_kind == AnimNone && at_top &&
-        (taller_than_screen || neighbor(1) != NULL);
+        (taller_than_screen || neighbor(1) != NULL || current_is_partial());
     layer_set_hidden(arrow_layer, !show_arrow);
 
     const NotificationItem* item = notification_store_item_by_bucket(current_bucket);
@@ -245,7 +252,7 @@ static void card_layer_update(Layer* layer, GContext* ctx)
     draw_card(ctx, current_bucket, current_y);
 
     const NotificationItem* next = anim_kind == AnimSwapDown ?
-        notification_store_item_by_bucket(anim_other_bucket) : neighbor(1);
+        notification_store_item_by_bucket(anim_other_bucket) : (current_is_partial() ? NULL : neighbor(1));
     if (next != NULL && current_y + height < bounds.size.h)
     {
         draw_card(ctx, next->bucket_id, current_y + height);
@@ -506,6 +513,14 @@ static void scroll_to(const int16_t target, const bool repeating)
 
 static void handle_swap_attempt(const int8_t direction, const bool repeating)
 {
+    if (direction > 0 && current_is_partial())
+    {
+        // Reached the end of what has loaded so far. Don't skip past the rest of this message: hurry the text
+        // along and stay put; the card simply grows when it lands.
+        notification_store_want_details(current_bucket, true);
+        return;
+    }
+
     if (!repeating || swap_delay_remaining <= 0)
     {
         if (!swap(direction, false))
@@ -727,7 +742,7 @@ static void down_double_click_handler(ClickRecognizerRef recognizer, void* conte
         return;
     }
     finish_animation();
-    if (offset != 0)
+    if (offset != 0 && !current_is_partial())
     {
         notify_interaction();
         swap(1, true);

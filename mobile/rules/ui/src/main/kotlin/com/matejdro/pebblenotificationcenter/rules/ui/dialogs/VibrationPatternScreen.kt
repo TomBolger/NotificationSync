@@ -7,15 +7,16 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -23,7 +24,9 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -36,8 +39,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -153,97 +157,128 @@ private fun VibrationPatternScreenContent(
          }
       },
       content = {
-         val focusRequester = remember { FocusRequester() }
-         var tapping by remember { mutableStateOf(false) }
          val vibrator = LocalContext.current.getSystemService<Vibrator>()!!
          val tapperInteractionSource = remember { MutableInteractionSource() }
          val lastTransition = remember { mutableLongStateOf(-1) }
+         var recording by remember { mutableStateOf(false) }
+         var showNumbers by remember { mutableStateOf(false) }
+
+         fun setPattern(pattern: String) {
+            textFieldState.edit { replace(0, length, pattern) }
+            parsedPattern = parseVibrationPattern(pattern)
+         }
 
          Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // What the current pattern looks like: filled blocks buzz, gaps are pauses.
+            PatternPreview(parsedPattern.orEmpty())
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                Text(
                   text = stringResource(R.string.vibration_patterns_core),
                   style = MaterialTheme.typography.titleSmall,
                )
-
                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                  val current = textFieldState.text.toString()
                   coreVibrationPatterns.forEach { preset ->
-                     Button(
+                     FilterChip(
+                        selected = current == preset.pattern,
                         onClick = {
-                           textFieldState.edit {
-                              replace(0, length, preset.pattern)
-                           }
-                           parsedPattern = parseVibrationPattern(preset.pattern)
+                           recording = false
+                           setPattern(preset.pattern)
+                           // Picking a preset lets you feel it right away.
+                           parseVibrationPattern(preset.pattern)?.let { vibrator.playPattern(it) }
                         },
-                        modifier = Modifier.padding(bottom = 4.dp)
-                     ) {
-                        Text(preset.name)
-                     }
+                        label = { Text(preset.name) },
+                     )
                   }
                }
             }
 
-            Button(
-               onClick = {
-                  lastTransition.longValue = -1
-                  textFieldState.clearText()
-                  tapping = true
-               },
-               modifier = Modifier.fillMaxWidth(),
-            ) {
-               if (tapping) {
-                  Text(stringResource(R.string.restart_tapping))
-               } else {
-                  Text(stringResource(R.string.start_tapping_pattern))
-               }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+               Text(text = "Or make your own", style = MaterialTheme.typography.titleSmall)
+               Text(
+                  text = if (recording) {
+                     "Recording. Press and hold to buzz, let go to pause. Tap Done when finished."
+                  } else {
+                     "Press and hold the pad in the rhythm you want. Recording starts with your first press."
+                  },
+                  style = MaterialTheme.typography.bodySmall,
+               )
             }
 
             Button(
                onClick = {},
-               enabled = tapping,
                modifier = Modifier
                   .fillMaxWidth()
-                  .height(100.dp),
-               colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                  .height(96.dp),
+               shape = MaterialTheme.shapes.large,
+               colors = ButtonDefaults.buttonColors(
+                  containerColor = if (recording) {
+                     MaterialTheme.colorScheme.tertiary
+                  } else {
+                     MaterialTheme.colorScheme.tertiaryContainer
+                  },
+                  contentColor = if (recording) {
+                     MaterialTheme.colorScheme.onTertiary
+                  } else {
+                     MaterialTheme.colorScheme.onTertiaryContainer
+                  },
+               ),
                interactionSource = tapperInteractionSource,
             ) {
-               if (tapping) {
-                  Text(stringResource(R.string.tap))
-               } else {
-                  Text(stringResource(R.string.tap_above_button_to_start))
+               Text(if (recording) "Recording… hold to buzz" else "Hold here to record")
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+               OutlinedButton(
+                  onClick = { parsedPattern?.let { vibrator.playPattern(it) } },
+                  enabled = parsedPattern != null,
+                  modifier = Modifier.weight(1f),
+               ) { Text("Feel on phone") }
+               OutlinedButton(
+                  onClick = { parsedPattern?.let { test(it) } },
+                  enabled = parsedPattern != null,
+                  modifier = Modifier.weight(1f),
+               ) { Text("Send to watch") }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+               if (recording) {
+                  TextButton(onClick = { recording = false }) { Text("Done recording") }
+               }
+               TextButton(onClick = { showNumbers = !showNumbers }) {
+                  Text(if (showNumbers) "Hide numbers" else "Edit as numbers")
                }
             }
 
-            TextField(
-               textFieldState,
-               Modifier
-                  .fillMaxWidth()
-                  .focusRequester(focusRequester),
-               onKeyboardAction = { accept(textFieldState.text.toString()) },
-               keyboardOptions = KeyboardOptions(
-                  imeAction = ImeAction.Done,
-                  keyboardType = KeyboardType.Number,
-               ),
-               lineLimits = TextFieldLineLimits.SingleLine,
-               inputTransformation = limitToNumbersAndCommas
-            )
-
-            Button(
-               onClick = { parsedPattern?.let { test(it) } },
-               enabled = parsedPattern != null,
-               modifier = Modifier.fillMaxWidth(),
-            ) {
-               Text(stringResource(R.string.test_notification))
+            if (showNumbers) {
+               TextField(
+                  textFieldState,
+                  Modifier.fillMaxWidth(),
+                  label = { Text("Buzz, pause, buzz… in milliseconds") },
+                  onKeyboardAction = { accept(textFieldState.text.toString()) },
+                  keyboardOptions = KeyboardOptions(
+                     imeAction = ImeAction.Done,
+                     keyboardType = KeyboardType.Number,
+                  ),
+                  lineLimits = TextFieldLineLimits.SingleLine,
+                  inputTransformation = limitToNumbersAndCommas
+               )
             }
          }
 
          LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-
             var pressed: Boolean = false
 
             tapperInteractionSource.interactions.collect { interaction ->
                val nowPressed = interaction is PressInteraction.Press
+               if (nowPressed && !recording) {
+                  // First press starts a fresh recording.
+                  recording = true
+                  lastTransition.longValue = -1
+                  textFieldState.clearText()
+                  parsedPattern = null
+               }
                if (nowPressed != pressed) {
                   if (nowPressed) {
                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -279,6 +314,53 @@ private fun VibrationPatternScreenContent(
          }
       },
    )
+}
+
+@Composable
+private fun PatternPreview(pattern: List<Short>) {
+   val buzzColor = MaterialTheme.colorScheme.primary
+   val trackColor = MaterialTheme.colorScheme.surfaceVariant
+   val total = pattern.sumOf { it.toInt().coerceAtLeast(0) }.coerceAtLeast(1)
+   val seconds = total / 1000f
+
+   Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Canvas(
+         Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+      ) {
+         drawRoundRect(trackColor, cornerRadius = CornerRadius(8.dp.toPx()))
+         var x = 0f
+         pattern.forEachIndexed { index, value ->
+            val width = size.width * value.toInt().coerceAtLeast(0) / total
+            if (index % 2 == 0) {
+               drawRoundRect(
+                  buzzColor,
+                  topLeft = Offset(x, 0f),
+                  size = Size(width.coerceAtLeast(2.dp.toPx()), size.height),
+                  cornerRadius = CornerRadius(4.dp.toPx()),
+               )
+            }
+            x += width
+         }
+      }
+      Text(
+         text = if (pattern.isEmpty()) "No pattern yet" else "%.1f seconds".format(seconds),
+         style = MaterialTheme.typography.labelSmall,
+      )
+   }
+}
+
+/** Plays a "buzz, pause, buzz, ..." pattern on the phone so it can be felt before saving. */
+private fun Vibrator.playPattern(pattern: List<Short>) {
+   val timings = (listOf(0L) + pattern.map { it.toLong().coerceAtLeast(0) }).toLongArray()
+   cancel()
+   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      vibrate(VibrationEffect.createWaveform(timings, -1))
+   } else {
+      @Suppress("DEPRECATION")
+      vibrate(timings, -1)
+   }
 }
 
 @ShowkaseComposable(group = "test")

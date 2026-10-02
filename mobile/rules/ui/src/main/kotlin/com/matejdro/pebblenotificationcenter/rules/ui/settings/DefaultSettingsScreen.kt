@@ -6,7 +6,9 @@ import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,12 +18,15 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,13 +35,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.matejdro.pebblenotificationcenter.navigation.instructions.OpenScreenOrReplaceExistingType
@@ -135,268 +141,265 @@ private fun DefaultSettingsContent(
    )
    val regexDialog = regexReplacementDialog(navigator, updatePreference)
 
+   val deferEnabled = globalPreferences[GlobalPreferenceKeys.deferNewNotificationsWhileInteracting]
+
    LazyColumn(
       modifier = Modifier.fillMaxSize(),
       contentPadding = PaddingValues(
-         top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding(),
-         bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 12.dp,
+         start = 16.dp,
+         end = 16.dp,
+         top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 8.dp,
+         bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 24.dp,
       ),
+      verticalArrangement = Arrangement.spacedBy(20.dp),
    ) {
       item {
          Text(
             text = stringResource(R.string.notification_settings_title),
-            style = MaterialTheme.typography.headlineLarge,
+            style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier
-               .padding(horizontal = 16.dp)
-               .padding(top = 12.dp, bottom = 8.dp)
+               .padding(horizontal = 4.dp)
+               .padding(top = 8.dp)
                .semantics { heading() },
          )
       }
 
-      item { SectionHeader(stringResource(R.string.notifications)) }
       item {
-         ActionSetting(
-            title = stringResource(R.string.quick_replies),
-            description = stringResource(R.string.quick_replies_description),
-            value = preferences[RuleOption.replyCannedTexts].joinToString(),
-            onClick = { replyDialog.trigger(preferences[RuleOption.replyCannedTexts]) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.always_send_notifications),
-            description = "New apps are shown on the watch by default.",
-            checked = preferences[RuleOption.masterSwitch] == MasterSwitch.SHOW,
-            onCheckedChange = { checked ->
-               updatePreference(RuleOption.masterSwitch, if (checked) MasterSwitch.SHOW else MasterSwitch.MUTE)
-            },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.respect_phone_dnd),
-            description = stringResource(R.string.respect_phone_dnd_description),
-            checked = preferences[RuleOption.muteDndNotifications],
-            onCheckedChange = { updatePreference(RuleOption.muteDndNotifications, it) },
-         )
-      }
-      item {
-         ActionSetting(
-            title = stringResource(R.string.setting_vibration_pattern),
-            description = "Override the default on the watch.",
-            value = presetNameFor(preferences[RuleOption.vibrationPattern]),
-            onClick = { vibrationDialog.trigger(preferences[RuleOption.vibrationPattern]) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_use_notification_vibration_pattern),
-            description = stringResource(R.string.setting_use_notification_vibration_pattern_description),
-            checked = preferences[RuleOption.useNotificationVibrationPattern],
-            onCheckedChange = { updatePreference(RuleOption.useNotificationVibrationPattern, it) },
-         )
-      }
-
-      item { SectionHeader(stringResource(R.string.phone_filters)) }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.send_local_only_notifications),
-            description = stringResource(R.string.send_local_only_notifications_description),
-            checked = !preferences[RuleOption.hideLocalOnlyNotifications],
-            onCheckedChange = { updatePreference(RuleOption.hideLocalOnlyNotifications, !it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_mute_silent_notifications),
-            description = stringResource(R.string.setting_mute_silent_notifications_description),
-            checked = preferences[RuleOption.muteSilentNotifications],
-            onCheckedChange = { updatePreference(RuleOption.muteSilentNotifications, it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_mute_identical_notifications),
-            description = stringResource(R.string.setting_mute_identical_notifications_description),
-            checked = preferences[RuleOption.muteIdenticalNotifications],
-            onCheckedChange = { updatePreference(RuleOption.muteIdenticalNotifications, it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_hide_ongoing_notifications),
-            description = stringResource(R.string.setting_hide_ongoing_notifications_description),
-            checked = preferences[RuleOption.hideOngoingNotifications],
-            onCheckedChange = { updatePreference(RuleOption.hideOngoingNotifications, it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_hide_group_summary_notifications),
-            description = stringResource(R.string.setting_hide_group_summary_notifications_description),
-            checked = preferences[RuleOption.hideGroupSummaryNotifications],
-            onCheckedChange = { updatePreference(RuleOption.hideGroupSummaryNotifications, it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_hide_media_notifications),
-            description = stringResource(R.string.setting_hide_media_notifications_description),
-            checked = preferences[RuleOption.hideMediaNotifications],
-            onCheckedChange = { updatePreference(RuleOption.hideMediaNotifications, it) },
-         )
-      }
-
-      item { SectionHeader(stringResource(R.string.watch_experience)) }
-      item {
-         NumberSetting(
-            title = stringResource(R.string.notification_timeout),
-            description = stringResource(R.string.notification_timeout_description),
-            value = globalPreferences[GlobalPreferenceKeys.autoCloseSeconds],
-            onValueChange = { updateGlobalPreference(GlobalPreferenceKeys.autoCloseSeconds, it) },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_defer_new_notifications),
-            description = stringResource(R.string.setting_defer_new_notifications_description),
-            checked = globalPreferences[GlobalPreferenceKeys.deferNewNotificationsWhileInteracting],
-            onCheckedChange = {
-               updateGlobalPreference(GlobalPreferenceKeys.deferNewNotificationsWhileInteracting, it)
-            },
-         )
-      }
-      item {
-         NumberSetting(
-            title = stringResource(R.string.setting_new_notification_interaction_timeout),
-            description = stringResource(R.string.setting_new_notification_interaction_timeout_description),
-            value = globalPreferences[GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds],
-            onValueChange = {
-               updateGlobalPreference(GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds, it)
-            },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_skip_when_phone_unlocked),
-            description = stringResource(R.string.setting_skip_when_phone_unlocked_description),
-            checked = globalPreferences[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked],
-            onCheckedChange = {
-               updateGlobalPreference(GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked, it)
-            },
-         )
-      }
-      item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_wait_for_watchface),
-            description = stringResource(R.string.setting_wait_for_watchface_description),
-            checked = globalPreferences[GlobalPreferenceKeys.waitForWatchfaceBeforeOpening],
-            onCheckedChange = {
-               updateGlobalPreference(GlobalPreferenceKeys.waitForWatchfaceBeforeOpening, it)
-            },
-         )
-      }
-      item {
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ActionSetting(
-               title = stringResource(R.string.snooze_intervals),
-               description = "Minutes offered by the Snooze action.",
-               value = preferences[RuleOption.snoozeIntervals].joinToString(),
-               onClick = { snoozeDialog.trigger(preferences[RuleOption.snoozeIntervals]) },
+         SettingsGroup("Alerts") {
+            SwitchRow(
+               title = stringResource(R.string.always_send_notifications),
+               description = "New apps are shown on the watch unless you turn them off.",
+               checked = preferences[RuleOption.masterSwitch] == MasterSwitch.SHOW,
+               onCheckedChange = { checked ->
+                  updatePreference(RuleOption.masterSwitch, if (checked) MasterSwitch.SHOW else MasterSwitch.MUTE)
+               },
+            )
+            GroupDivider()
+            ValueRow(
+               title = stringResource(R.string.setting_vibration_pattern),
+               description = "How the watch buzzes for a new notification.",
+               value = presetNameFor(preferences[RuleOption.vibrationPattern]),
+               onClick = { vibrationDialog.trigger(preferences[RuleOption.vibrationPattern]) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_use_notification_vibration_pattern),
+               description = stringResource(R.string.setting_use_notification_vibration_pattern_description),
+               checked = preferences[RuleOption.useNotificationVibrationPattern],
+               onCheckedChange = { updatePreference(RuleOption.useNotificationVibrationPattern, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_periodic_vibration),
+               description = stringResource(R.string.setting_periodic_vibration_description),
+               checked = preferences[RuleOption.periodicVibration],
+               onCheckedChange = { updatePreference(RuleOption.periodicVibration, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.respect_phone_dnd),
+               description = stringResource(R.string.respect_phone_dnd_description),
+               checked = preferences[RuleOption.muteDndNotifications],
+               onCheckedChange = { updatePreference(RuleOption.muteDndNotifications, it) },
             )
          }
       }
+
       item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_periodic_vibration),
-            description = stringResource(R.string.setting_periodic_vibration_description),
-            checked = preferences[RuleOption.periodicVibration],
-            onCheckedChange = { updatePreference(RuleOption.periodicVibration, it) },
-         )
-      }
-      item {
-         ActionSetting(
-            title = stringResource(R.string.setting_tasker_actions),
-            description = stringResource(R.string.setting_tasker_actions_description),
-            value = preferences[RuleOption.taskerTaskActions].joinToString().ifBlank { "None" },
-            onClick = { taskerDialog.trigger(preferences[RuleOption.taskerTaskActions]) },
-         )
+         SettingsGroup("On the watch") {
+            NumberRow(
+               title = stringResource(R.string.notification_timeout),
+               description = stringResource(R.string.notification_timeout_description),
+               value = globalPreferences[GlobalPreferenceKeys.autoCloseSeconds],
+               onValueChange = { updateGlobalPreference(GlobalPreferenceKeys.autoCloseSeconds, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_defer_new_notifications),
+               description = stringResource(R.string.setting_defer_new_notifications_description),
+               checked = deferEnabled,
+               onCheckedChange = {
+                  updateGlobalPreference(GlobalPreferenceKeys.deferNewNotificationsWhileInteracting, it)
+               },
+            )
+            if (deferEnabled) {
+               NumberRow(
+                  title = stringResource(R.string.setting_new_notification_interaction_timeout),
+                  description = stringResource(R.string.setting_new_notification_interaction_timeout_description),
+                  value = globalPreferences[GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds],
+                  indented = true,
+                  onValueChange = {
+                     updateGlobalPreference(GlobalPreferenceKeys.newNotificationInteractionTimeoutSeconds, it)
+                  },
+               )
+            }
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_wait_for_watchface),
+               description = stringResource(R.string.setting_wait_for_watchface_description),
+               checked = globalPreferences[GlobalPreferenceKeys.waitForWatchfaceBeforeOpening],
+               onCheckedChange = {
+                  updateGlobalPreference(GlobalPreferenceKeys.waitForWatchfaceBeforeOpening, it)
+               },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_skip_when_phone_unlocked),
+               description = stringResource(R.string.setting_skip_when_phone_unlocked_description),
+               checked = globalPreferences[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked],
+               onCheckedChange = {
+                  updateGlobalPreference(GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked, it)
+               },
+            )
+         }
       }
 
-      item { SectionHeader(stringResource(R.string.advanced)) }
       item {
-         ResetMirrorSetting(
-            title = stringResource(R.string.reset_watch_mirror),
-            description = stringResource(R.string.reset_watch_mirror_description),
-            onClick = resetWatchMirror,
-         )
+         SettingsGroup("Actions") {
+            ValueRow(
+               title = stringResource(R.string.quick_replies),
+               description = stringResource(R.string.quick_replies_description),
+               value = summarizeList(preferences[RuleOption.replyCannedTexts]),
+               onClick = { replyDialog.trigger(preferences[RuleOption.replyCannedTexts]) },
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+               GroupDivider()
+               ValueRow(
+                  title = stringResource(R.string.snooze_intervals),
+                  description = "Minutes offered by the Snooze action.",
+                  value = summarizeList(preferences[RuleOption.snoozeIntervals].map { "$it min" }),
+                  onClick = { snoozeDialog.trigger(preferences[RuleOption.snoozeIntervals]) },
+               )
+            }
+            GroupDivider()
+            ValueRow(
+               title = stringResource(R.string.setting_tasker_actions),
+               description = stringResource(R.string.setting_tasker_actions_description),
+               value = summarizeList(preferences[RuleOption.taskerTaskActions].toList()),
+               onClick = { taskerDialog.trigger(preferences[RuleOption.taskerTaskActions]) },
+            )
+         }
       }
+
       item {
-         ToggleSetting(
-            title = stringResource(R.string.setting_stock_pebble_os_notifications),
-            description = stringResource(R.string.setting_stock_pebble_os_notifications_description),
-            checked = globalPreferences[GlobalPreferenceKeys.stockPebbleOsNotifications],
-            onCheckedChange = {
-               updateGlobalPreference(GlobalPreferenceKeys.stockPebbleOsNotifications, it)
-            },
-         )
+         SettingsGroup(stringResource(R.string.phone_filters)) {
+            SwitchRow(
+               title = stringResource(R.string.send_local_only_notifications),
+               description = stringResource(R.string.send_local_only_notifications_description),
+               checked = !preferences[RuleOption.hideLocalOnlyNotifications],
+               onCheckedChange = { updatePreference(RuleOption.hideLocalOnlyNotifications, !it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_mute_silent_notifications),
+               description = stringResource(R.string.setting_mute_silent_notifications_description),
+               checked = preferences[RuleOption.muteSilentNotifications],
+               onCheckedChange = { updatePreference(RuleOption.muteSilentNotifications, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_mute_identical_notifications),
+               description = stringResource(R.string.setting_mute_identical_notifications_description),
+               checked = preferences[RuleOption.muteIdenticalNotifications],
+               onCheckedChange = { updatePreference(RuleOption.muteIdenticalNotifications, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_hide_ongoing_notifications),
+               description = stringResource(R.string.setting_hide_ongoing_notifications_description),
+               checked = preferences[RuleOption.hideOngoingNotifications],
+               onCheckedChange = { updatePreference(RuleOption.hideOngoingNotifications, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_hide_group_summary_notifications),
+               description = stringResource(R.string.setting_hide_group_summary_notifications_description),
+               checked = preferences[RuleOption.hideGroupSummaryNotifications],
+               onCheckedChange = { updatePreference(RuleOption.hideGroupSummaryNotifications, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_hide_media_notifications),
+               description = stringResource(R.string.setting_hide_media_notifications_description),
+               checked = preferences[RuleOption.hideMediaNotifications],
+               onCheckedChange = { updatePreference(RuleOption.hideMediaNotifications, it) },
+            )
+         }
       }
+
       item {
-         ActionSetting(
-            title = stringResource(R.string.preference_regex_replacement),
-            description = stringResource(R.string.preference_regex_replacement_description),
-            value = "${preferences[RuleOption.regexReplacements].size}",
-            onClick = { regexDialog.trigger(preferences[RuleOption.regexReplacements]) },
-         )
-      }
-      item {
-         ActionSetting(
-            title = "Advanced rule editor",
-            description = "Open the original editor for fonts and lower-level notification transforms.",
-            value = null,
-            onClick = {
-               navigator.navigate(OpenScreenOrReplaceExistingType(RuleDetailsScreenKey(RULE_ID_DEFAULT_SETTINGS)))
-            },
-         )
+         SettingsGroup(stringResource(R.string.advanced)) {
+            ValueRow(
+               title = stringResource(R.string.preference_regex_replacement),
+               description = stringResource(R.string.preference_regex_replacement_description),
+               value = preferences[RuleOption.regexReplacements].size.let { if (it == 0) "None" else "$it" },
+               onClick = { regexDialog.trigger(preferences[RuleOption.regexReplacements]) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = stringResource(R.string.setting_stock_pebble_os_notifications),
+               description = stringResource(R.string.setting_stock_pebble_os_notifications_description),
+               checked = globalPreferences[GlobalPreferenceKeys.stockPebbleOsNotifications],
+               onCheckedChange = {
+                  updateGlobalPreference(GlobalPreferenceKeys.stockPebbleOsNotifications, it)
+               },
+            )
+            GroupDivider()
+            ValueRow(
+               title = "Advanced rule editor",
+               description = "Fonts and lower-level notification transforms.",
+               value = null,
+               onClick = {
+                  navigator.navigate(OpenScreenOrReplaceExistingType(RuleDetailsScreenKey(RULE_ID_DEFAULT_SETTINGS)))
+               },
+            )
+            GroupDivider()
+            ListItem(
+               headlineContent = { Text(stringResource(R.string.reset_watch_mirror)) },
+               supportingContent = { Text(stringResource(R.string.reset_watch_mirror_description)) },
+               trailingContent = {
+                  OutlinedButton(onClick = resetWatchMirror) {
+                     Text(stringResource(R.string.reset))
+                  }
+               },
+               colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+         }
       }
    }
 }
 
 @Composable
-private fun SectionHeader(title: String) {
-   Text(
-      text = title,
-      color = MaterialTheme.colorScheme.primary,
-      style = MaterialTheme.typography.titleSmall,
-      fontWeight = FontWeight.SemiBold,
-      modifier = Modifier
-         .padding(horizontal = 16.dp)
-         .padding(top = 18.dp, bottom = 6.dp)
-         .semantics { heading() },
+private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
+   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(
+         text = title,
+         color = MaterialTheme.colorScheme.primary,
+         style = MaterialTheme.typography.titleSmall,
+         fontWeight = FontWeight.SemiBold,
+         modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .semantics { heading() },
+      )
+      Card(
+         shape = MaterialTheme.shapes.large,
+         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+      ) {
+         Column(Modifier.padding(vertical = 4.dp), content = content)
+      }
+   }
+}
+
+@Composable
+private fun GroupDivider() {
+   HorizontalDivider(
+      modifier = Modifier.padding(horizontal = 16.dp),
+      color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
    )
 }
 
 @Composable
-private fun ResetMirrorSetting(
-   title: String,
-   description: String,
-   onClick: () -> Unit,
-) {
-   ListItem(
-      headlineContent = { Text(title) },
-      supportingContent = { Text(description, fontSize = 12.sp) },
-      trailingContent = {
-         Button(onClick = onClick) {
-            Text(stringResource(R.string.reset))
-         }
-      },
-      shadowElevation = 0.dp,
-   )
-   HorizontalDivider()
-}
-
-@Composable
-private fun ToggleSetting(
+private fun SwitchRow(
    title: String,
    description: String?,
    checked: Boolean,
@@ -404,68 +407,67 @@ private fun ToggleSetting(
 ) {
    ListItem(
       headlineContent = { Text(title) },
-      supportingContent = {
-         if (description != null) {
-            Text(description, fontSize = 12.sp)
-         }
+      supportingContent = description?.let { { Text(it) } },
+      trailingContent = {
+         Switch(checked = checked, onCheckedChange = onCheckedChange)
       },
-      leadingContent = {
-         Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-         )
-      },
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
       modifier = Modifier.clickable { onCheckedChange(!checked) },
-      shadowElevation = 0.dp,
    )
-   HorizontalDivider()
 }
 
 @Composable
-private fun ActionSetting(
+private fun ValueRow(
    title: String,
    description: String?,
    value: String?,
-   actionLabel: String = "Edit",
+   indented: Boolean = false,
    onClick: () -> Unit,
 ) {
    ListItem(
       headlineContent = { Text(title) },
-      supportingContent = {
-         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (description != null) {
-               Text(description, fontSize = 12.sp)
-            }
-            if (!value.isNullOrBlank()) {
-               Text(value, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-            }
-         }
-      },
+      supportingContent = description?.let { { Text(it) } },
       trailingContent = {
-         TextButton(onClick = onClick) {
-            Text(actionLabel)
-         }
+         Text(
+            text = if (value.isNullOrBlank()) "›" else "$value  ›",
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            modifier = Modifier.widthIn(max = 140.dp),
+            overflow = TextOverflow.Ellipsis,
+         )
       },
-      modifier = Modifier.clickable(onClick = onClick),
-      shadowElevation = 0.dp,
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+      modifier = Modifier
+         .clickable(onClick = onClick)
+         .padding(start = if (indented) 16.dp else 0.dp),
    )
-   HorizontalDivider()
+}
+
+private fun summarizeList(values: List<String>): String {
+   return when {
+      values.isEmpty() -> "None"
+      values.size <= 2 -> values.joinToString()
+      else -> "${values.size} set"
+   }
 }
 
 @Composable
-private fun NumberSetting(
+private fun NumberRow(
    title: String,
    description: String?,
    value: Int,
+   indented: Boolean = false,
    onValueChange: (Int) -> Unit,
 ) {
    var dialogOpen by rememberSaveable { mutableStateOf(false) }
    var text by rememberSaveable(value) { mutableStateOf(value.toString()) }
 
-   ActionSetting(
+   ValueRow(
       title = title,
       description = description,
       value = formatTimeout(value),
+      indented = indented,
       onClick = { dialogOpen = true },
    )
 
@@ -478,6 +480,7 @@ private fun NumberSetting(
                value = text,
                onValueChange = { text = it.filter { character -> character.isDigit() } },
                singleLine = true,
+               label = { Text("Seconds (0 = off)") },
                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
          },

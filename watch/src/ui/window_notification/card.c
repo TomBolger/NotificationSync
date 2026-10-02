@@ -4,6 +4,8 @@
 
 #define DEFAULT_NOTIFICATION_COLOR GColorFolly
 #define ICON_VERTICAL_OFFSET -1
+// A few pixels more than stock between the banner and the sender, so the compact layout breathes a little.
+#define HEADER_TOP_GAP 7
 #define CARD_ICON_UPPER_PADDING (((CARD_BANNER_HEIGHT - CARD_ICON_HEIGHT) / 2) + ICON_VERTICAL_OFFSET)
 
 static const uint32_t icon_resource_ids[] = {
@@ -246,8 +248,10 @@ void card_format_since(char* buffer, const size_t size, const time_t timestamp)
     }
 }
 
-void card_measure(const NotificationItem* item, const char* body, const int16_t width, CardMetrics* metrics)
+void card_measure(const NotificationItem* item, const char* body, const int16_t width, const bool open_ended,
+                  CardMetrics* metrics)
 {
+    metrics->open_ended = open_ended;
     const int16_t text_width = width - (CARD_MARGIN * 2);
     char footer[32];
     card_format_since(footer, sizeof(footer), item != NULL ? item->receive_time : 0);
@@ -256,9 +260,13 @@ void card_measure(const NotificationItem* item, const char* body, const int16_t 
                                          GTextOverflowModeTrailingEllipsis);
     metrics->body_height = text_height(card_body_text(item, body), body_font(), text_width,
                                        GTextOverflowModeWordWrap);
-    metrics->footer_height = text_height(footer, footer_font(), text_width, GTextOverflowModeTrailingEllipsis);
+    // An open-ended card is still waiting for the rest of its text: instead of the "x minutes ago" footer
+    // (which would mark the end of the message) it ends with a "..." line where the text will continue.
+    metrics->footer_height = open_ended ?
+        text_height("...", body_font(), text_width, GTextOverflowModeTrailingEllipsis) :
+        text_height(footer, footer_font(), text_width, GTextOverflowModeTrailingEllipsis);
 
-    int16_t height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT + 3;
+    int16_t height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT + HEADER_TOP_GAP;
     height += metrics->header_height + 3;
     height += metrics->body_height + 3;
     height += metrics->footer_height;
@@ -322,7 +330,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
     }
 
     const int16_t text_width = width - (CARD_MARGIN * 2);
-    int16_t y = origin_y + top_height + 3;
+    int16_t y = origin_y + top_height + HEADER_TOP_GAP;
     graphics_context_set_text_color(ctx, GColorBlack);
 
     if (y < screen_height && y + metrics->header_height > 0)
@@ -340,6 +348,17 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
                            GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     }
     y += metrics->body_height + 3;
+
+    if (metrics->open_ended)
+    {
+        if (y < screen_height && y + metrics->footer_height > 0)
+        {
+            graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
+            graphics_draw_text(ctx, "...", body_font(), GRect(CARD_MARGIN, y, text_width, metrics->footer_height + 4),
+                               GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+        }
+        return;
+    }
 
     if (y < screen_height && y + metrics->footer_height > 0)
     {

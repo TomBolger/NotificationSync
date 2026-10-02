@@ -93,7 +93,8 @@ class NotificationDetailsPusherImpl(
 
          val detailsPackets = createDetailsPackets(
             bucketId = bucketId,
-            bodyText = notification.systemData.body.replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
+            // Same text the summary was cut from (see watchBody), so the summary is an exact prefix of this.
+            bodyText = notification.systemData.watchBody().replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
             actions = notification.actions,
             maxPacketSize = maxPacketSize,
          )

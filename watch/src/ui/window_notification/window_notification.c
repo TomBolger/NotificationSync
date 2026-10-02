@@ -37,6 +37,17 @@ static bool waiting_for_launch_target;
 static uint8_t launch_target_bucket;
 static AppTimer* launch_timeout_timer;
 
+// Whether the phone app has answered our hello. Without it the list can only ever be empty or stale.
+#define PHONE_ANSWER_TIMEOUT_MS 4000
+typedef enum
+{
+    PhoneStateWaiting,
+    PhoneStateAnswered,
+    PhoneStateUnreachable,
+} PhoneState;
+static PhoneState phone_state = PhoneStateWaiting;
+static AppTimer* phone_timeout_timer;
+
 static uint32_t deferred_vibration[MAX_DEFERRED_VIBE_SEGMENTS];
 static uint32_t deferred_vibration_segments;
 
@@ -287,18 +298,109 @@ static void sync_list_selection(void)
     }
 }
 
+static void draw_unreachable_phone_icon(GContext* ctx, const GPoint center)
+{
+    // A phone outline with a slash through it, drawn in the 2px stroke style of the PebbleOS system icons.
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, 3);
+    const GRect phone = GRect(center.x - 13, center.y - 21, 26, 42);
+    graphics_draw_round_rect(ctx, phone, 4);
+    graphics_draw_line(ctx, GPoint(phone.origin.x + 9, phone.origin.y + phone.size.h - 7),
+                       GPoint(phone.origin.x + phone.size.w - 10, phone.origin.y + phone.size.h - 7));
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorRed, GColorBlack));
+    graphics_draw_line(ctx, GPoint(center.x - 21, center.y - 21), GPoint(center.x + 21, center.y + 21));
+    graphics_context_set_stroke_width(ctx, 1);
+}
+
+static void draw_centered_message(GContext* ctx, const GRect bounds, const char* title, const char* body,
+                                  const bool with_icon)
+{
+    const int16_t margin = 10;
+    const GRect text_box = GRect(margin, 0, bounds.size.w - margin * 2, bounds.size.h);
+    const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    const GFont body_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    const int16_t icon_height = with_icon ? 50 : 0;
+    const int16_t title_height = graphics_text_layout_get_content_size(title, title_font, text_box,
+                                                                       GTextOverflowModeWordWrap,
+                                                                       GTextAlignmentCenter).h;
+    const int16_t body_height = body != NULL ?
+        graphics_text_layout_get_content_size(body, body_font, text_box, GTextOverflowModeWordWrap,
+                                              GTextAlignmentCenter).h : 0;
+    int16_t y = (bounds.size.h - (icon_height + title_height + body_height + 4)) / 2;
+
+    if (with_icon)
+    {
+        draw_unreachable_phone_icon(ctx, GPoint(bounds.size.w / 2, y + 22));
+        y += icon_height;
+    }
+
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, title, title_font, GRect(text_box.origin.x, y, text_box.size.w, title_height + 4),
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+    y += title_height + 4;
+    if (body != NULL)
+    {
+        graphics_draw_text(ctx, body, body_font, GRect(text_box.origin.x, y, text_box.size.w, body_height + 4),
+                           GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+    }
+}
+
 static void empty_layer_update(Layer* layer, GContext* ctx)
 {
     const GRect bounds = layer_get_bounds(layer);
-    const char* text = "No Notifications";
-    const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-    const int16_t height = graphics_text_layout_get_content_size(text, font, bounds, GTextOverflowModeTrailingEllipsis,
-                                                                 GTextAlignmentCenter).h;
     graphics_context_set_fill_color(ctx, GColorWhite);
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-    graphics_context_set_text_color(ctx, GColorBlack);
-    graphics_draw_text(ctx, text, font, GRect(0, (bounds.size.h - height) / 2, bounds.size.w, height),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+    switch (phone_state)
+    {
+    case PhoneStateWaiting:
+        draw_centered_message(ctx, bounds, "Loading...", NULL, false);
+        break;
+    case PhoneStateAnswered:
+        draw_centered_message(ctx, bounds, "No Notifications", NULL, false);
+        break;
+    case PhoneStateUnreachable:
+        if (!connection_service_peek_pebble_app_connection())
+        {
+            draw_centered_message(ctx, bounds, "Phone Disconnected",
+                                  "Connect your phone to see notifications.", true);
+        }
+        else
+        {
+            draw_centered_message(ctx, bounds, "Phone App Not Responding",
+                                  "Open Notification Sync on your phone and finish its setup.", true);
+        }
+        break;
+    }
+}
+
+static void set_phone_state(const PhoneState state)
+{
+    phone_state = state;
+    if (empty_layer != NULL)
+    {
+        layer_mark_dirty(empty_layer);
+    }
+}
+
+static void on_phone_timeout(void* context)
+{
+    (void)context;
+    phone_timeout_timer = NULL;
+    if (phone_state == PhoneStateWaiting)
+    {
+        set_phone_state(PhoneStateUnreachable);
+    }
+}
+
+void window_notification_ui_on_phone_answered(void)
+{
+    if (phone_timeout_timer != NULL)
+    {
+        app_timer_cancel(phone_timeout_timer);
+        phone_timeout_timer = NULL;
+    }
+    set_phone_state(PhoneStateAnswered);
 }
 
 static void splash_layer_update(Layer* layer, GContext* ctx)
@@ -710,6 +812,11 @@ static void window_unload(Window* window)
 {
     cancel_pending_alert();
     cancel_launch_timeout();
+    if (phone_timeout_timer != NULL)
+    {
+        app_timer_cancel(phone_timeout_timer);
+        phone_timeout_timer = NULL;
+    }
     detail_window_close(false);
     window_notification_action_list_deinit();
 
@@ -754,6 +861,17 @@ void window_notification_show()
     if (popup_session)
     {
         launch_timeout_timer = app_timer_register(PHONE_LAUNCH_TIMEOUT_MS, on_launch_timeout, NULL);
+    }
+    if (phone_state == PhoneStateWaiting)
+    {
+        if (connection_service_peek_pebble_app_connection())
+        {
+            phone_timeout_timer = app_timer_register(PHONE_ANSWER_TIMEOUT_MS, on_phone_timeout, NULL);
+        }
+        else
+        {
+            phone_state = PhoneStateUnreachable;
+        }
     }
     idle_handler_register_timers();
 }

@@ -53,6 +53,28 @@ class NotificationProcessor(
    private val notifications = ConcurrentHashMap<Int, ProcessedNotification>()
    private val notificationIdsByKeys = HashMap<String, Int>()
 
+   // Resyncs re-post every active notification (with suppressVibration). Those are not new notifications and
+   // must not be written to history again, otherwise history fills with duplicates and the per-app counts on the
+   // Notifications tab keep changing, which makes the app list jump around.
+   private val historyLoggedKeys = object : LinkedHashMap<String, Unit>() {
+      override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean {
+         return size > MAX_HISTORY_LOGGED_KEYS
+      }
+   }
+
+   private suspend fun insertHistoryOnce(
+      key: String,
+      suppressVibration: Boolean,
+      insert: suspend () -> Unit,
+   ) {
+      val alreadyLogged = synchronized(historyLoggedKeys) { historyLoggedKeys.containsKey(key) }
+      if (suppressVibration && alreadyLogged) {
+         return
+      }
+      synchronized(historyLoggedKeys) { historyLoggedKeys[key] = Unit }
+      insert()
+   }
+
    private var nextVibration: AtomicReference<IntArray?> = AtomicReference(null)
 
    init {
@@ -81,14 +103,18 @@ class NotificationProcessor(
 
       val hideReason = shouldHide(notification, settings)
       if (hideReason != null) {
-         historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
+         insertHistoryOnce(notification.key, suppressVibration) {
+            historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
+         }
          onNotificationDismissed(notification.key)
          return
       }
 
       if (shouldSkipBecausePhoneUnlocked()) {
          logcat { "Hiding: phone is unlocked" }
-         historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
+         insertHistoryOnce(notification.key, suppressVibration) {
+            historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
+         }
          return
       }
 
@@ -151,7 +177,9 @@ class NotificationProcessor(
          openController.openWatchapp()
       }
 
-      historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
+      insertHistoryOnce(notification.key, suppressVibration) {
+         historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
+      }
    }
 
    private fun ParsedNotification.withRicherFieldsFrom(previous: ParsedNotification?): ParsedNotification {
@@ -517,3 +545,4 @@ class NotificationProcessor(
 }
 
 private const val DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY = false
+private const val MAX_HISTORY_LOGGED_KEYS = 500

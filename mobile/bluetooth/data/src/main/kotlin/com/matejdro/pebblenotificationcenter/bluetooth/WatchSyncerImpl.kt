@@ -40,6 +40,7 @@ class WatchSyncerImpl(
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
    private var maxWatchSyncBucketPayloadBytes = BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES
+   private val summaryCompleteByKey = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
    override val stockNotificationActions = stockNotificationTransport.actions
 
@@ -108,15 +109,14 @@ class WatchSyncerImpl(
       buffer.writeUByte(0u)
       val maxBucketPayloadBytes = maxWatchSyncBucketPayloadBytes
       val leftoverSize = maxBucketPayloadBytes - buffer.size.toInt()
+      val watchText = watchBody.replaceUnsupportedPebbleEmoji().fixPebbleIndentation()
+      var summaryComplete = watchText.isEmpty()
       if (leftoverSize > 0) {
-         buffer.write(
-            utf8Encoder.encodeSizeLimited(
-               watchBody.replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
-               leftoverSize,
-               true
-            ).encodedString
-         )
+         val encoded = utf8Encoder.encodeSizeLimited(watchText, leftoverSize, true)
+         buffer.write(encoded.encodedString)
+         summaryComplete = !encoded.wasTrimmed
       }
+      summaryCompleteByKey[notificationData.key] = summaryComplete
       require(buffer.size <= maxBucketPayloadBytes) {
          "watch sync bucket summary (${buffer.size}) must fit configured watch packet payload"
       }
@@ -155,15 +155,23 @@ class WatchSyncerImpl(
          flags = flags or 0x04u
       }
 
+      // The summary already contains the whole text: the watch can show the card in its final form right away
+      // instead of leaving room for the rest of the message.
+      if (summaryCompleteByKey[notification.systemData.key] == true) {
+         flags = flags or 0x08u
+      }
+
       return flags
    }
 
    override suspend fun clearAllNotifications() {
+      summaryCompleteByKey.clear()
       bucketSyncRepository.clearAllDynamic()
       stockNotificationTransport.deleteAll()
    }
 
    override suspend fun clearNotification(key: String) {
+      summaryCompleteByKey.remove(key)
       bucketSyncRepository.deleteBucketDynamic(key)
       stockNotificationTransport.delete(key)
       logcat { "Deleting Notification $key from the store" }
@@ -222,11 +230,15 @@ private const val WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES = 32
 private const val MAX_APP_NAME_TEXT_LENGTH = 24
 private const val MAX_TITLE_TEXT_LENGTH = 40
 
-private fun ParsedNotification.watchTitle(): String {
+internal fun ParsedNotification.watchTitle(): String {
    return subtitle.ifBlank { body.lineSequence().firstOrNull().orEmpty() }
 }
 
-private fun ParsedNotification.watchBody(watchTitle: String): String {
+/**
+ * Body text as shown on the watch card. Both the synced summary and the full details are built from this, so the
+ * summary is always an exact beginning of the full text and nothing shifts when the full text arrives.
+ */
+internal fun ParsedNotification.watchBody(watchTitle: String = watchTitle()): String {
    if (subtitle.isNotBlank()) {
       return body.removeSenderPrefix(subtitle)
    }

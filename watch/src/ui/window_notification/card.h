@@ -16,6 +16,7 @@ typedef struct
     int16_t body_height;
     int16_t footer_height;
     int16_t total_height;
+    bool open_ended;
 } CardMetrics;
 
 GColor card_color_for_id(uint8_t color_id);
@@ -28,8 +29,12 @@ const char* card_header_text(const NotificationItem* item);
 /** Body text, skipping a leading "Sender: " prefix that only repeats the header. */
 const char* card_body_text(const NotificationItem* item, const char* body);
 
-/** Measure the card. total_height is never less than the screen height. */
-void card_measure(const NotificationItem* item, const char* body, int16_t width, CardMetrics* metrics);
+/**
+ * Measure the card. total_height is never less than the screen height.
+ * open_ended: the text shown is only the beginning of the message (the rest is still loading).
+ */
+void card_measure(const NotificationItem* item, const char* body, int16_t width, bool open_ended,
+                  CardMetrics* metrics);
 
 /** Draw the card with its top edge at origin_y. counter_total <= 1 hides the "2/5" counter. */
 void card_draw(GContext* ctx, const NotificationItem* item, const char* body, const CardMetrics* metrics,

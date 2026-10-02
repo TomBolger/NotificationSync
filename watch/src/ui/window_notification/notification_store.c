@@ -47,6 +47,16 @@ static bool is_hidden(const uint8_t bucket_id)
 }
 static void (*settings_listener)(void) = NULL;
 
+#define SUMMARY_COMPLETE_FLAG 0x08
+
+static NotificationDetails* find_details(uint8_t bucket_id);
+
+bool notification_store_is_partial(const uint8_t bucket_id)
+{
+    const NotificationItem* item = notification_store_item_by_bucket(bucket_id);
+    return item != NULL && item->loaded && !item->summary_complete && find_details(bucket_id) == NULL;
+}
+
 static bool is_seen_locally(const uint8_t bucket_id)
 {
     uint8_t flag = 0;
@@ -110,6 +120,28 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     if (position < size)
     {
         copy_text(item->summary, sizeof(item->summary), &data[position], size - position);
+    }
+
+    // Phone sets 0x08 when the summary is the whole message text. Otherwise the summary is the beginning of
+    // the message, cut short (and ellipsized). Trim it back to the last complete word so that every line
+    // shown now stays exactly where it is once the rest of the text arrives.
+    item->summary_complete = (metadata.flags & SUMMARY_COMPLETE_FLAG) != 0;
+    if (!item->summary_complete)
+    {
+        size_t length = strlen(item->summary);
+        if (length >= 3 && strcmp(&item->summary[length - 3], "...") == 0)
+        {
+            length -= 3;
+        }
+        while (length > 0 && item->summary[length - 1] != ' ' && item->summary[length - 1] != '\n')
+        {
+            length--;
+        }
+        while (length > 0 && (item->summary[length - 1] == ' ' || item->summary[length - 1] == '\n'))
+        {
+            length--;
+        }
+        item->summary[length] = '\0';
     }
 
     item->loaded = true;

@@ -48,6 +48,7 @@ class RuleListViewModel(
    val appDetailsState: StateFlow<Outcome<NotificationAppDetailsState>?> = _appDetailsState
 
    private val refreshRequests = MutableStateFlow(0)
+   private var stableOrder: List<String>? = null
 
    override fun onServiceRegistered() {
       actionLogger.logAction { "RuleListViewModel.onServiceRegistered()" }
@@ -248,18 +249,38 @@ class RuleListViewModel(
             )
          }
 
-      val apps = (rowsByPackage.values + unknownHistoryRows)
+      val sortedApps = (rowsByPackage.values + unknownHistoryRows)
          .sortedWith(
             compareByDescending<NotificationAppState> { it.notificationCount }
                .thenByDescending { it.lastNotification ?: Instant.EPOCH }
                .thenBy { it.name.lowercase() }
          )
+      val apps = applyStableOrder(sortedApps)
 
       return RuleListState(
          apps = apps,
          defaultEnabled = defaultMasterSwitch == MasterSwitch.SHOW,
          defaultMasterSwitch = defaultMasterSwitch,
       )
+   }
+
+   /**
+    * Rows keep the position they had when the list was first shown. Counts change while the screen is open (new
+    * notifications, toggles), and re-sorting every time made rows jump under the user's finger. Apps that appear
+    * later are added at the end; the full sort applies again next time the screen is opened.
+    */
+   private fun applyStableOrder(sortedApps: List<NotificationAppState>): List<NotificationAppState> {
+      val previousOrder = stableOrder
+      if (previousOrder == null) {
+         stableOrder = sortedApps.map { it.stableKey() }
+         return sortedApps
+      }
+
+      val positions = previousOrder.withIndex().associate { (index, key) -> key to index }
+      val (known, new) = sortedApps.partition { positions.containsKey(it.stableKey()) }
+      val result = known.sortedBy { positions.getValue(it.stableKey()) } + new
+      stableOrder = result.map { it.stableKey() }
+      return result
    }
 
    private suspend fun buildAppDetails(
@@ -411,6 +432,8 @@ private fun InstalledApp.toNotificationAppState(
    masterSwitch = appRule?.masterSwitch ?: defaultMasterSwitch,
    ruleId = appRule?.id,
 )
+
+private fun NotificationAppState.stableKey(): String = packageName ?: "name:${name.lowercase()}"
 
 private fun List<HistoryEntry>.appStats(): Map<String, AppHistoryStats> {
    return groupBy { it.notificationTitle.lowercase() }.mapValues { (key, entries) ->

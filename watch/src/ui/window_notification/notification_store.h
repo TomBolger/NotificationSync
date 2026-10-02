@@ -25,6 +25,8 @@ typedef struct
     bool unread;
     bool paused;
     bool periodic_vibration;
+    /** The summary already holds the entire message text (details only add actions). */
+    bool summary_complete;
     time_t receive_time;
     uint8_t icon_id;
     uint8_t color_id;
@@ -69,6 +71,8 @@ int16_t notification_store_index_of(uint8_t bucket_id);
 const NotificationDetails* notification_store_details(uint8_t bucket_id);
 /** Best text available for the notification body (full details, otherwise the synced summary). */
 const char* notification_store_body(uint8_t bucket_id);
+/** Only the beginning of this notification's text is on the watch so far. */
+bool notification_store_is_partial(uint8_t bucket_id);
 /** Make sure details for this notification are (or will be) available. */
 void notification_store_want_details(uint8_t bucket_id, bool urgent);
 /** Keep this notification's details in the cache even under memory pressure. */

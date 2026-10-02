@@ -28,6 +28,9 @@ extern NotificationWindowData window_notification_data;
 
 void window_notification_show();
 
+/** The phone app answered our hello (so "no notifications" really means none). */
+void window_notification_ui_on_phone_answered(void);
+
 /** Phone told us which notification it launched the app for (0 = unknown). */
 void window_notification_ui_open_phone_launch_detail(uint8_t bucket_id);
 

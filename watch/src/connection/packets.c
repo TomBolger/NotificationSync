@@ -265,6 +265,8 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
         return;
     }
 
+    window_notification_ui_on_phone_answered();
+
     const Tuple* sync = data_tuple(iterator, 2);
     if (sync != NULL)
     {
