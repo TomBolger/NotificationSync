@@ -279,6 +279,22 @@ internal fun ParsedNotification.pebbleOsIconId(): Int {
    val pkg = this.pkg.lowercase()
    val app = title.lowercase()
    return when {
+      // Apps with their own icon in current PebbleOS (or, for the AI assistants, a stock pictogram that fits:
+      // Claude's starburst as the sun, ChatGPT's rosette as the gear).
+      "anthropic" in pkg || app == "claude" -> 57
+      "openai" in pkg || "chatgpt" in app -> 58
+      "bsky" in pkg || "bluesky" in app -> 47
+      "barcelona" in pkg || app == "threads" -> 54
+      "beeper" in pkg || "beeper" in app -> 46
+      "im.vector" in pkg || app == "element" -> 49
+      "duolingo" in pkg || "duolingo" in app -> 48
+      "ebay" in pkg || app == "ebay" -> 56
+      "homeassistant" in pkg || "home assistant" in app -> 50
+      "valvesoftware" in pkg || app == "steam" -> 51
+      "foursquare.robin" in pkg || app == "swarm" -> 52
+      "tplink" in pkg || "tapo" in app -> 53
+      "ubnt" in pkg || "unifi" in pkg || "unifi" in app -> 55
+      "airmail" in pkg || "airmail" in app -> 45
       "gmail" in pkg || "google.android.gm" in pkg || "gmail" in app -> 1
       "whatsapp" in pkg || "whatsapp" in app -> 2
       "telegram" in pkg || "telegram" in app -> 6
@@ -324,6 +340,26 @@ internal fun ParsedNotification.pebbleOsIconId(): Int {
       "spotify" in pkg || "music" in pkg || "spotify" in app || "music" in app -> 31
       "uber" in pkg || "doordash" in pkg || "lyft" in pkg || "maps" in app || "delivery" in app -> 32
       "reminder" in pkg || "todo" in pkg || "tasks" in pkg || "reminder" in app || "tasks" in app -> 33
+      // No stock icon of their own: the closest PebbleOS pictogram for what they are.
+      "netflix" in pkg || "disney" in pkg || "hulu" in pkg || "hbo" in pkg || "plexapp" in pkg ||
+         "crunchyroll" in pkg || app == "netflix" -> 70
+      ".tv" in pkg || app.endsWith(" tv") -> 59
+      "strava" in pkg || "fitbit" in pkg || "garmin" in pkg || "nike" in pkg || "peloton" in pkg ||
+         "runkeeper" in pkg || "strava" in app || "fitness" in app -> 60
+      "venmo" in pkg || "paypal" in pkg || "squareup.cash" in pkg || "chase" in pkg || "wellsfargo" in pkg ||
+         "capitalone" in pkg || "bankofamerica" in pkg || "bank" in app || "venmo" in app -> 61
+      "airbnb" in pkg || "com.booking" in pkg || "expedia" in pkg || "hotel" in pkg || "marriott" in pkg ||
+         "hilton" in pkg || "airbnb" in app -> 62
+      "flighty" in pkg || "united.mobile" in pkg || "delta.mobile" in pkg || "southwestairlines" in pkg ||
+         "alaskaairlines" in pkg || "com.aa.android" in pkg || "flight" in app || "airlines" in app -> 63
+      "opentable" in pkg || "resy" in pkg || "yelp" in pkg || "opentable" in app -> 64
+      "news" in pkg || "nytimes" in pkg || "substack" in pkg || "news" in app -> 65
+      "robinhood" in pkg || "coinbase" in pkg || "webull" in pkg || "fidelity" in pkg || "schwab" in pkg ||
+         "etrade" in pkg || "stocks" in app || "robinhood" in app -> 66
+      "dexcom" in pkg || "freestyle" in pkg || "libre" in pkg || "glucose" in app -> 67
+      "espn" in pkg || "thescore" in pkg || "sports" in pkg || "espn" in app || "sports" in app -> 68
+      "podcast" in pkg || "pocketcasts" in pkg || "audible" in pkg || "podcast" in app || "radio" in app -> 69
+      "tachyon" in pkg || "facetime" in app || app == "meet" || "google meet" in app -> 71
       else -> 0
    }
 }
@@ -332,6 +368,14 @@ private fun ParsedNotification.pebbleOsColorId(): Int {
    val pkg = this.pkg.lowercase()
    val app = title.lowercase()
    return when {
+      "anthropic" in pkg || app == "claude" || "swarm" in app || "foursquare.robin" in pkg -> 14
+      "openai" in pkg || "chatgpt" in app || "im.vector" in pkg || app == "element" -> 13
+      "barcelona" in pkg || app == "threads" -> 16
+      "bsky" in pkg || "bluesky" in app || "homeassistant" in pkg || "tplink" in pkg -> 5
+      "beeper" in pkg || "beeper" in app -> 11
+      "duolingo" in pkg || "duolingo" in app -> 2
+      "ebay" in pkg || "ubnt" in pkg || "unifi" in pkg || "airmail" in pkg -> 3
+      "valvesoftware" in pkg || app == "steam" -> 4
       "gmail" in pkg || "google.android.gm" in pkg || "youtube" in pkg || "tesla" in pkg ||
          "gmail" in app || "youtube" in app || "tesla" in app -> 1
       "whatsapp" in pkg || "hangouts" in pkg || "kik" in pkg || "line" in pkg ||
