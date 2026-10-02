@@ -159,6 +159,8 @@ void bucket_sync_init()
             }
         }
         buckets.count = 0;
+        // Start over from version 0, or the phone thinks we already have everything and never resends it.
+        bucket_sync_current_version = 0;
         persist_delete(FILE_BUCKET_SYNC_VERSION);
         persist_delete(FILE_BUCKET_LIST);
     }
