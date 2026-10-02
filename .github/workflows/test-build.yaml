@@ -1,0 +1,46 @@
+name: test-build
+# Builds the phone app (debug-signed APK) and the watch app (PBW) and publishes them as the
+# "test-build" pre-release, so they can be downloaded straight to a phone.
+on:
+  push:
+    branches: [ 'claude/**', 'main' ]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: test-build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # No LFS: the screenshot-test snapshots are not needed to build the apps.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: gradle
+      - uses: android-actions/setup-android@7c5672355aaa8fde5f97a91aa9a99616d1ace6bc
+      - name: Build phone app
+        run: ./gradlew assembleDebug
+        working-directory: mobile
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install Pebble SDK
+        # Installation sometimes exits non-zero while still succeeding; the build below catches real failures.
+        run: uv tool install --python 3.13 pebble-tool && (pebble sdk install latest || true)
+      - name: Build watch app
+        run: pebble build
+        working-directory: watch
+      - name: Publish downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          cp "$(find mobile/app/build/outputs/apk/debug -name '*.apk' | head -1)" out/notification-sync-phone.apk
+          cp watch/build/watch.pbw out/notification-sync-watch.pbw
+          TAG="test-build-${GITHUB_REF_NAME//\//-}"
+          NOTES="Built from ${GITHUB_REF_NAME} at commit ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Install both files together."
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" out/* --prerelease --target "$GITHUB_SHA" \
+            --title "Test build (${GITHUB_REF_NAME})" --notes "$NOTES"
