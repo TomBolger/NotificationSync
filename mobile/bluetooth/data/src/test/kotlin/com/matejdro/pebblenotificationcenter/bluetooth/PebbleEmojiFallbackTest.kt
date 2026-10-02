@@ -10,8 +10,19 @@ class PebbleEmojiFallbackTest {
    }
 
    @Test
+   fun `Keep emoji from the expanded PebbleOS emoji fonts`() {
+      "sun 🌞 dragon 🐉 eggplant 🍆 melting 🫠".replaceUnsupportedPebbleEmoji() shouldBe
+         "sun 🌞 dragon 🐉 eggplant 🍆 melting 🫠"
+   }
+
+   @Test
+   fun `Keep flags for the watch to draw`() {
+      "flag 🇺🇸".replaceUnsupportedPebbleEmoji() shouldBe "flag 🇺🇸"
+   }
+
+   @Test
    fun `Replace unsupported emoji with shortcode names`() {
-      "dragon 🐉 eggplant 🍆".replaceUnsupportedPebbleEmoji() shouldBe "dragon :dragon: eggplant :eggplant:"
+      "white sun 🌣".replaceUnsupportedPebbleEmoji() shouldBe "white sun :white_sun:"
    }
 
    @Test

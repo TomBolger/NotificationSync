@@ -71,7 +71,10 @@ static void hold_cancel(void);
 // Press-and-hold: one continuous, even scroll (no stepping), a short bump at the end of each message,
 // then straight on into the next one.
 #define HOLD_START_MS 120
-#define HOLD_SPEED_PX_S 180
+#define HOLD_SPEED_PX_S 260
+// The hop to the next message: as quick as a pressed swap, but it ends moving at the hold speed, so the
+// scroll carries straight on instead of slowing to a stop and starting again.
+#define HOLD_SWAP_MS 240
 #define HOLD_BUMP_MS 600
 #define HOLD_RETRY_MS 100
 #define HOLD_RELEASE_PX 8
@@ -83,6 +86,9 @@ static bool hold_bumped;
 static bool hold_in_step;
 static AppTimer* hold_timer;
 static int16_t hold_press_target;
+// Slope (x1000) the hold swap curve ends with; see hold_swap_curve().
+static int32_t hold_swap_end_slope;
+static AnimationCurveFunction next_custom_curve;
 
 // ------------------------------------------------------------------------------------------------ model helpers
 
@@ -451,7 +457,15 @@ static bool start_animation(const AnimKind kind, const int16_t from, const int16
     }
     animation_set_implementation(animation, &implementation);
     animation_set_duration(animation, duration);
-    animation_set_curve(animation, curve);
+    if (next_custom_curve != NULL)
+    {
+        animation_set_custom_curve(animation, next_custom_curve);
+        next_custom_curve = NULL;
+    }
+    else
+    {
+        animation_set_curve(animation, curve);
+    }
     animation_set_handlers(animation, (AnimationHandlers){.stopped = animation_stopped}, NULL);
     if (!animation_schedule(animation))
     {
@@ -539,6 +553,36 @@ static uint32_t duration_for(const int16_t distance, const uint16_t speed_px_s)
     return ms > 0 ? ms : 1;
 }
 
+/**
+ * Cubic p(t) = a t^3 + b t^2 with p(0) = 0, p'(0) = 0 (starting from the bump at rest), p(1) = 1 and
+ * p'(1) = s, the hold speed: quick in the middle and handing over to the scroll without a slowdown.
+ */
+static AnimationProgress hold_swap_curve(const AnimationProgress progress)
+{
+    const int64_t max = ANIMATION_NORMALIZED_MAX;
+    const int64_t t = progress;
+    const int64_t s = hold_swap_end_slope; // x1000
+    const int64_t a = s - 2000;            // x1000
+    const int64_t b = 3000 - s;            // x1000
+    const int64_t t2 = (t * t) / max;
+    const int64_t t3 = (t2 * t) / max;
+    int64_t value = (a * t3 + b * t2) / 1000;
+    if (value < 0)
+    {
+        value = 0;
+    }
+    return (AnimationProgress)(value > max ? max : value);
+}
+
+static uint32_t hold_swap_duration(const int16_t distance)
+{
+    // End slope in normalized units: speed * duration / distance.
+    int32_t slope = distance > 0 ? (int32_t)HOLD_SPEED_PX_S * HOLD_SWAP_MS / distance : 0;
+    hold_swap_end_slope = slope > 2500 ? 2500 : slope;
+    next_custom_curve = hold_swap_curve;
+    return HOLD_SWAP_MS;
+}
+
 /** speed_px_s == 0: the stock snappy swap. Otherwise an even, linear slide at that speed (press-and-hold). */
 static bool swap_at(const int8_t direction, const bool to_top, const uint16_t speed_px_s)
 {
@@ -557,8 +601,8 @@ static bool swap_at(const int8_t direction, const bool to_top, const uint16_t sp
         // Slide the current card (from wherever it is scrolled) up and out; the next card ends at the top.
         const int16_t height = card_height(current_bucket);
         return start_animation(AnimSwapDown, offset, height,
-                               speed_px_s ? duration_for(height - offset, speed_px_s) : SWAP_MS,
-                               speed_px_s ? AnimationCurveLinear : AnimationCurveEaseOut) ||
+                               speed_px_s ? hold_swap_duration(height - offset) : SWAP_MS,
+                               AnimationCurveEaseOut) ||
             (settle_on(target->bucket_id, 0), true);
     }
 
@@ -574,8 +618,8 @@ static bool swap_at(const int8_t direction, const bool to_top, const uint16_t sp
     {
         distance = PBL_DISPLAY_HEIGHT - PEEK_PX + offset;
     }
-    if (!start_animation(AnimSwapUp, 0, distance, speed_px_s ? duration_for(distance, speed_px_s) : SWAP_MS,
-                         speed_px_s ? AnimationCurveLinear : AnimationCurveEaseOut))
+    if (!start_animation(AnimSwapUp, 0, distance, speed_px_s ? hold_swap_duration(distance) : SWAP_MS,
+                         AnimationCurveEaseOut))
     {
         settle_on(target->bucket_id, to_top ? 0 : target_height - PBL_DISPLAY_HEIGHT + PEEK_PX);
     }
@@ -747,6 +791,15 @@ static void hold_step(void)
 
     const int8_t direction = hold_direction;
     const int16_t end = direction > 0 ? max_scroll() : 0;
+    if (!current_is_partial())
+    {
+        // Have the next message's full text ready by the time we get there, so it scrolls on without waiting.
+        const NotificationItem* upcoming = neighbor(direction);
+        if (upcoming != NULL)
+        {
+            notification_store_want_details(upcoming->bucket_id, true);
+        }
+    }
     if (offset != end)
     {
         hold_bumped = false;
@@ -1129,9 +1182,10 @@ static void touch_drag_ended(const int16_t dy, const int32_t velocity, void* con
     refresh_decorations();
 }
 
-static void touch_tap(const GPoint point, void* context)
+// PebbleOS: a tap on a notification does nothing (it only stops a moving card, see touch_down) so the
+// actions never open by accident; swiping right-to-left opens them.
+static void touch_swipe_select(void* context)
 {
-    (void)point;
     (void)context;
     if (!window_notification_data.menu_displayed)
     {
@@ -1157,10 +1211,11 @@ static void touch_edge_swipe_up(void* context)
 
 static const TouchGestureHandlers touch_handlers = {
     .touch_down = touch_down,
-    .tap = touch_tap,
+    .tap = NULL,
     .drag_moved = touch_drag_moved,
     .drag_ended = touch_drag_ended,
     .swipe_back = touch_swipe_back,
+    .swipe_select = touch_swipe_select,
     .edge_swipe_up = touch_edge_swipe_up,
 };
 

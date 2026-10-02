@@ -162,6 +162,10 @@ void touch_gesture_feed(TouchGesture* gesture, const TouchEvent* event, const To
             {
                 handlers->swipe_back(context);
             }
+            else if (dx <= -BACK_SWIPE_PX && abs(dx) > abs(dy) && handlers->swipe_select != NULL)
+            {
+                handlers->swipe_select(context);
+            }
         }
         return;
     }

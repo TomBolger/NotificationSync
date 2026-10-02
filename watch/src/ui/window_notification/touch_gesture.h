@@ -15,6 +15,8 @@ typedef struct
     void (*drag_moved)(int16_t dy, void* context);
     void (*drag_ended)(int16_t dy, int32_t velocity, void* context);
     void (*swipe_back)(void* context);
+    /** Right-to-left swipe: PebbleOS uses it as SELECT (open the actions). */
+    void (*swipe_select)(void* context);
     void (*edge_swipe_up)(void* context);
 } TouchGestureHandlers;
 

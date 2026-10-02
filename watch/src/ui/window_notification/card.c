@@ -195,6 +195,7 @@ void card_set_text_size(const uint8_t size)
     text_size = size <= CARD_TEXT_SIZE_LARGE ? size : CARD_TEXT_SIZE_DEFAULT;
 }
 
+// Sender in bold, message text in the regular weight, at every size.
 static GFont header_font(void)
 {
     switch (text_size)
@@ -213,11 +214,11 @@ static GFont body_font(void)
     switch (text_size)
     {
     case CARD_TEXT_SIZE_SMALL:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+        return fonts_get_system_font(FONT_KEY_GOTHIC_18);
     case CARD_TEXT_SIZE_LARGE:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+        return fonts_get_system_font(FONT_KEY_GOTHIC_28);
     default:
-        return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+        return fonts_get_system_font(FONT_KEY_GOTHIC_24);
     }
 }
 
