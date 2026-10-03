@@ -32,5 +32,18 @@ object GlobalPreferenceKeys {
    )
    val showMessagingStyleChronologically = BooleanPreferenceKeyWithDefault("show_messaging_style_chronologically", false)
 
+   /** Notification text size on the watch: 0 = small, 1 = default, 2 = large. */
+   val watchTextSize = IntPreferenceKeyWithDefault("watch_text_size", 1)
+
+   /** Sender name and message text weights on the watch. Bold for both is how PebbleOS draws them. */
+   val watchSenderBold = BooleanPreferenceKeyWithDefault("watch_sender_bold", true)
+   val watchMessageBold = BooleanPreferenceKeyWithDefault("watch_message_bold", true)
+
+   /**
+    * When off, the watchapp never buzzes or opens by itself: it is only a mirror of the shade, e.g. alongside
+    * PebbleOS's own notifications from the Pebble app.
+    */
+   val popUpOnWatch = BooleanPreferenceKeyWithDefault("pop_up_on_watch", true)
+
    val notifyOnReconnect = BooleanPreferenceKeyWithDefault("notify_on_reconnect", true)
 }

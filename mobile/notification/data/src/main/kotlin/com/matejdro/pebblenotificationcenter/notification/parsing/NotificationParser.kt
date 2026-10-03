@@ -67,7 +67,7 @@ class NotificationParser(
          tag = sbn.tag,
          pkg = sbn.packageName,
          title = title,
-         subtitle = subtitleWithCameraEmoji,
+         subtitle = subtitle,
          body = text.orEmpty(),
          timestamp = Instant.ofEpochMilli(notification.parseMessagingStyleTimestamp() ?: timestampMillis),
          isSilent = isSilent,

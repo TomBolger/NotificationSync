@@ -24,6 +24,7 @@ class WatchSyncerPayloadSizeTest {
          bucketSyncRepository,
          InMemoryDataStore(emptyPreferences()),
          DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
+         notificationImageStore = com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages,
       )
 
       watchSyncer.init(enablePreferences = false)
@@ -52,6 +53,7 @@ class WatchSyncerPayloadSizeTest {
          bucketSyncRepository,
          InMemoryDataStore(emptyPreferences()),
          DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
+         notificationImageStore = com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages,
       )
 
       watchSyncer.init(enablePreferences = false)

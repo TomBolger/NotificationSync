@@ -195,18 +195,57 @@ private fun NotificationAccessPermissionCompanion(
       }
    }
 
+   // Companion pairing only has to happen once. Asking again (e.g. after returning from system settings) used to
+   // stack pairing requests on top of each other, which looked like an endless approval loop.
+   fun hasAssociation(): Boolean {
+      val manager = companionManager ?: return false
+      return try {
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            manager.myAssociations.isNotEmpty()
+         } else {
+            @Suppress("DEPRECATION")
+            manager.associations.isNotEmpty()
+         }
+      } catch (e: SecurityException) {
+         false
+      }
+   }
+
+   var paired by remember { mutableStateOf(false) }
+   var pairingInProgress by remember { mutableStateOf(false) }
+   var triedOpeningAccess by remember { mutableStateOf(false) }
+
    LifecycleResumeEffect(serviceStatus) {
       permissionGranted = serviceStatus.isPermissionGranted()
+      paired = hasAssociation()
+      pairingInProgress = false
 
       onPauseOrDispose { }
    }
 
+   fun openNotificationAccess() {
+      triedOpeningAccess = true
+      serviceStatus.requestNotificationAccess()
+   }
+
    fun associateWithCompanionManager() {
+      if (hasAssociation()) {
+         paired = true
+         openNotificationAccess()
+         return
+      }
+      if (pairingInProgress) {
+         return
+      }
+      pairingInProgress = true
+
       companionManager!!.associate(
          AssociationRequest.Builder()
             .build(),
          object : CompanionDeviceManager.Callback() {
-            override fun onFailure(error: CharSequence?) {}
+            override fun onFailure(error: CharSequence?) {
+               pairingInProgress = false
+            }
 
             // New method is only available in the SDK 33, so we
             // have to use the old one for now.
@@ -217,7 +256,9 @@ private fun NotificationAccessPermissionCompanion(
             }
 
             override fun onAssociationCreated(associationInfo: AssociationInfo) {
-               serviceStatus.requestNotificationAccess()
+               pairingInProgress = false
+               paired = true
+               openNotificationAccess()
             }
          },
          null
@@ -229,7 +270,12 @@ private fun NotificationAccessPermissionCompanion(
       AlertDialog(
          onDismissRequest = { showInstructions = false },
          confirmButton = {
-            TextButton(onClick = { associateWithCompanionManager() }) { Text("OK") }
+            TextButton(
+               onClick = {
+                  showInstructions = false
+                  associateWithCompanionManager()
+               }
+            ) { Text(stringResource(R.string.permission_notification_access_continue)) }
          },
          title = { Text(stringResource(R.string.permission_notification_access_title)) },
          text = {
@@ -240,16 +286,27 @@ private fun NotificationAccessPermissionCompanion(
 
    Card(Modifier.fillMaxWidth()) {
       Column(
-         Modifier.padding(8.dp),
-         verticalArrangement = Arrangement.spacedBy(8.dp)
+         Modifier.padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-         Text(stringResource(R.string.permission_notification_access_title), style = MaterialTheme.typography.headlineSmall)
+         Text(stringResource(R.string.permission_notification_access_title), style = MaterialTheme.typography.titleLarge)
          Text(stringResource(R.string.permission_notification_access_companion_description))
 
-         if (permissionGranted) {
-            Text("✅")
-         } else {
-            Button(onClick = { showInstructions = true }) { Text(stringResource(grant)) }
+         when {
+            permissionGranted -> Text("✅")
+            paired -> Button(onClick = { openNotificationAccess() }) {
+               Text(stringResource(R.string.permission_notification_access_open))
+            }
+            else -> Button(onClick = { showInstructions = true }) { Text(stringResource(grant)) }
+         }
+
+         // Sideloaded apps need "Allow restricted settings" before Android lets them have notification access.
+         if (!permissionGranted && triedOpeningAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Text(stringResource(R.string.permission_restricted_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.permission_restricted_steps))
+            Button(onClick = { openSystemPermissionSettings(context) }) {
+               Text(stringResource(R.string.permission_open_app_info))
+            }
          }
       }
    }

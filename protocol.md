@@ -200,3 +200,8 @@ Bucket data:
 
 `3002` - `3015` - On-watch per-notification flags
   * When flag is set to 1, it means user has already seen the notification
+
+### Notification opened (packet 4) - extra keys
+
+* `2` - (optional, uint8) `1` when this is a speculative prefetch. Phone sends details but must not mark the notification read.
+* `3` - (optional, uint8) `1` when the watch already has the details and only reports that the user saw the notification. Phone marks it read and sends nothing back.

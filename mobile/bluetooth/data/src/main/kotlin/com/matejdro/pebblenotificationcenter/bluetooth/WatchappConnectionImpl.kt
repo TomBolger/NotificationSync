@@ -11,6 +11,7 @@ import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionGraph
 import com.matejdro.pebble.bluetooth.common.di.WatchappConnectionScope
 import com.matejdro.pebble.bluetooth.common.util.requireUint
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageServer
 import com.matejdro.pebblenotificationcenter.notification.ActionHandler
 import com.matejdro.pebblenotificationcenter.notification.NotificationRepository
 import com.matejdro.pebblenotificationcenter.notification.NotificationServiceController
@@ -51,6 +52,7 @@ class WatchappConnectionImpl(
    private val watch: WatchIdentifier,
    private val preferenceStore: DataStore<Preferences>,
    private val watchMetadata: WatchMetadata,
+   private val notificationImageServer: NotificationImageServer,
 ) : WatchAppConnection {
 
    private var reInitRequestJob: Job? = null
@@ -73,11 +75,20 @@ class WatchappConnectionImpl(
          }
 
          4u -> {
+            if ((data[3u] as? PebbleDictionaryItem.UInt32)?.value == 1u) {
+               // Watch already has the details (prefetched) and only reports that the user read it.
+               notificationRepository.markAsRead(data.requireUint(1u).toInt())
+               return ReceiveResult.Ack
+            }
             if (watchMetadata.watchBufferSize > 0) {
+               // Key 2 marks a speculative prefetch: the user has not opened this notification yet, so it must
+               // not be marked as read and must not consume the pending vibration.
+               val prefetch = (data[2u] as? PebbleDictionaryItem.UInt32)?.value == 1u
                notificationDetailsPusher.pushNotificationDetails(
                   bucketId = data.requireUint(1u).toInt(),
                   maxPacketSize = watchMetadata.watchBufferSize,
-                  colorWatch = watchMetadata.colorWatch
+                  colorWatch = watchMetadata.colorWatch,
+                  prefetch = prefetch,
                )
             }
 
@@ -95,6 +106,16 @@ class WatchappConnectionImpl(
 
          10u -> {
             processSettingSetPacket(data)
+         }
+
+         16u -> {
+            // The watch brought a card with a photo on screen and wants its pixels at the size of the band.
+            notificationImageServer.onImageRequested(
+               bucketId = data.requireUint(1u).toInt(),
+               width = data.requireUint(2u).toInt(),
+               height = data.requireUint(3u).toInt(),
+            )
+            ReceiveResult.Ack
          }
 
          else -> {
@@ -142,6 +163,7 @@ class WatchappConnectionImpl(
 
       val flags = data.requireUint(4u)
       watchMetadata.colorWatch = (flags and 0x01u) != 0u
+      watchMetadata.inlineNotificationImages = (flags and 0x02u) != 0u
 
       watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
       val resyncedLiveNotifications = notificationServiceController.resyncActiveNotificationsNow()

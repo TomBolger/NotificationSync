@@ -136,7 +136,7 @@ class StockPebbleOsNotificationTransport(
          parsed.title.takeIf { it.isNotBlank() }?.let { add(textAttr(ATTR_APP_NAME, it, 40)) }
          title.takeIf { it.isNotBlank() }?.let { add(textAttr(ATTR_TITLE, it, 64)) }
          body.takeIf { it.isNotBlank() }?.let { add(textAttr(ATTR_BODY, it, 512)) }
-         add(uintAttr(ATTR_TINY_ICON, (parsed.pebbleOsIconId() or ICON_RESOURCE_FLAG).toUInt()))
+         add(uintAttr(ATTR_TINY_ICON, (systemTimelineIcon(parsed.pebbleOsIconId()) or ICON_RESOURCE_FLAG).toUInt()))
          if (notification.vibrated) {
             add(vibrationAttr(preferences))
          }
@@ -515,3 +515,20 @@ private fun List<ByteArray>.concat(): ByteArray {
       }
    }.readByteArray(size.toLong())
 }
+
+/**
+ * The watchapp's icon numbers (see pebbleOsIconId) are its own; PebbleOS's built-in notifications need the
+ * firmware's timeline resource ids (timeline_resource_ids.auto.h).
+ */
+private val SYSTEM_TIMELINE_ICONS = intArrayOf(
+   1, 9, 5, 10, 11, 6, 7, 8, 61, 45, // generic, gmail, whatsapp, messenger, facebook, twitter, telegram, hangouts, inbox, sms
+   19, 2, 59, 116, 115, 111, 112, 113, 21, 76, // email, phone, instagram, slack, linkedin, amazon, maps, photos, calendar, messages
+   64, 68, 69, 67, 71, 80, 70, 79, 58, 72, // outlook, skype, snapchat, line, wechat, kik, viber, kakaotalk, bbm, yahoo mail
+   14, 35, 82, 3, 28, 121, 129, 125, 135, 138, // weather, music, location, reminder, warning, discord, teams, google chat, signal, reddit
+   134, 132, 136, 126, 24, 137, 120, 122, 123, 124, // youtube, zoom, twitch, google tasks, tesla (car), airmail, beeper, bluesky, duolingo, element
+   127, 128, 139, 140, 130, 131, 133, 16, 83, 73, // home assistant, steam, swarm, tapo, threads, unifi protect, ebay, sun, settings, tv
+   100, 38, 31, 54, 27, 36, 42, 29, 17, 39, // activity, pay bill, hotel, flight, dinner, news, stocks, glucose, sports, radio
+   34, 110, // movie, facetime
+)
+
+private fun systemTimelineIcon(watchappIconId: Int): Int = SYSTEM_TIMELINE_ICONS.getOrElse(watchappIconId) { 1 }

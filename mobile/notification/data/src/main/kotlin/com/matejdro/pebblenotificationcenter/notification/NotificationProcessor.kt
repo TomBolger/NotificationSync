@@ -53,6 +53,28 @@ class NotificationProcessor(
    private val notifications = ConcurrentHashMap<Int, ProcessedNotification>()
    private val notificationIdsByKeys = HashMap<String, Int>()
 
+   // Resyncs re-post every active notification (with suppressVibration). Those are not new notifications and
+   // must not be written to history again, otherwise history fills with duplicates and the per-app counts on the
+   // Notifications tab keep changing, which makes the app list jump around.
+   private val historyLoggedKeys = object : LinkedHashMap<String, Unit>() {
+      override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean {
+         return size > MAX_HISTORY_LOGGED_KEYS
+      }
+   }
+
+   private suspend fun insertHistoryOnce(
+      key: String,
+      suppressVibration: Boolean,
+      insert: suspend () -> Unit,
+   ) {
+      val alreadyLogged = synchronized(historyLoggedKeys) { historyLoggedKeys.containsKey(key) }
+      if (suppressVibration && alreadyLogged) {
+         return
+      }
+      synchronized(historyLoggedKeys) { historyLoggedKeys[key] = Unit }
+      insert()
+   }
+
    private var nextVibration: AtomicReference<IntArray?> = AtomicReference(null)
 
    init {
@@ -81,14 +103,18 @@ class NotificationProcessor(
 
       val hideReason = shouldHide(notification, settings)
       if (hideReason != null) {
-         historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
+         insertHistoryOnce(notification.key, suppressVibration) {
+            historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
+         }
          onNotificationDismissed(notification.key)
          return
       }
 
       if (shouldSkipBecausePhoneUnlocked()) {
          logcat { "Hiding: phone is unlocked" }
-         historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
+         insertHistoryOnce(notification.key, suppressVibration) {
+            historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
+         }
          return
       }
 
@@ -144,14 +170,18 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[notification.key] = bucketId
-      if (vibrationPattern != null && !usingStockPebbleOsNotifications()) {
+      if (vibrationPattern != null && !usingStockPebbleOsNotifications() &&
+         globalPreferenceStore.data.first()[GlobalPreferenceKeys.popUpOnWatch]
+      ) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(vibrationPattern)
          openController.setNextWatchappOpenNotificationBucket(bucketId)
          openController.openWatchapp()
       }
 
-      historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
+      insertHistoryOnce(notification.key, suppressVibration) {
+         historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
+      }
    }
 
    private fun ParsedNotification.withRicherFieldsFrom(previous: ParsedNotification?): ParsedNotification {
@@ -159,43 +189,9 @@ class NotificationProcessor(
          return this
       }
 
-      return copy(
-         subtitle = richerText(
-            current = subtitle,
-            previous = previous.subtitle,
-            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
-         ),
-         body = richerText(
-            current = body,
-            previous = previous.body,
-            preservePreviousByTimestamp = !timestamp.isAfter(previous.timestamp),
-         ),
-         nativeActions = if (previous.nativeActions.size > nativeActions.size) {
-            previous.nativeActions
-         } else {
-            nativeActions
-         },
-         iconDrawable = iconDrawable ?: previous.iconDrawable,
-         largeImage = largeImage ?: previous.largeImage,
-      )
-   }
-
-   private fun richerText(current: String, previous: String, preservePreviousByTimestamp: Boolean): String {
-      if (current.isBlank()) {
-         return previous.ifBlank { current }
-      }
-      if (previous.isBlank()) {
-         return current
-      }
-
-      if (preservePreviousByTimestamp && previous.length > current.length) {
-         return previous
-      }
-      if (previous.length > current.length && previous.contains(current)) {
-         return previous
-      }
-
-      return current
+      // A mirror of the shade: the app's latest version of the notification is the truth, even when it is shorter
+      // than what it replaced (e.g. "Photo" updated into the actual photo).
+      return copy(iconDrawable = iconDrawable ?: previous.iconDrawable)
    }
 
    private fun shouldHide(
@@ -517,3 +513,4 @@ class NotificationProcessor(
 }
 
 private const val DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY = false
+private const val MAX_HISTORY_LOGGED_KEYS = 500

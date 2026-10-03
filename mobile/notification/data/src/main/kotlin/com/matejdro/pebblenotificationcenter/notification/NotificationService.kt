@@ -16,6 +16,7 @@ import dev.zacsweers.metro.Inject
 import dispatch.core.DefaultCoroutineScope
 import io.rebble.pebblekit2.client.PebbleInfoRetriever
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -57,6 +58,7 @@ class NotificationService : NotificationListenerService() {
 
    private val mutex = Mutex()
    private val delayedResyncJobs = HashMap<String, Job>()
+   private val events = Channel<ServiceEvent>(Channel.UNLIMITED)
 
    private var bound = false
 
@@ -70,12 +72,14 @@ class NotificationService : NotificationListenerService() {
       instance = this
 
       super.onCreate()
+      processEvents()
    }
 
    override fun onDestroy() {
       logcat { "Stopping notification service" }
       delayedResyncJobs.values.forEach { it.cancel() }
       delayedResyncJobs.clear()
+      events.close()
       instance = null
       bound = false
       super.onDestroy()
@@ -112,19 +116,40 @@ class NotificationService : NotificationListenerService() {
 
    override fun onNotificationPosted(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} posted" }
+      events.trySend(ServiceEvent.Posted(sbn))
+   }
+
+   /**
+    * Posts and removals are applied strictly in the order Android delivered them. Launching a coroutine per
+    * callback (as before) let a quick post+dismiss pair race, so the dismiss could be applied first and the
+    * notification then stayed on the watch forever.
+    */
+   private fun processEvents() {
       coroutineScope.launch {
-         var parsedSuccessfully = false
-         mutex.withLock {
-            val parsed = parseNotification(sbn)
-            if (parsed == null) {
-               logcat { "Notification ${sbn.key} has no text. Skipping..." }
-               return@launch
+         for (event in events) {
+            when (event) {
+               is ServiceEvent.Posted -> {
+                  val parsedSuccessfully = mutex.withLock {
+                     val parsed = parseNotification(event.sbn)
+                     if (parsed == null) {
+                        logcat { "Notification ${event.sbn.key} has no text. Skipping..." }
+                        false
+                     } else {
+                        notificationProcessor.onNotificationPosted(parsed)
+                        true
+                     }
+                  }
+                  if (parsedSuccessfully) {
+                     scheduleDelayedActiveNotificationResync(event.sbn.key)
+                  }
+               }
+
+               is ServiceEvent.Removed -> {
+                  mutex.withLock {
+                     notificationProcessor.onNotificationDismissed(event.key)
+                  }
+               }
             }
-            notificationProcessor.onNotificationPosted(parsed)
-            parsedSuccessfully = true
-         }
-         if (parsedSuccessfully) {
-            scheduleDelayedActiveNotificationResync(sbn.key)
          }
       }
    }
@@ -198,12 +223,7 @@ class NotificationService : NotificationListenerService() {
    override fun onNotificationRemoved(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} removed" }
       delayedResyncJobs.remove(sbn.key)?.cancel()
-
-      coroutineScope.launch {
-         mutex.withLock {
-            notificationProcessor.onNotificationDismissed(sbn.key)
-         }
-      }
+      events.trySend(ServiceEvent.Removed(sbn.key))
    }
 
    private fun scheduleDelayedActiveNotificationResync(key: String) {
@@ -294,6 +314,11 @@ class NotificationService : NotificationListenerService() {
    companion object {
       internal var instance: NotificationService? = null
    }
+}
+
+private sealed interface ServiceEvent {
+   data class Posted(val sbn: StatusBarNotification) : ServiceEvent
+   data class Removed(val key: String) : ServiceEvent
 }
 
 private const val CDM_WAIT_ATTEMPTS = 10

@@ -1,6 +1,7 @@
 #include "idle_handler.h"
 
-#include "data_loading.h"
+#include "notification_store.h"
+#include "window_notification.h"
 #include "commons/bytes.h"
 #include "commons/connection/bucket_sync.h"
 #include "connection/packets.h"
@@ -51,27 +52,15 @@ static void cancel_timers(void)
 
 static bool any_notification_wants_periodic_vibration(void)
 {
-    const BucketList* bucket_list = bucket_sync_get_bucket_list();
-    for (int i = 0; i < bucket_list->count; i++)
+    // Unread notifications that asked for reminders, plus the alert currently on screen that the user has
+    // not touched yet (it is already marked as seen, but nobody acknowledged it).
+    if (notification_store_any_wants_periodic_vibration())
     {
-        const BucketMetadata bucket_metadata = bucket_list->data[i];
-        const bool notification_has_periodic_vibration = (bucket_metadata.flags) & 0x04;
-
-        // Special state: After notification shown, it is marked as unread immediately, but the UI is still showing it as
-        // unread (since we are not sure if user has seen it yet). In this case, we also have to trigger periodic vibration
-        const bool temporary_unread = bucket_metadata.id == window_notification_data.currently_selected_bucket &&
-            window_notification_data.dot_states[window_notification_data.currently_selected_bucket_index] == UNREAD;
-
-        if (
-            notification_has_periodic_vibration &&
-            (temporary_unread || is_notification_unread(bucket_metadata.flags, bucket_metadata.id))
-        )
-        {
-            return true;
-        }
+        return true;
     }
 
-    return false;
+    const NotificationItem* alert = notification_store_item_by_bucket(window_notification_ui_unacknowledged_alert());
+    return alert != NULL && alert->periodic_vibration;
 }
 
 static void maybe_start_periodic_vibration_timer();
@@ -211,5 +200,5 @@ static bool load_config(uint8_t* config, const size_t config_size)
     config[CONFIG_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS_INDEX + 1] =
         DEFAULT_NEW_NOTIFICATION_INTERACTION_TIMEOUT_SECONDS & 0xff;
 
-    return bucket_sync_load_bucket(1, config);
+    return bucket_sync_load_bucket_limited(1, config, (uint8_t)config_size);
 }

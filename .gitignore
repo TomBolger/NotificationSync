@@ -2,3 +2,4 @@ artifacts/
 watch/artifacts/
 SyncFW/
 release/
+__pycache__/

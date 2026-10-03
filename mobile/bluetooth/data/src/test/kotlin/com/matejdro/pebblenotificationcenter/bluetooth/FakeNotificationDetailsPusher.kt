@@ -7,8 +7,11 @@ class FakeNotificationDetailsPusher : NotificationDetailsPusher {
    var lastMaxPacketSize: Int? = null
    var lastColorWatch: Boolean? = null
 
-   override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean) {
+   var lastPushWasPrefetch: Boolean? = null
+
+   override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean, prefetch: Boolean) {
       lastPushRequestId = bucketId
+      lastPushWasPrefetch = prefetch
       lastMaxPacketSize = maxPacketSize
       lastColorWatch = colorWatch
    }

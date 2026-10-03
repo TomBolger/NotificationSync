@@ -290,6 +290,141 @@
         },
         {
           "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_AIRMAIL",
+          "file": "pebbleos/airmail.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_BEEPER",
+          "file": "pebbleos/beeper.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_BLUESKY",
+          "file": "pebbleos/bluesky.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_DUOLINGO",
+          "file": "pebbleos/duolingo.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_ELEMENT",
+          "file": "pebbleos/element.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_HOME_ASSISTANT",
+          "file": "pebbleos/home_assistant.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_STEAM",
+          "file": "pebbleos/steam.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SWARM",
+          "file": "pebbleos/swarm.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TAPO",
+          "file": "pebbleos/tapo.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_THREADS",
+          "file": "pebbleos/threads.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_UNIFI_PROTECT",
+          "file": "pebbleos/unifi_protect.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_EBAY",
+          "file": "pebbleos/ebay.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SUNNY_DAY",
+          "file": "pebbleos/sunny_day.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SETTINGS",
+          "file": "pebbleos/settings.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_TV_SHOW",
+          "file": "pebbleos/tv_show.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_RUN",
+          "file": "pebbleos/run.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_PAY_BILL",
+          "file": "pebbleos/pay_bill.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_HOTEL",
+          "file": "pebbleos/hotel.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_FLIGHT",
+          "file": "pebbleos/flight.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_DINNER",
+          "file": "pebbleos/dinner.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_NEWS",
+          "file": "pebbleos/news.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_STOCKS",
+          "file": "pebbleos/stocks.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_GLUCOSE",
+          "file": "pebbleos/glucose.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_SPORTS",
+          "file": "pebbleos/sports.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_RADIO",
+          "file": "pebbleos/radio.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_MOVIE",
+          "file": "pebbleos/movie.pdc"
+        },
+        {
+          "type": "raw",
+          "name": "PEBBLEOS_NOTIFICATION_VIDEO_CALL",
+          "file": "pebbleos/video_call.pdc"
+        },
+        {
+          "type": "raw",
           "name": "PEBBLEOS_RESULT_DISMISSED_LARGE",
           "file": "pebbleos/result_dismissed_large.pdc"
         }
