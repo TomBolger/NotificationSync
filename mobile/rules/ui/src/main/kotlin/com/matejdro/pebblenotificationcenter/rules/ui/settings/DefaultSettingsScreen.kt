@@ -169,6 +169,14 @@ private fun DefaultSettingsContent(
       item {
          SettingsGroup("Alerts") {
             SwitchRow(
+               title = "Pop up on the watch",
+               description = "Buzz and open Notification Sync for new notifications. Turn off to use it only as a " +
+                  "mirror of your phone's notifications, for example alongside the Pebble app's own alerts.",
+               checked = globalPreferences[GlobalPreferenceKeys.popUpOnWatch],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.popUpOnWatch, it) },
+            )
+            GroupDivider()
+            SwitchRow(
                title = stringResource(R.string.always_send_notifications),
                description = "New apps are shown on the watch unless you turn them off.",
                checked = preferences[RuleOption.masterSwitch] == MasterSwitch.SHOW,

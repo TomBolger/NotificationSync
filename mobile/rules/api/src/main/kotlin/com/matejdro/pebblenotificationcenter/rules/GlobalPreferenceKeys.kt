@@ -39,5 +39,11 @@ object GlobalPreferenceKeys {
    val watchSenderBold = BooleanPreferenceKeyWithDefault("watch_sender_bold", true)
    val watchMessageBold = BooleanPreferenceKeyWithDefault("watch_message_bold", true)
 
+   /**
+    * When off, the watchapp never buzzes or opens by itself: it is only a mirror of the shade, e.g. alongside
+    * PebbleOS's own notifications from the Pebble app.
+    */
+   val popUpOnWatch = BooleanPreferenceKeyWithDefault("pop_up_on_watch", true)
+
    val notifyOnReconnect = BooleanPreferenceKeyWithDefault("notify_on_reconnect", true)
 }

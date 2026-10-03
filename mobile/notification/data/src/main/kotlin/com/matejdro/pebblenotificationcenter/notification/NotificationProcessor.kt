@@ -170,7 +170,9 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[notification.key] = bucketId
-      if (vibrationPattern != null && !usingStockPebbleOsNotifications()) {
+      if (vibrationPattern != null && !usingStockPebbleOsNotifications() &&
+         globalPreferenceStore.data.first()[GlobalPreferenceKeys.popUpOnWatch]
+      ) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(vibrationPattern)
          openController.setNextWatchappOpenNotificationBucket(bucketId)
