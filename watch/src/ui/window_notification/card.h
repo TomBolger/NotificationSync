@@ -3,9 +3,11 @@
 #include "notification_store.h"
 
 // Geometry shared with PebbleOS' notification layout (src/fw/services/timeline/notification_layout.c).
-#define CARD_BANNER_HEIGHT 36
-#define CARD_ARROW_HEIGHT 19
-#define CARD_MARGIN 10
+// Round (Gabbro): PebbleOS's LAYOUT_TOP_BANNER_HEIGHT_ROUND (60) less the status bar, its 16 px arrow, and a text
+// column narrow enough to stay inside the circle over most of the screen.
+#define CARD_BANNER_HEIGHT PBL_IF_ROUND_ELSE(44, 36)
+#define CARD_ARROW_HEIGHT PBL_IF_ROUND_ELSE(16, 19)
+#define CARD_MARGIN PBL_IF_ROUND_ELSE(30, 10)
 #define CARD_BOTTOM_PADDING 18
 #define CARD_ICON_WIDTH 30
 #define CARD_ICON_HEIGHT 25

@@ -209,7 +209,29 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     }
 
     const GRect bounds = layer_get_bounds(cell_layer);
+#if PBL_ROUND
+    // Keep the icon and text clear of the curved edge: rows above and below the centre start further in.
+    int16_t inset = 12;
+    {
+        const GPoint on_screen = layer_convert_point_to_screen(cell_layer, GPointZero);
+        const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+        int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
+        dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2; // the row's edge nearest the rim
+        const int32_t span_sq = radius * radius - dy * dy;
+        int32_t half = 0;
+        while (span_sq > 0 && (half + 1) * (half + 1) <= span_sq)
+        {
+            half++;
+        }
+        const int16_t edge = radius - half + 4;
+        if (edge > inset)
+        {
+            inset = edge > 60 ? 60 : edge;
+        }
+    }
+#else
     const int16_t inset = 5;
+#endif
 
     GDrawCommandImage* icon = card_icon_for_id(item->icon_id);
     GSize icon_size = GSize(0, 0);
@@ -243,7 +265,7 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     // A little breathing room between the icon and the text.
     const int16_t icon_gap = 5;
     const int16_t text_left = inset + (icon_size.w > 25 ? icon_size.w : 25) + icon_gap;
-    const GRect text_box = grect_inset(bounds, GEdgeInsets(0, 5, 0, text_left));
+    const GRect text_box = grect_inset(bounds, GEdgeInsets(0, PBL_IF_ROUND_ELSE(inset, 5), 0, text_left));
     const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     const GFont subtitle_font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     const int16_t title_height = 24;
@@ -300,10 +322,21 @@ static Animation* list_fling;
 static int16_t list_fling_from;
 static int16_t list_fling_to;
 
+static int16_t list_content_height(void)
+{
+    return scroll_layer_get_content_size(menu_layer_get_scroll_layer(menu_layer)).h;
+}
+
+/** Round menus pad the content so the first and last rows can sit in the middle of the screen. */
+static int16_t list_top_padding(void)
+{
+    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT) / 2;
+    return padding > 0 ? padding : 0;
+}
+
 static int16_t list_max_offset(void)
 {
-    const int16_t content = notification_store_count() * LIST_CELL_HEIGHT;
-    const int16_t max = content - PBL_DISPLAY_HEIGHT;
+    const int16_t max = list_content_height() - PBL_DISPLAY_HEIGHT;
     return max > 0 ? max : 0;
 }
 
@@ -324,7 +357,7 @@ static void select_row_at_center(void)
     {
         return;
     }
-    int16_t row = (list_offset() + PBL_DISPLAY_HEIGHT / 2) / LIST_CELL_HEIGHT;
+    int16_t row = (list_offset() + PBL_DISPLAY_HEIGHT / 2 - list_top_padding()) / LIST_CELL_HEIGHT;
     if (row >= notification_store_count())
     {
         row = notification_store_count() - 1;
@@ -452,7 +485,12 @@ static void list_drag_ended(const int16_t dy, const int32_t velocity, void* cont
 static void list_tap(const GPoint point, void* context)
 {
     (void)context;
-    const int16_t row = (list_offset() + point.y) / LIST_CELL_HEIGHT;
+    const int16_t position = list_offset() + point.y - list_top_padding();
+    if (position < 0)
+    {
+        return;
+    }
+    const int16_t row = position / LIST_CELL_HEIGHT;
     const NotificationItem* item = notification_store_item(row);
     if (item == NULL)
     {

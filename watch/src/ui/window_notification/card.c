@@ -4,6 +4,9 @@
 
 #include "notification_image.h"
 
+// Round screens centre the text, like PebbleOS.
+#define CARD_TEXT_ALIGNMENT PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentLeft)
+
 #define DEFAULT_NOTIFICATION_COLOR GColorFolly
 #define ICON_VERTICAL_OFFSET -1
 // A few pixels more than stock between the banner and the sender, so the compact layout breathes a little.
@@ -268,7 +271,7 @@ static int16_t text_height(const char* text, const GFont font, const int16_t wid
         return 0;
     }
     return graphics_text_layout_get_content_size(text, font, GRect(0, 0, width, 4000), mode,
-                                                 GTextAlignmentLeft).h;
+                                                 CARD_TEXT_ALIGNMENT).h;
 }
 
 void card_format_since(char* buffer, const size_t size, const time_t timestamp)
@@ -361,7 +364,35 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
     graphics_fill_rect(ctx, GRect(0, origin_y, width, metrics->total_height), 0, GCornerNone);
 
     graphics_context_set_fill_color(ctx, card_color_for_id(item != NULL ? item->color_id : 0));
+#if PBL_ROUND
+    // PebbleOS round banner: a big circle (radius 140) hanging above the card, so its lower edge is a gentle curve.
+    // Drawn row by row so it never spills outside the card's own banner.
+    {
+        const int32_t radius = 140;
+        const int32_t center_y = origin_y + top_height - radius - 1;
+        for (int16_t y = origin_y; y < origin_y + top_height; y++)
+        {
+            if (y < 0 || y >= screen_height)
+            {
+                continue;
+            }
+            const int32_t dy = y - center_y;
+            const int32_t span_sq = radius * radius - dy * dy;
+            if (span_sq <= 0)
+            {
+                continue;
+            }
+            int32_t half = 0;
+            while ((half + 1) * (half + 1) <= span_sq)
+            {
+                half++;
+            }
+            graphics_fill_rect(ctx, GRect(width / 2 - half, y, 2 * half, 1), 0, GCornerNone);
+        }
+    }
+#else
     graphics_fill_rect(ctx, GRect(0, origin_y, width, top_height), 0, GCornerNone);
+#endif
 
     // Clock and counter belong to the status bar of the card at the top; a peeking card only shows its icon.
     if (origin_y <= 0 && origin_y + top_height > 0)
@@ -373,7 +404,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
                            GRect(0, origin_y, width, STATUS_BAR_LAYER_HEIGHT),
                            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
-        if (counter_total > 1 && counter_index >= 0)
+        if (PBL_IF_RECT_ELSE(true, false) && counter_total > 1 && counter_index >= 0)
         {
             char counter_text[12];
             snprintf(counter_text, sizeof(counter_text), "%d/%d", counter_index + 1, counter_total);
@@ -398,7 +429,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
     {
         graphics_draw_text(ctx, card_header_text(item), header_font(),
                            GRect(CARD_MARGIN, y, text_width, metrics->header_height + 4),
-                           GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+                           GTextOverflowModeTrailingEllipsis, CARD_TEXT_ALIGNMENT, NULL);
     }
     y += metrics->header_height + 3;
 
@@ -406,7 +437,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
     {
         graphics_draw_text(ctx, card_body_text(item, body), body_font(),
                            GRect(CARD_MARGIN, y, text_width, metrics->body_height),
-                           GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+                           GTextOverflowModeWordWrap, CARD_TEXT_ALIGNMENT, NULL);
     }
     y += metrics->body_height + 3;
 
@@ -441,6 +472,6 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
         card_format_since(footer, sizeof(footer), item != NULL ? item->receive_time : 0);
         graphics_draw_text(ctx, footer, footer_font(),
                            GRect(CARD_MARGIN, y, text_width, metrics->footer_height + 4),
-                           GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+                           GTextOverflowModeTrailingEllipsis, CARD_TEXT_ALIGNMENT, NULL);
     }
 }

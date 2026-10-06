@@ -2,7 +2,7 @@
 
 1. EMU_DIR=<dir with <platform>/qemu images> QEMU=<qemu-system-arm> ./run_emulator.sh <platform>
    (images: the "emulator-images" release, built by .github/workflows/emulator-images.yaml)
-2. python screenshots.py <pbw> <platform> <outdir>     (platform: basalt, diorite, emery, flint)
+2. python screenshots.py <pbw> <platform> <outdir>     (platform: basalt, diorite, emery, flint, gabbro)
 """
 import os, sys, time, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFilter
 pbw, platform, out = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(out, exist_ok=True)
 D = os.environ.get('EMU_DIR', '.')
-SIZE = {'emery': (200, 228)}.get(platform, (144, 168))
+SIZE = {'emery': (200, 228), 'gabbro': (260, 260)}.get(platform, (144, 168))
 
 
 def photo():
@@ -35,6 +35,7 @@ def photo():
 p = FakePhone(qmp_socket=D + '/qmp.sock')
 p.connect()
 p.install(pbw)
+time.sleep(4)  # let a launch triggered by the install settle before navigating
 actions = ["Dismiss", "Reply", "Snooze", "Pause convo", "Pause app", "Open on phone"]
 now = time.time()
 p.add('Telegram', 'Book Club', 'The next meeting moved to Thursday at 7. Bring your notes on chapters 4 to 6!',
@@ -94,11 +95,11 @@ p.press('up'); time.sleep(0.6)  # wakes the backlight; the list is already at th
 shot('1_list')
 
 p.press('select'); time.sleep(1.4)  # the newest notification (with the photo on Emery)
-if platform == 'emery':
+if platform in ('emery', 'gabbro'):
     time.sleep(4)                    # let the photo arrive
     p.press('up'); time.sleep(0.6)   # already at the top: only wakes the backlight
 shot('2_notification')
-if platform == 'emery':
+if platform in ('emery', 'gabbro'):
     p.press('down'); time.sleep(0.8)
     shot('3_notification_scrolled')
 p.press('select'); time.sleep(1.0)

@@ -12,9 +12,9 @@
  * the band) are pulled from the phone when the card comes on screen. One slot: only the card on screen has its
  * image loaded.
  *
- * Like PebbleOS, only on Emery: it needs a colour display and the RAM for the decoded bitmap.
+ * Like PebbleOS, only on Emery and Gabbro: it needs a colour display and the RAM for the decoded bitmap.
  */
-#if defined(PBL_PLATFORM_EMERY)
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
 #define NOTIFICATION_IMAGE_SUPPORTED 1
 #else
 #define NOTIFICATION_IMAGE_SUPPORTED 0
