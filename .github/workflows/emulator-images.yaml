@@ -22,7 +22,9 @@ jobs:
           echo "SDK: $SDK"; ls "$SDK/sdk-core/pebble"
           cd "$SDK/sdk-core/pebble"
           tar czf "$GITHUB_WORKSPACE/emulator-images.tar.gz" */qemu
+          cd "$SDK"
+          tar czf "$GITHUB_WORKSPACE/sdk-core.tar.gz" --exclude='*/qemu' sdk-core
           cd "$GITHUB_WORKSPACE"
           gh release delete emulator-images --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
-          gh release create emulator-images emulator-images.tar.gz --prerelease --target "$GITHUB_SHA" \
-            -R "$GITHUB_REPOSITORY" --title "Emulator images" --notes "QEMU firmware images from the Pebble SDK."
+          gh release create emulator-images emulator-images.tar.gz sdk-core.tar.gz --prerelease --target "$GITHUB_SHA" \
+            -R "$GITHUB_REPOSITORY" --title "Emulator images" --notes "QEMU firmware images and SDK core from the Pebble SDK."
