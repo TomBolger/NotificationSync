@@ -357,11 +357,20 @@ class FakePhone:
             ch = sw * height // width
             src = src.crop((0, (sh - ch) // 2, sw, (sh - ch) // 2 + ch))
         src = src.resize((width, height), Image.BILINEAR)
-        q = src.quantize(16, dither=Image.FLOYDSTEINBERG)
-        pal = q.getpalette()[:48]
-        colors = len(set(q.getdata()))
-        palette = bytes(0xC0 | ((round(pal[i * 3] / 85)) << 4) | ((round(pal[i * 3 + 1] / 85)) << 2)
-                        | round(pal[i * 3 + 2] / 85) for i in range(16))
+        # Like the phone app: pick 16 of the watch's 64 colours, then Floyd-Steinberg dither to them.
+        steps = [0, 85, 170, 255]
+        pebble = [(r, g, b) for r in steps for g in steps for b in steps]
+        def palette_image(colors):
+            pal = Image.new("P", (1, 1))
+            flat = [c for rgb in colors for c in rgb]
+            pal.putpalette(flat + flat[:3] * (256 - len(colors)))
+            return pal
+        q64 = src.quantize(palette=palette_image(pebble), dither=Image.FLOYDSTEINBERG)
+        counts = sorted(((n, i) for n, i in q64.getcolors(64)), reverse=True)[:16]
+        chosen = [pebble[i] for _, i in counts]
+        q = src.quantize(palette=palette_image(chosen), dither=Image.FLOYDSTEINBERG)
+        palette = bytes(0xC0 | (steps.index(r) << 4) | (steps.index(g) << 2) | steps.index(b) for r, g, b in chosen)
+        palette += bytes([0xC0]) * (16 - len(palette))
         idx = list(q.getdata())
         stride = (width + 1) // 2
         pixels = bytearray(stride * height)
@@ -379,7 +388,8 @@ class FakePhone:
             chunk = bytes(pixels[offset:offset + room])
             flags = (0x01 if first else 0) | (0x02 if offset + len(chunk) >= len(pixels) else 0)
             payload = bytes([bucket_id, flags]) + struct.pack(">H", offset) + (header if first else b"") + chunk
-            self._send({0: Uint8(16), 1: ByteArray(payload)})
+            ok = self._send({0: Uint8(16), 1: ByteArray(payload)})
+            self.log("image chunk offset=%d len=%d flags=%d ok=%s" % (offset, len(payload), flags, ok))
             offset += len(chunk)
             first = False
 
