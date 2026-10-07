@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -38,6 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -168,7 +171,19 @@ private fun VibrationPatternScreenContent(
             parsedPattern = parseVibrationPattern(pattern)
          }
 
-         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+         // Scrolls so everything stays reachable on short screens or with large display/font sizes.
+         val scrollState = rememberScrollState()
+         LaunchedEffect(showNumbers) {
+            if (showNumbers) {
+               withFrameNanos { } // wait for the number box to be laid out
+               scrollState.animateScrollTo(scrollState.maxValue)
+            }
+         }
+
+         Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.verticalScroll(scrollState),
+         ) {
             // What the current pattern looks like: filled blocks buzz, gaps are pauses.
             PatternPreview(parsedPattern.orEmpty())
 
