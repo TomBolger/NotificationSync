@@ -16,10 +16,15 @@ class LimitingStringEncoder {
          }
       }
 
+      // The encoder is reused between calls; without a reset, state left over from a previous (truncated)
+      // encode can corrupt or empty the next string.
+      utf8Encoder.reset()
+
       val buffer = ByteBuffer.allocate(if (ellipsize) maxSize - ELLIPSIS.size else maxSize)
 
       val charBuffer = CharBuffer.wrap(text)
       val result = utf8Encoder.encode(charBuffer, buffer, true)
+      buffer.trimLastInvalidUtf8Character(charBuffer)
 
       val outputArray = if (ellipsize && result.isOverflow) {
          Arrays.copyOf(buffer.array(), buffer.position()) + ELLIPSIS

@@ -1,0 +1,30 @@
+name: emulator-images
+# Publishes the SDK's QEMU firmware images for every watch platform the app targets, so screenshots can be taken
+# in an emulator outside of this runner (the SDK download host is not reachable everywhere).
+on:
+  workflow_dispatch:
+  push:
+    paths: [ '.github/workflows/emulator-images.yaml' ]
+permissions:
+  contents: write
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install Pebble SDK
+        run: uv tool install --python 3.13 pebble-tool && (pebble sdk install latest || true)
+      - name: Publish images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SDK="$(ls -d ~/.local/share/pebble-sdk/SDKs/*/ | grep -v current | tail -1)"
+          echo "SDK: $SDK"; ls "$SDK/sdk-core/pebble"
+          cd "$SDK/sdk-core/pebble"
+          tar czf "$GITHUB_WORKSPACE/emulator-images.tar.gz" */qemu
+          cd "$SDK"
+          tar czf "$GITHUB_WORKSPACE/sdk-core.tar.gz" --exclude='*/qemu' sdk-core
+          cd "$GITHUB_WORKSPACE"
+          gh release delete emulator-images --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
+          gh release create emulator-images emulator-images.tar.gz sdk-core.tar.gz --prerelease --target "$GITHUB_SHA" \
+            -R "$GITHUB_REPOSITORY" --title "Emulator images" --notes "QEMU firmware images and SDK core from the Pebble SDK."

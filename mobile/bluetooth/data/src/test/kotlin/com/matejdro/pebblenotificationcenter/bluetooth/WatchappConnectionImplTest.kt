@@ -4,6 +4,8 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.matejdro.bucketsync.BucketSyncWatchLoopImpl
 import com.matejdro.bucketsync.FakeBucketSyncRepository
 import com.matejdro.bucketsync.background.FakeBackgroundSyncNotifier
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageServer
 import com.matejdro.pebble.bluetooth.WatchMetadata
 import com.matejdro.pebble.bluetooth.common.PacketQueue
 import com.matejdro.pebble.bluetooth.common.test.FakePebbleSender
@@ -85,6 +87,13 @@ class WatchappConnectionImplTest {
       watch,
       globalPreferences,
       watchMetadata,
+      NotificationImageServer(
+         scope.backgroundScope,
+         packetQueue,
+         watchMetadata,
+         notificationsRepository,
+         NoNotificationImages,
+      ),
    )
 
    @Test

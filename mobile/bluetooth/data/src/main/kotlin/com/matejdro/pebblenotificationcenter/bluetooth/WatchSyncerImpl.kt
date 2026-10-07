@@ -12,6 +12,7 @@ import com.matejdro.pebble.bluetooth.common.util.fixPebbleIndentation
 import com.matejdro.pebble.bluetooth.common.util.writeUByte
 import com.matejdro.pebble.bluetooth.common.util.writeUInt
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
+import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageStore
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.any
@@ -37,9 +38,11 @@ class WatchSyncerImpl(
    private val preferenceStore: DataStore<Preferences>,
    private val defaultScope: DefaultCoroutineScope,
    private val stockNotificationTransport: StockNotificationTransport = NoOpStockNotificationTransport,
+   private val notificationImageStore: NotificationImageStore,
 ) : WatchSyncer {
    private val utf8Encoder = LimitingStringEncoder()
    private var maxWatchSyncBucketPayloadBytes = BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES
+   private val summaryCompleteByKey = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
    override val stockNotificationActions = stockNotificationTransport.actions
 
@@ -89,6 +92,11 @@ class WatchSyncerImpl(
       buffer.writeUInt(epochSecond.toUInt())
       buffer.writeUByte(notificationData.pebbleOsIconId().toUByte())
       buffer.writeUByte(notificationData.pebbleOsColorId().toUByte())
+      // Attached photo: its shape, so the watch can reserve the band before the pixels arrive, and a tag that
+      // changes with the photo. Both 0 when there is none.
+      val image = notificationImageStore.prepare(notificationData)
+      buffer.writeUByte((image?.aspect ?: 0).toUByte())
+      buffer.writeUByte((image?.tag ?: 0).toUByte())
 
       buffer.write(
          utf8Encoder.encodeSizeLimited(
@@ -108,15 +116,14 @@ class WatchSyncerImpl(
       buffer.writeUByte(0u)
       val maxBucketPayloadBytes = maxWatchSyncBucketPayloadBytes
       val leftoverSize = maxBucketPayloadBytes - buffer.size.toInt()
+      val watchText = watchBody.replaceUnsupportedPebbleEmoji().fixPebbleIndentation()
+      var summaryComplete = watchText.isEmpty()
       if (leftoverSize > 0) {
-         buffer.write(
-            utf8Encoder.encodeSizeLimited(
-               watchBody.replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
-               leftoverSize,
-               true
-            ).encodedString
-         )
+         val encoded = utf8Encoder.encodeSizeLimited(watchText, leftoverSize, true)
+         buffer.write(encoded.encodedString)
+         summaryComplete = !encoded.wasTrimmed
       }
+      summaryCompleteByKey[notificationData.key] = summaryComplete
       require(buffer.size <= maxBucketPayloadBytes) {
          "watch sync bucket summary (${buffer.size}) must fit configured watch packet payload"
       }
@@ -155,15 +162,25 @@ class WatchSyncerImpl(
          flags = flags or 0x04u
       }
 
+      // The summary already contains the whole text: the watch can show the card in its final form right away
+      // instead of leaving room for the rest of the message.
+      if (summaryCompleteByKey[notification.systemData.key] == true) {
+         flags = flags or 0x08u
+      }
+
       return flags
    }
 
    override suspend fun clearAllNotifications() {
+      summaryCompleteByKey.clear()
+      notificationImageStore.forgetAll()
       bucketSyncRepository.clearAllDynamic()
       stockNotificationTransport.deleteAll()
    }
 
    override suspend fun clearNotification(key: String) {
+      summaryCompleteByKey.remove(key)
+      notificationImageStore.forget(key)
       bucketSyncRepository.deleteBucketDynamic(key)
       stockNotificationTransport.delete(key)
       logcat { "Deleting Notification $key from the store" }
@@ -199,6 +216,9 @@ class WatchSyncerImpl(
             buffer.writeByte(flags.toInt())
             buffer.writeUShort(autoClose.toUShort())
             buffer.writeUShort(interactionTimeout.toUShort())
+            buffer.writeByte(preferences[GlobalPreferenceKeys.watchTextSize].coerceIn(0, 2))
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchSenderBold]) 1 else 0)
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchMessageBold]) 1 else 0)
 
             bucketSyncRepository.updateBucket(
                1u,
@@ -222,11 +242,15 @@ private const val WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES = 32
 private const val MAX_APP_NAME_TEXT_LENGTH = 24
 private const val MAX_TITLE_TEXT_LENGTH = 40
 
-private fun ParsedNotification.watchTitle(): String {
+internal fun ParsedNotification.watchTitle(): String {
    return subtitle.ifBlank { body.lineSequence().firstOrNull().orEmpty() }
 }
 
-private fun ParsedNotification.watchBody(watchTitle: String): String {
+/**
+ * Body text as shown on the watch card. Both the synced summary and the full details are built from this, so the
+ * summary is always an exact beginning of the full text and nothing shifts when the full text arrives.
+ */
+internal fun ParsedNotification.watchBody(watchTitle: String = watchTitle()): String {
    if (subtitle.isNotBlank()) {
       return body.removeSenderPrefix(subtitle)
    }
@@ -255,6 +279,22 @@ internal fun ParsedNotification.pebbleOsIconId(): Int {
    val pkg = this.pkg.lowercase()
    val app = title.lowercase()
    return when {
+      // Apps with their own icon in current PebbleOS (or, for the AI assistants, a stock pictogram that fits:
+      // Claude's starburst as the sun, ChatGPT's rosette as the gear).
+      "anthropic" in pkg || app == "claude" -> 57
+      "openai" in pkg || "chatgpt" in app -> 58
+      "bsky" in pkg || "bluesky" in app -> 47
+      "barcelona" in pkg || app == "threads" -> 54
+      "beeper" in pkg || "beeper" in app -> 46
+      "im.vector" in pkg || app == "element" -> 49
+      "duolingo" in pkg || "duolingo" in app -> 48
+      "ebay" in pkg || app == "ebay" -> 56
+      "homeassistant" in pkg || "home assistant" in app -> 50
+      "valvesoftware" in pkg || app == "steam" -> 51
+      "foursquare.robin" in pkg || app == "swarm" -> 52
+      "tplink" in pkg || "tapo" in app -> 53
+      "ubnt" in pkg || "unifi" in pkg || "unifi" in app -> 55
+      "airmail" in pkg || "airmail" in app -> 45
       "gmail" in pkg || "google.android.gm" in pkg || "gmail" in app -> 1
       "whatsapp" in pkg || "whatsapp" in app -> 2
       "telegram" in pkg || "telegram" in app -> 6
@@ -300,6 +340,26 @@ internal fun ParsedNotification.pebbleOsIconId(): Int {
       "spotify" in pkg || "music" in pkg || "spotify" in app || "music" in app -> 31
       "uber" in pkg || "doordash" in pkg || "lyft" in pkg || "maps" in app || "delivery" in app -> 32
       "reminder" in pkg || "todo" in pkg || "tasks" in pkg || "reminder" in app || "tasks" in app -> 33
+      // No stock icon of their own: the closest PebbleOS pictogram for what they are.
+      "netflix" in pkg || "disney" in pkg || "hulu" in pkg || "hbo" in pkg || "plexapp" in pkg ||
+         "crunchyroll" in pkg || app == "netflix" -> 70
+      ".tv" in pkg || app.endsWith(" tv") -> 59
+      "strava" in pkg || "fitbit" in pkg || "garmin" in pkg || "nike" in pkg || "peloton" in pkg ||
+         "runkeeper" in pkg || "strava" in app || "fitness" in app -> 60
+      "venmo" in pkg || "paypal" in pkg || "squareup.cash" in pkg || "chase" in pkg || "wellsfargo" in pkg ||
+         "capitalone" in pkg || "bankofamerica" in pkg || "bank" in app || "venmo" in app -> 61
+      "airbnb" in pkg || "com.booking" in pkg || "expedia" in pkg || "hotel" in pkg || "marriott" in pkg ||
+         "hilton" in pkg || "airbnb" in app -> 62
+      "flighty" in pkg || "united.mobile" in pkg || "delta.mobile" in pkg || "southwestairlines" in pkg ||
+         "alaskaairlines" in pkg || "com.aa.android" in pkg || "flight" in app || "airlines" in app -> 63
+      "opentable" in pkg || "resy" in pkg || "yelp" in pkg || "opentable" in app -> 64
+      "news" in pkg || "nytimes" in pkg || "substack" in pkg || "news" in app -> 65
+      "robinhood" in pkg || "coinbase" in pkg || "webull" in pkg || "fidelity" in pkg || "schwab" in pkg ||
+         "etrade" in pkg || "stocks" in app || "robinhood" in app -> 66
+      "dexcom" in pkg || "freestyle" in pkg || "libre" in pkg || "glucose" in app -> 67
+      "espn" in pkg || "thescore" in pkg || "sports" in pkg || "espn" in app || "sports" in app -> 68
+      "podcast" in pkg || "pocketcasts" in pkg || "audible" in pkg || "podcast" in app || "radio" in app -> 69
+      "tachyon" in pkg || "facetime" in app || app == "meet" || "google meet" in app -> 71
       else -> 0
    }
 }
@@ -308,6 +368,14 @@ private fun ParsedNotification.pebbleOsColorId(): Int {
    val pkg = this.pkg.lowercase()
    val app = title.lowercase()
    return when {
+      "anthropic" in pkg || app == "claude" || "swarm" in app || "foursquare.robin" in pkg -> 14
+      "openai" in pkg || "chatgpt" in app || "im.vector" in pkg || app == "element" -> 13
+      "barcelona" in pkg || app == "threads" -> 16
+      "bsky" in pkg || "bluesky" in app || "homeassistant" in pkg || "tplink" in pkg -> 5
+      "beeper" in pkg || "beeper" in app -> 11
+      "duolingo" in pkg || "duolingo" in app -> 2
+      "ebay" in pkg || "ubnt" in pkg || "unifi" in pkg || "airmail" in pkg -> 3
+      "valvesoftware" in pkg || app == "steam" -> 4
       "gmail" in pkg || "google.android.gm" in pkg || "youtube" in pkg || "tesla" in pkg ||
          "gmail" in app || "youtube" in app || "tesla" in app -> 1
       "whatsapp" in pkg || "hangouts" in pkg || "kik" in pkg || "line" in pkg ||

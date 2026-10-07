@@ -39,6 +39,13 @@ class BackgroundSyncNotifierImpl(
    }
 
    private suspend fun scheduleIfNeeded() {
+      if (!BACKGROUND_WATCHAPP_SYNC) {
+         // The watch shows nothing until it has synced live from the phone (a mirror, not a store), so there is no
+         // point opening the watchapp in the background to pre-sync it. Doing so popped the app up on the watch for
+         // every change, even for silenced notifications.
+         workController.cancelAllBackgroundWork()
+         return
+      }
       val deadline = timeProvider.currentInstant() - WATCH_BACKGROUND_SYNC_TIMEOUT_TIME.toJavaDuration()
 
       val anyPendingWatches = dbSyncStatus.isAnyWatchPendingSync(deadline.epochSecond).executeAsOne() > 0
@@ -57,3 +64,5 @@ class BackgroundSyncNotifierImpl(
  * To conserve resources, we ignore watches that have not connected in the last 30 days.
  */
 internal val WATCH_BACKGROUND_SYNC_TIMEOUT_TIME = 30.days
+
+private const val BACKGROUND_WATCHAPP_SYNC = false

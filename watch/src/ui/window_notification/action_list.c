@@ -21,6 +21,9 @@ static uint8_t active_voice_notification_id;
 static bool active_voice_action_valid;
 static bool action_send_in_progress;
 static uint16_t selected_action_index;
+static uint8_t sent_notification_id;
+static uint8_t sent_action_id;
+static uint8_t sent_menu_id;
 
 static void send_notification_voice(void);
 static void confirm_action(uint8_t notification_id, uint8_t action_id, uint8_t menu_id, const char* text);
@@ -54,6 +57,7 @@ static void close_current_menu(const bool animated)
         layer_destroy(inline_action_layer);
         inline_action_layer = NULL;
         window_notification_data.menu_displayed = false;
+        window_notification_ui_on_menu_closed();
         return;
     }
 
@@ -76,8 +80,11 @@ static void on_action_menu_closed(ActionMenu* menu, const ActionMenuItem* perfor
 
     if (action_menu == menu)
     {
+        // The app owns touch everywhere else (raw subscription); the system menu only while it is up.
+        app_touch_navigation_enable(false);
         action_menu = NULL;
         window_notification_data.menu_displayed = false;
+        window_notification_ui_on_menu_closed();
     }
 }
 
@@ -102,9 +109,16 @@ static void on_sending_finished(const bool success)
         }
         else
         {
-            close_current_menu(true);
-            if (window_notification_ui_should_exit_detail_on_back())
+            // Dismiss is always action 0 of the main menu (see the phone's NotificationProcessor).
+            const bool dismissed = sent_menu_id == 0 && sent_action_id == 0;
+            close_current_menu(!dismissed);
+            if (dismissed)
             {
+                window_notification_ui_on_dismiss_sent(sent_notification_id);
+            }
+            else if (window_notification_ui_is_popup_session())
+            {
+                // Like a PebbleOS popup: acting on the notification ends the interruption.
                 send_close_me_without_animation();
             }
         }
@@ -278,6 +292,7 @@ void window_notification_action_list_deinit()
         action_menu_close(action_menu, false);
         action_menu = NULL;
     }
+    app_touch_navigation_enable(false);
 
     active_voice_action_valid = false;
     active_voice_notification_id = 0;
@@ -352,9 +367,12 @@ void window_notification_action_list_show()
     };
 
     window_notification_data.menu_displayed = true;
+    // Let the system's touch handling drive its ActionMenu (tap an action, drag to scroll, swipe back).
+    app_touch_navigation_enable(true);
     action_menu = action_menu_open(&config);
     if (action_menu == NULL)
     {
+        app_touch_navigation_enable(false);
         action_menu_hierarchy_destroy(root_level, NULL, NULL);
         window_notification_data.menu_displayed = false;
         vibes_double_pulse();
@@ -420,6 +438,9 @@ void window_notification_action_select()
 static void confirm_action(const uint8_t notification_id, const uint8_t action_id, const uint8_t menu_id, const char* text)
 {
     action_send_in_progress = true;
+    sent_notification_id = notification_id;
+    sent_action_id = action_id;
+    sent_menu_id = menu_id;
     if (!send_action_trigger(notification_id, action_id, menu_id, text))
     {
         action_send_in_progress = false;
@@ -502,5 +523,64 @@ static void send_notification_voice()
             window_notification_action_list_show();
         }
         dictation_session_destroy(session);
+    }
+}
+
+
+void window_notification_action_list_receive_submenu(const uint8_t* data, const size_t data_size)
+{
+    if (data_size < 3)
+    {
+        return;
+    }
+
+    const uint8_t target_bucket = data[0];
+    if (window_notification_data.currently_selected_bucket != target_bucket)
+    {
+        return;
+    }
+
+    const uint8_t menu_id = data[1];
+    const uint8_t num_actions = data[2];
+    size_t position = 3;
+    uint8_t stored = 0;
+    for (int i = 0; i < num_actions; i++)
+    {
+        size_t length = 0;
+        while (position + length < data_size && data[position + length] != '\0')
+        {
+            length++;
+        }
+        if (position + length >= data_size)
+        {
+            break;
+        }
+        const size_t text_position = position;
+        position += length + 1;
+        if (position >= data_size)
+        {
+            break;
+        }
+        const bool voice = data[position++] == 1;
+        if (stored < MAX_NOTIFICATION_ACTIONS)
+        {
+            const size_t copy = length < MAX_NOTIFICATION_ACTION_TEXT - 1 ? length : MAX_NOTIFICATION_ACTION_TEXT - 1;
+            memcpy(window_notification_data.submenu_actions[stored].text, &data[text_position], copy);
+            window_notification_data.submenu_actions[stored].text[copy] = '\0';
+            window_notification_data.submenu_actions[stored].id = i;
+            window_notification_data.submenu_actions[stored].voice = voice;
+            stored++;
+        }
+    }
+    window_notification_data.num_submenu_actions = stored;
+
+    if (window_notification_data.menu_displayed)
+    {
+        window_notification_data.open_menu_on_success = menu_id;
+    }
+    else
+    {
+        window_notification_data.currently_displayed_menu_id = menu_id;
+        window_notification_action_list_show();
     }
 }

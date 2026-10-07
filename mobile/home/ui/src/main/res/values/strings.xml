@@ -16,9 +16,19 @@
     <string name="permission_notification_access_title">Notification Access</string>
     <string name="permission_notification_access_companion_description">Needed to forward notifications from the other apps.
     </string>
-    <string name="permission_notification_access_companion_instructions">On the following screen, select anything.
-        It does not need to be a Pebble.
+    <string name="permission_notification_access_companion_instructions">Android will ask you to pick a nearby device. Pick
+        anything in the list; it does not need to be a Pebble. This is only how Android lets companion apps read
+        notifications reliably.\n\nRight after that, Android opens the Notification Access screen. Turn Notification
+        Sync on there.
     </string>
+    <string name="permission_notification_access_continue">Continue</string>
+    <string name="permission_notification_access_open">Open Notification Access</string>
+    <string name="permission_restricted_title">Seeing \"Restricted setting\"?</string>
+    <string name="permission_restricted_steps">Android blocks this for apps installed from a file. To allow it:\n\n1. Tap
+        Open App Info below.\n2. Tap the ⋮ menu in the top right corner.\n3. Tap Allow restricted settings and confirm.\n4.
+        Come back here and tap Open Notification Access.
+    </string>
+    <string name="permission_open_app_info">Open App Info</string>
     <string name="permission_notification_access_legacy_description">Needed to forward notifications from the other
         apps.
     </string>

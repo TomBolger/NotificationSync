@@ -55,19 +55,34 @@ void bluetooth_init()
 static void on_received_data(DictionaryIterator* iterator, void* context)
 {
     on_connection_changed(true);
-    receive_watch_packet_callback(iterator);
+    if (receive_watch_packet_callback != NULL)
+    {
+        receive_watch_packet_callback(iterator);
+    }
 }
+
+#define MAX_SENDING_FINISH_CALLBACKS 8
 
 static void trigger_sending_finish_callbacks(const bool success)
 {
+    // Snapshot and clear before calling: a callback commonly sends the next message and registers a new
+    // finish callback, which must survive until *that* message completes instead of being wiped here.
+    void (*callbacks[MAX_SENDING_FINISH_CALLBACKS])(bool);
     int num_callbacks = vector_size(sending_finish_callbacks);
+    if (num_callbacks > MAX_SENDING_FINISH_CALLBACKS)
+    {
+        num_callbacks = MAX_SENDING_FINISH_CALLBACKS;
+    }
     for (int i = 0; i < num_callbacks; i++)
     {
-        void (*localCallback)(bool success) = sending_finish_callbacks[i];
-        localCallback(success);
+        callbacks[i] = sending_finish_callbacks[i];
     }
-
     vector_clear(sending_finish_callbacks);
+
+    for (int i = 0; i < num_callbacks; i++)
+    {
+        callbacks[i](success);
+    }
 }
 
 static void on_sent_data(DictionaryIterator* iterator, void* context)
@@ -175,13 +190,18 @@ static void on_connection_changed(const bool status)
     {
         // Sending packets immediately after connection changes seem to not work (packets get stuck in a timeout)
         // Instead, we wait a bit, before sending.
-        app_timer_register(1000, reconnect_init_callback, NULL);
+        if (reconnect_init_timer != NULL)
+        {
+            app_timer_cancel(reconnect_init_timer);
+        }
+        reconnect_init_timer = app_timer_register(1000, reconnect_init_callback, NULL);
     }
     else if (!status)
     {
         if (reconnect_init_timer != NULL)
         {
             app_timer_cancel(reconnect_init_timer);
+            reconnect_init_timer = NULL;
         }
     }
 
@@ -198,6 +218,19 @@ static void on_connection_changed(const bool status)
 
 void bluetooth_register_sending_finish(void (*callback)(bool success))
 {
+    const int num_callbacks = vector_size(sending_finish_callbacks);
+    for (int i = 0; i < num_callbacks; i++)
+    {
+        if (sending_finish_callbacks[i] == callback)
+        {
+            return;
+        }
+    }
+    if (num_callbacks >= MAX_SENDING_FINISH_CALLBACKS)
+    {
+        return;
+    }
+
     // Vector library does not properly support pointers to callbacks in short syntax, so we must use long add syntax
     // ReSharper disable once CppRedundantCastExpression
     *(void (**)(bool)) _vector_add_dst((void*) &sending_finish_callbacks, sizeof(void (*)(bool))) = callback;
