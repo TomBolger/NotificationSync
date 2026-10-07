@@ -189,9 +189,18 @@ class NotificationProcessor(
          return this
       }
 
-      // A mirror of the shade: the app's latest version of the notification is the truth, even when it is shorter
-      // than what it replaced (e.g. "Photo" updated into the actual photo).
-      return copy(iconDrawable = iconDrawable ?: previous.iconDrawable)
+      val sameConversation = pkg == previous.pkg && title == previous.title && subtitle == previous.subtitle
+      val compactPrefix = body.isNotBlank() && previous.body.length > body.length && previous.body.startsWith(body)
+      val lostRichActions = nativeActions.isEmpty() && previous.nativeActions.isNotEmpty()
+      // A compact snapshot can omit expanded text and reply actions. Preserve them only when its content is
+      // demonstrably the same prefix; unrelated shorter messages and photo replacements remain authoritative.
+      val usePreviousDetails = sameConversation && compactPrefix && largeImage == null &&
+         (timestamp == previous.timestamp || lostRichActions)
+      return copy(
+         body = if (usePreviousDetails) previous.body else body,
+         nativeActions = if (usePreviousDetails && nativeActions.isEmpty()) previous.nativeActions else nativeActions,
+         iconDrawable = iconDrawable ?: previous.iconDrawable,
+      )
    }
 
    private fun shouldHide(

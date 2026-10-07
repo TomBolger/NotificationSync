@@ -253,6 +253,20 @@ class NotificationProcessorTest {
    }
 
    @Test
+   fun `A shorter replacement message must not inherit old content or reply actions`() = runTest {
+      val rich = ParsedNotification(
+         "key", "com.app", "Title", "Conversation", "Original long message", Instant.EPOCH,
+         nativeActions = listOf(NativeAction("Reply", createPendingIntent())),
+      )
+      processor.onNotificationPosted(rich)
+      watchSyncer.nextBucketId = 1
+      val replacement = rich.copy(body = "Photo", timestamp = Instant.EPOCH.plusSeconds(1), nativeActions = emptyList())
+      processor.onNotificationPosted(replacement, suppressVibration = true)
+      processor.getNotification(1).shouldNotBeNull().systemData.body shouldBe "Photo"
+      processor.getNotification(1).shouldNotBeNull().systemData.nativeActions shouldBe emptyList()
+   }
+
+   @Test
    fun `It should allow getting received notifications`() = runTest {
       val notification = ParsedNotification(
          "key",

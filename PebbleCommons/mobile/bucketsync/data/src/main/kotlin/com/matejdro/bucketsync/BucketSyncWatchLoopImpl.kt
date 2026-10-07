@@ -13,6 +13,9 @@ import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.model.WatchIdentifier
 import io.rebble.pebblekit2.common.util.PEBBLE_DICTIONARY_TUPLE_HEADER_SIZE
 import io.rebble.pebblekit2.common.util.sizeInBytes
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -61,10 +64,7 @@ class BucketSyncWatchLoopImpl(
 
             val packet = helloPacketBase + (2u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()))
 
-            packetQueue.sendPacket(
-               packet,
-               PRIORITY_SYNC
-            )
+            sendSyncPackets(listOf(packet))
             watchVersion = initialWatchVersion
             backgroundSyncNotifier.notifyWatchFullySynced(watch.value)
             watchappOpenController.resetNextWatchappOpen()
@@ -85,7 +85,7 @@ class BucketSyncWatchLoopImpl(
             logcat { "Extra packets: ${extraPackets.size}" }
 
             val firstPacket = helloPacketBase + (2u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()))
-            packetQueue.sendPackets(listOf(firstPacket) + extraPackets, PRIORITY_SYNC)
+            sendSyncPackets(listOf(firstPacket) + extraPackets)
             watchappOpenController.resetNextWatchappOpen()
 
             watchVersion = initialUpdate.toVersion
@@ -100,6 +100,21 @@ class BucketSyncWatchLoopImpl(
             maxActiveBuckets,
             onBucketsChanged
          )
+      }
+   }
+
+   private suspend fun sendSyncPackets(packets: List<PebbleDictionary>) {
+      while (true) {
+         try {
+            packetQueue.sendPackets(packets, PRIORITY_SYNC)
+            return
+         } catch (e: CancellationException) {
+            throw e
+         } catch (e: Exception) {
+            // Keep the same version pending. A failed transfer must not end the live mirror's update collector.
+            logcat { "Sync transfer failed; retrying without advancing the watch version: $e" }
+            delay(2.seconds)
+         }
       }
    }
 
@@ -136,12 +151,11 @@ class BucketSyncWatchLoopImpl(
 
          logcat { "Extra packets: ${extraPackets.size}" }
 
-         packetQueue.sendPackets(
+         sendSyncPackets(
             listOf(mapOf(
                0u to PebbleDictionaryItem.UInt8(2u),
                1u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()),
-            )) + extraPackets,
-            PRIORITY_SYNC
+            )) + extraPackets
          )
 
          watchVersion = nextUpdate.toVersion

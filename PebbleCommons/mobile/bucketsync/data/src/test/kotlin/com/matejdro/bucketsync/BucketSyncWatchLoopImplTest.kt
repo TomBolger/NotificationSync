@@ -8,6 +8,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
+import io.rebble.pebblekit2.common.model.TransmissionResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -36,6 +37,21 @@ class BucketSyncWatchLoopImplTest {
       backgroundSyncNotifier,
       watch
    )
+
+   @Test
+   fun `Recover a failed sync transfer and keep observing future updates`() = scope.runTest {
+      init()
+      sender.sendingResult = TransmissionResult.FailedWatchNotConnected
+      bucketSyncRepository.updateBucket(1u, byteArrayOf(1))
+      loop.sendFirstPacketAndStartLoop(mapOf(0u to PebbleDictionaryItem.UInt8(1u)), 0u, 100, emptyList())
+      delay(9.seconds) // Exhaust one packet's retry budget and enter the sync-level retry.
+      sender.sendingResult = TransmissionResult.Success
+      delay(3.seconds)
+      sender.sentPackets.clear()
+      bucketSyncRepository.updateBucket(1u, byteArrayOf(2))
+      runCurrent()
+      sender.sentData.single().getValue(0u) shouldBe PebbleDictionaryItem.UInt8(2u)
+   }
 
    @Test
    fun `Only send status 3 when watch is up to date`() = scope.runTest {

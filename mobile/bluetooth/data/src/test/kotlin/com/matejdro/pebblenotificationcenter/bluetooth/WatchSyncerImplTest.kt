@@ -67,10 +67,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -96,7 +94,8 @@ class WatchSyncerImplTest {
                   121,
                )
             )
-         )
+         ),
+         activeBucketFlags = listOf(8u),
       )
    }
 
@@ -128,20 +127,18 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
                ) +
 
-                  // 17 'a' characters, followed by the ... and null
-                  ByteArray(17) { 'a'.code.toByte() } +
+                  // 21 'a' characters, followed by the ... and null
+                  ByteArray(21) { 'a'.code.toByte() } +
                   byteArrayOf(46, 46, 46, 0) +
-                  // 17 'b' characters, followed by the ... and null
-                  ByteArray(17) { 'b'.code.toByte() } +
+                  // 37 'b' characters, followed by the ... and null
+                  ByteArray(37) { 'b'.code.toByte() } +
                   byteArrayOf(46, 46, 46, 0) +
-                  // 203 'c' characters, followed by the ...
-                  ByteArray(203) { 'c'.code.toByte() } +
+                  // 23 'c' characters, followed by the ...
+                  ByteArray(23) { 'c'.code.toByte() } +
                   byteArrayOf(46, 46, 46)
             )
          )
@@ -176,10 +173,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   97,
@@ -189,8 +184,8 @@ class WatchSyncerImplTest {
                   98,
                   0,
                ) +
-                  // 241 'c' characters, followed by the ...
-                  ByteArray(241) { 'c'.code.toByte() } +
+                  // 85 'c' characters, followed by the ...
+                  ByteArray(85) { 'c'.code.toByte() } +
                   byteArrayOf(46, 46, 46)
             )
          )
@@ -319,7 +314,7 @@ class WatchSyncerImplTest {
       bucketSyncRepository.awaitNextUpdate(0u, emptyList()) shouldBe BucketUpdate(
          toVersion = 1u,
          activeBuckets = listOf(2u),
-         activeBucketFlags = listOf(1u),
+         activeBucketFlags = listOf(9u),
          bucketsToUpdate = listOf(
             Bucket(
                2u,
@@ -330,10 +325,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -395,7 +388,7 @@ class WatchSyncerImplTest {
          emptyPreferences(),
       )
 
-      bucketSyncRepository.awaitNextUpdate(0u, emptyList()).activeBucketFlags.shouldContainExactly(0u)
+      bucketSyncRepository.awaitNextUpdate(0u, emptyList()).activeBucketFlags.shouldContainExactly(8u)
    }
 
    @Test
@@ -463,10 +456,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   97,
@@ -482,7 +473,8 @@ class WatchSyncerImplTest {
                   99, // c
                )
             )
-         )
+         ),
+         activeBucketFlags = listOf(8u),
       )
    }
 
@@ -658,7 +650,7 @@ class WatchSyncerImplTest {
       bucketSyncRepository.awaitNextUpdate(0u, emptyList()) shouldBe BucketUpdate(
          toVersion = 1u,
          activeBuckets = listOf(2u),
-         activeBucketFlags = listOf(2u),
+         activeBucketFlags = listOf(10u),
          bucketsToUpdate = listOf(
             Bucket(
                2u,
@@ -669,10 +661,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -724,7 +714,7 @@ class WatchSyncerImplTest {
       bucketSyncRepository.awaitNextUpdate(0u, emptyList()) shouldBe BucketUpdate(
          toVersion = 1u,
          activeBuckets = listOf(2u),
-         activeBucketFlags = listOf(2u),
+         activeBucketFlags = listOf(10u),
          bucketsToUpdate = listOf(
             Bucket(
                2u,
@@ -735,10 +725,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  5,
-                  1,
-                  0,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -769,7 +757,7 @@ class WatchSyncerImplTest {
    }
 
    @Test
-   fun `Send a different font when different one is set`() = scope.runTest {
+   fun `Legacy font settings do not change the current card protocol`() = scope.runTest {
       val preferences = emptyPreferences().toMutablePreferences().apply {
          set(RuleOption.titleFont, PebbleFont.GOTHIC_18_BOLD)
          set(RuleOption.subtitleFont, PebbleFont.GOTHIC_24_BOLD)
@@ -803,10 +791,8 @@ class WatchSyncerImplTest {
                   0xbd.toByte(),
                   0x01,
 
-                  // Fonts
-                  3,
-                  5,
-                  1,
+                  // Icon, color, image aspect, image tag
+                  0, 0, 0, 0,
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -832,7 +818,8 @@ class WatchSyncerImplTest {
                   121,
                )
             )
-         )
+         ),
+         activeBucketFlags = listOf(8u),
       )
    }
 
@@ -860,7 +847,7 @@ class WatchSyncerImplTest {
       )
 
       bucketSyncRepository.awaitNextUpdate(0u, emptyList())
-         .activeBucketFlags shouldBe listOf(4u.toUByte())
+         .activeBucketFlags shouldBe listOf(12u.toUByte())
    }
 
    @Test
@@ -887,7 +874,7 @@ class WatchSyncerImplTest {
       )
 
       bucketSyncRepository.awaitNextUpdate(0u, emptyList())
-         .activeBucketFlags shouldBe listOf(0u.toUByte())
+         .activeBucketFlags shouldBe listOf(8u.toUByte())
    }
 
    private suspend fun init(enablePreferences: Boolean = false) {

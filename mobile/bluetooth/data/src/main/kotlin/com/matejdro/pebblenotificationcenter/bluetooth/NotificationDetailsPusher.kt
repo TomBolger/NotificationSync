@@ -42,6 +42,7 @@ class NotificationDetailsPusherImpl(
    private val watchMetadata: WatchMetadata,
 ) : NotificationDetailsPusher {
    private val stringEncoder = LimitingStringEncoder()
+   private val vibrationSequence = java.util.concurrent.atomic.AtomicLong()
    private var previousVibrationSendingJob: Job? = null
 
    override fun pushNotificationDetails(bucketId: Int, maxPacketSize: Int, colorWatch: Boolean, prefetch: Boolean) {
@@ -84,6 +85,7 @@ class NotificationDetailsPusherImpl(
       includeVibration: Boolean,
    ) {
       var vibrationPattern: IntArray? = null
+      var vibrationGeneration = 0L
       try {
          val notification = liveNotificationForDetails(bucketId) ?: return
          if (markAsRead) {
@@ -91,6 +93,7 @@ class NotificationDetailsPusherImpl(
          }
          if (includeVibration) {
             vibrationPattern = notificationRepository.pollNextVibration()
+            if (vibrationPattern != null) vibrationGeneration = vibrationSequence.incrementAndGet()
          }
 
          val detailsPackets = createDetailsPackets(
@@ -124,11 +127,12 @@ class NotificationDetailsPusherImpl(
             DetailsSendMode.EnqueueOnly -> queue.enqueuePackets(detailsPackets.packets, priority)
          }
 
-         pushVibration(vibrationPattern)
+         if (vibrationGeneration == vibrationSequence.get()) pushVibration(vibrationPattern)
       } catch (e: CancellationException) {
          vibrationPattern?.let(notificationRepository::resetNextVibration)
          throw e
       } catch (e: Exception) {
+         vibrationPattern?.let(notificationRepository::resetNextVibration)
          errorReporter.report(UnknownCauseException("Failed to push notification details", e))
       }
    }
@@ -454,6 +458,9 @@ class NotificationDetailsPusherImpl(
          } catch (e: CancellationException) {
             notificationRepository.resetNextVibration(vibrationPattern)
             throw e
+         } catch (e: Exception) {
+            notificationRepository.resetNextVibration(vibrationPattern)
+            errorReporter.report(UnknownCauseException("Failed to send vibration", e))
          }
       }
    }

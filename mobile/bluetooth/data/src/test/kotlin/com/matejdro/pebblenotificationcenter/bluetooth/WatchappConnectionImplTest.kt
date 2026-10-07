@@ -587,8 +587,8 @@ class WatchappConnectionImplTest {
    }
 
    @Test
-   fun `Do not send re-init request before several seconds`() = scope.runTest {
-      delay(4.seconds)
+   fun `Do not send re-init request before its grace period`() = scope.runTest {
+      delay(1.seconds)
 
       sender.sentData.shouldBeEmpty()
    }

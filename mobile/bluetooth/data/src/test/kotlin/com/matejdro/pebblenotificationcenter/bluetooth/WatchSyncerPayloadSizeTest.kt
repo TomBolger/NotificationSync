@@ -7,6 +7,7 @@ import com.matejdro.pebblenotificationcenter.common.test.InMemoryDataStore
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import dispatch.core.DefaultCoroutineScope
+import io.kotest.matchers.shouldBe
 import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
 import kotlinx.coroutines.test.runTest
@@ -77,4 +78,23 @@ class WatchSyncerPayloadSizeTest {
       payloadSize shouldBeGreaterThan 100
       payloadSize shouldBeLessThanOrEqual BucketSyncRepository.MAX_BUCKET_SIZE_BYTES
    }
+   @Test
+   fun `Long paragraphs remain partial summaries and keep their body text`() = scope.runTest {
+      val repository = FakeBucketSyncRepository(PROTOCOL_VERSION.toInt())
+      val syncer = WatchSyncerImpl(
+         repository,
+         InMemoryDataStore(emptyPreferences()),
+         DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
+         notificationImageStore = com.matejdro.pebblenotificationcenter.bluetooth.images.NoNotificationImages,
+      )
+      syncer.init(enablePreferences = false)
+      val notification = ParsedNotification("key", "com.app", "Messages", "", "a".repeat(7000), Instant.EPOCH)
+      notification.watchTitle() shouldBe "Messages"
+      notification.watchBody() shouldBe notification.body
+      syncer.syncNotification(ProcessedNotification(notification), emptyPreferences())
+      val update = repository.awaitNextUpdate(0u, emptyList())
+      (update.activeBucketFlags.single().toInt() and 0x08) shouldBe 0
+      update.bucketsToUpdate.single().data.takeLast(3) shouldBe listOf<Byte>(46, 46, 46)
+   }
+
 }

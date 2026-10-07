@@ -19,9 +19,9 @@ internal fun String.replaceUnsupportedPebbleEmoji(): String {
          val charCount = Character.charCount(codePoint)
 
          when {
+            codePoint.isEmojiVariationSelector() || codePoint.isEmojiModifier() -> Unit
             codePoint.isPebbleSupportedEmoji() -> appendCodePoint(codePoint)
             codePoint.isRegionalIndicator() -> appendCodePoint(codePoint)
-            codePoint.isEmojiVariationSelector() || codePoint.isEmojiModifier() -> Unit
             codePoint == ZERO_WIDTH_JOINER -> Unit
             codePoint.isLikelyEmoji() -> append(codePoint.unsupportedEmojiShortcode())
             else -> append(input, index, index + charCount)
@@ -64,7 +64,7 @@ private fun Int.isEmojiModifier(): Boolean = this in 0x1F3FB..0x1F3FF
 private fun Int.unsupportedEmojiShortcode(): String {
    val explicitName = UNSUPPORTED_EMOJI_SHORTCODES[this]
    if (explicitName != null) {
-      return "::"
+      return ":$explicitName:"
    }
 
    val unicodeName = Character.getName(this)
@@ -79,7 +79,7 @@ private fun Int.unsupportedEmojiShortcode(): String {
       ?.takeIf { it.isNotBlank() }
       ?: "emoji"
 
-   return "::"
+   return ":$unicodeName:"
 }
 
 /** Codepoint ranges (inclusive start, end pairs) in the PebbleOS emoji fonts. Generated from EMOJI_18.pbf. */
