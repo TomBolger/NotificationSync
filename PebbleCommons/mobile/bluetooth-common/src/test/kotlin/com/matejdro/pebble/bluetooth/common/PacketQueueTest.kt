@@ -29,6 +29,47 @@ class PacketQueueTest {
    private val packetQueue = PacketQueue(sender, WATCH_ID, WATCHAPP_UUID)
 
    @Test
+   fun `Chunks are sent as one transfer even when a higher priority transfer arrives`() = scope.runTest {
+      backgroundScope.launch { packetQueue.runQueue() }
+      sender.pauseSending = true
+      val first = mapOf(0u to PebbleDictionaryItem.UInt8(1u))
+      val second = mapOf(0u to PebbleDictionaryItem.UInt8(2u))
+      launch { packetQueue.sendPackets(listOf(first, second), -1) }
+      runCurrent()
+      launch { packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(3u)), 2) }
+      runCurrent()
+      sender.pauseSending = false
+      runCurrent()
+      sender.sentPackets.shouldContainExactly(SentPacketWithValue(1u), SentPacketWithValue(2u), SentPacketWithValue(3u))
+   }
+
+   @Test
+   fun `Cancelling an in flight transfer unblocks the queue`() = scope.runTest {
+      backgroundScope.launch { packetQueue.runQueue() }
+      sender.sendingResult = TransmissionResult.FailedTimeout
+      val obsolete = launch { packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(1u))) }
+      runCurrent()
+      obsolete.cancel()
+      runCurrent()
+      sender.sendingResult = TransmissionResult.Success
+      packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(2u)))
+      sender.sentPackets.last().data[0u] shouldBe PebbleDictionaryItem.UInt8(2u)
+   }
+
+   @Test
+   fun `Retry exhaustion completes the caller and allows the next transfer`() = scope.runTest {
+      backgroundScope.launch { packetQueue.runQueue() }
+      sender.sendingResult = TransmissionResult.FailedTimeout
+      assertThrows<UnrecoverableWatchTransferException> {
+         packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(1u)))
+      }
+      sender.sentPackets.size shouldBe 8
+      sender.sendingResult = TransmissionResult.Success
+      packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(2u)))
+      sender.sentPackets.last().data[0u] shouldBe PebbleDictionaryItem.UInt8(2u)
+   }
+
+   @Test
    fun `Send data to the watch`() = scope.runTest {
       backgroundScope.launch {
          packetQueue.runQueue()

@@ -10,6 +10,10 @@ import io.rebble.pebblekit2.common.model.TransmissionResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import logcat.logcat
 import java.util.PriorityQueue
@@ -29,6 +33,8 @@ class PacketQueue(
 
    private val queue = PriorityQueue<Packet>()
    private var nextSequenceNumber = 0L
+   @Volatile
+   private var closed: CancellationException? = null
 
    /**
     * (Eventually) send a packet to the watch.
@@ -37,38 +43,38 @@ class PacketQueue(
     *
     * If this coroutine is cancelled before the packet is sent, the packet will be removed from the queue.
     */
-   @Suppress("SuspendFunSwallowedCancellation") // CancellationException is re-thrown after queue cleanup
-   suspend fun sendPacket(dictionary: PebbleDictionary, priority: Int = 0) {
-      logcat { "Enqueue packet(id = ${dictionary[0u]}, priority = $priority)" }
+   suspend fun sendPacket(dictionary: PebbleDictionary, priority: Int = 0) =
+      sendPackets(listOf(dictionary), priority)
 
-      val sentNofification = CompletableDeferred<Unit>()
-      val packet = Packet(dictionary, priority, nextPacketSequenceNumber(), sentNofification)
-
-      synchronized(queue) {
-         queue.add(packet)
-      }
-
-      newPacketNotification.send(Unit)
+   /** Send a complete transfer without interleaving another transfer's chunks. */
+   @Suppress("SuspendFunSwallowedCancellation")
+   suspend fun sendPackets(dictionaries: List<PebbleDictionary>, priority: Int = 0) {
+      if (dictionaries.isEmpty()) return
+      val completion = CompletableDeferred<Unit>()
+      val packet = Packet(dictionaries, priority, nextPacketSequenceNumber(), completion)
+      addPacket(packet)
       try {
-         sentNofification.await()
+         completion.await()
       } catch (e: CancellationException) {
-         synchronized(queue) {
-            queue.remove(packet)
-         }
+         packet.cancelled.complete(Unit)
+         synchronized(queue) { queue.remove(packet) }
          throw e
       }
    }
 
-   /**
-    * Queue a packet without tying its lifetime to the caller's coroutine.
-    */
-   fun enqueuePacket(dictionary: PebbleDictionary, priority: Int = 0) {
-      logcat { "Enqueue packet(id = ${dictionary[0u]}, priority = $priority)" }
+   fun enqueuePacket(dictionary: PebbleDictionary, priority: Int = 0) =
+      enqueuePackets(listOf(dictionary), priority)
 
+   fun enqueuePackets(dictionaries: List<PebbleDictionary>, priority: Int = 0) {
+      if (dictionaries.isEmpty()) return
+      addPacket(Packet(dictionaries, priority, nextPacketSequenceNumber(), null))
+   }
+
+   private fun addPacket(packet: Packet) {
       synchronized(queue) {
-         queue.add(Packet(dictionary, priority, nextPacketSequenceNumber(), null))
+         closed?.let { throw it }
+         queue.add(packet)
       }
-
       newPacketNotification.trySend(Unit)
    }
 
@@ -88,12 +94,31 @@ class PacketQueue(
                continue
             }
 
-            logcat { "Sending packet(id = ${nextPacket.dictionary[0u]})" }
-            sendPacket(nextPacket)
+            coroutineScope {
+               val sending = async {
+                  try {
+                     for (dictionary in nextPacket.dictionaries) {
+                        transmit(dictionary)
+                     }
+                     nextPacket.sentNofification?.complete(Unit)
+                  } catch (e: CancellationException) {
+                     nextPacket.sentNofification?.cancel(e)
+                     throw e
+                  } catch (e: Exception) {
+                     nextPacket.sentNofification?.completeExceptionally(e)
+                     logcat { "Transfer failed: $e" }
+                  }
+               }
+               select<Unit> {
+                  sending.onAwait { }
+                  nextPacket.cancelled.onAwait { sending.cancel() }
+               }
+            }
          }
       } catch (e: CancellationException) {
          val finalPackets = synchronized(queue) {
-            queue.toList()
+            closed = e
+            queue.toList().also { queue.clear() }
          }
 
          for (packet in finalPackets) {
@@ -104,66 +129,38 @@ class PacketQueue(
       }
    }
 
-   @Suppress("SuspendFunSwallowedCancellation") // We clear the packet before re-throwing the exception
-   private suspend fun sendPacket(packet: Packet) {
-      try {
-         var nextRetryDelay = START_RETRY_DELAY
-         do {
-            val result = sender.sendDataToPebble(watchappUuid, packet.dictionary, listOf(watch))
-            if (result == null) {
-               packet.sentNofification?.completeExceptionally(
-                  UnrecoverableWatchTransferException("No Pebble app is installed")
-               )
-               break
+   private suspend fun transmit(dictionary: PebbleDictionary) {
+      var nextRetryDelay = START_RETRY_DELAY
+      repeat(MAX_SEND_ATTEMPTS) { attempt ->
+         val result = withTimeoutOrNull(SEND_TIMEOUT) {
+            sender.sendDataToPebble(watchappUuid, dictionary, listOf(watch))
+               ?: throw UnrecoverableWatchTransferException("No Pebble app is installed")
+         }
+         val watchResult = result?.get(watch) ?: if (result == null) TransmissionResult.FailedTimeout else null
+         when (watchResult) {
+            TransmissionResult.Success -> return
+            TransmissionResult.FailedTimeout,
+            TransmissionResult.FailedWatchNotConnected,
+            TransmissionResult.FailedWatchNacked,
+            -> {
+               if (attempt == MAX_SEND_ATTEMPTS - 1) {
+                  throw UnrecoverableWatchTransferException("Retry limit reached: $watchResult")
+               }
+               delay(nextRetryDelay)
+               nextRetryDelay = (nextRetryDelay * 2).coerceAtMost(MAX_RETRY_DELAY)
             }
-
-            val watchResult = result[watch]
-            val retry = when (watchResult) {
-               TransmissionResult.Success -> {
-                  logcat { "Sent" }
-                  packet.sentNofification?.complete(Unit)
-                  false
-               }
-
-               TransmissionResult.FailedTimeout,
-               TransmissionResult.FailedWatchNotConnected,
-               TransmissionResult.FailedWatchNacked,
-               -> {
-                  logcat { "Sending failed ($watchResult). Retrying..." }
-                  delay(nextRetryDelay)
-                  nextRetryDelay *= 2
-                  true
-               }
-
-               TransmissionResult.FailedNoPermissions,
-               is TransmissionResult.Unknown,
-               null,
-               -> {
-                  logcat { "Sending failed unrecoverably (${watchResult ?: "null"})" }
-                  packet.sentNofification?.completeExceptionally(
-                     UnrecoverableWatchTransferException(watchResult?.toString())
-                  )
-                  false
-               }
-
-               TransmissionResult.FailedDifferentAppOpen -> {
-                  // Do not do anything. This coroutine will be cancelled any second now due to watchapp closing.
-                  false
-               }
-            }
-         } while (retry)
-      } catch (e: CancellationException) {
-         packet.sentNofification?.cancel(e)
-         throw e
+            else -> throw UnrecoverableWatchTransferException(watchResult?.toString())
+         }
       }
    }
 
    private class Packet(
-      val dictionary: PebbleDictionary,
+      val dictionaries: List<PebbleDictionary>,
       val priority: Int,
       val sequenceNumber: Long,
       val sentNofification: CompletableDeferred<Unit>?,
    ) : Comparable<Packet> {
+      val cancelled = CompletableDeferred<Unit>()
       override fun compareTo(other: Packet): Int {
          val priorityComparison = -priority.compareTo(other.priority)
          if (priorityComparison != 0) {
@@ -181,3 +178,7 @@ class PacketQueue(
 }
 
 private val START_RETRY_DELAY = 100.milliseconds
+
+private val MAX_RETRY_DELAY = 2_000.milliseconds
+private val SEND_TIMEOUT = 5_000.milliseconds
+private const val MAX_SEND_ATTEMPTS = 8

@@ -110,6 +110,18 @@ static bool validate_bucket_data(const uint8_t* data, size_t data_size, size_t p
 static bool save_bucket_data(const uint8_t* data, size_t data_size, size_t position);
 static void complete_sync(void);
 static void finish_failed_sync(void);
+static AppTimer* sync_timeout_timer;
+static void sync_timeout(void* context)
+{
+    (void)context;
+    sync_timeout_timer = NULL;
+    finish_failed_sync();
+}
+static void reset_sync_timeout(void)
+{
+    if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
+    sync_timeout_timer = app_timer_register(15000, sync_timeout, NULL);
+}
 
 void bucket_sync_init()
 {
@@ -275,6 +287,8 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
     const uint8_t sync_status = data[0];
     if (sync_status == 2)
     {
+        if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
+        sync_timeout_timer = NULL;
         bucket_sync_is_currently_syncing = false;
         void (*local_syncing_callback)() = syncing_status_callback;
         if (local_syncing_callback != NULL)
@@ -317,6 +331,7 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
     }
 
     bucket_sync_is_currently_syncing = true;
+    reset_sync_timeout();
     void (*local_syncing_callback)() = syncing_status_callback;
     if (local_syncing_callback != NULL)
     {
@@ -354,6 +369,8 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
 
 void bucket_sync_on_next_packet_received(const uint8_t* data, const size_t data_size)
 {
+    if (!bucket_sync_is_currently_syncing) return;
+    reset_sync_timeout();
     if (data_size < 1)
     {
         finish_failed_sync();
@@ -424,6 +441,8 @@ static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t
 
 static void complete_sync(void)
 {
+    if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
+    sync_timeout_timer = NULL;
     bucket_sync_current_version = bucket_sync_pending_next_version;
     persist_write_data(
         FILE_BUCKET_SYNC_VERSION,
@@ -464,6 +483,9 @@ static void complete_sync(void)
 
 static void finish_failed_sync(void)
 {
+    if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
+    sync_timeout_timer = NULL;
+    bluetooth_request_reconnect();
     const bool had_pending_changes = pending_changed_count > 0 || pending_deleted_count > 0;
     dispatch_pending_bucket_changes();
     if (had_pending_changes)

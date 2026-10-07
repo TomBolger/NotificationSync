@@ -2,7 +2,11 @@
 #include <pebble.h>
 #include "commons/connection/bucket_sync.h"
 
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
+#define MAX_BODY_TEXT_SIZE 8192
+#else
 #define MAX_BODY_TEXT_SIZE PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 1200, 1800, 3470, 1800, 3470, 3470, 3470)
+#endif
 #define MAX_NOTIFICATION_ACTIONS 20
 #define MAX_NOTIFICATION_ACTION_TEXT 21
 
@@ -66,7 +70,7 @@ void notification_store_init(void);
 void notification_store_set_listener(const StoreListener* listener);
 /** The phone answered this session and its first sync was handed over: start showing notifications. */
 void notification_store_on_phone_synced(void);
-/** The phone never sent the rest of this message: show what we have as the whole message. */
+/** A details attempt failed; keep the preview partial and allow another attempt. */
 void notification_store_on_details_unavailable(uint8_t bucket_id);
 /** True once notifications come from this session's sync (never from what was saved last time). */
 bool notification_store_is_live(void);

@@ -10,7 +10,7 @@
 #include "ui/window_notification/notification_store.h"
 
 #define QUEUE_SIZE 6
-#define REQUEST_TIMEOUT_MS 3000
+#define REQUEST_TIMEOUT_MS 12000
 #define SEND_RETRY_MS 250
 #define MAX_ATTEMPTS 3
 
@@ -40,6 +40,11 @@ static char* staging_body = NULL;
 static size_t staging_size = 0;
 static Action staging_actions[MAX_NOTIFICATION_ACTIONS];
 static uint8_t staging_num_actions = 0;
+static uint8_t staging_total_chunks = 0;
+static uint8_t staging_next_chunk = 0;
+static void reset_staging(void);
+static bool mark_read_in_flight;
+static uint8_t mark_read_in_flight_bucket;
 
 static void pump(void);
 
@@ -69,6 +74,7 @@ static void on_timer(void* context)
     {
         // The phone did not answer. Put the request back (it will be retried) unless we gave up on it.
         has_in_flight = false;
+        reset_staging();
         if (in_flight.attempts < MAX_ATTEMPTS && queue_length < QUEUE_SIZE)
         {
             memmove(&queue[1], &queue[0], sizeof(FetchRequest) * queue_length);
@@ -104,9 +110,27 @@ static void remove_queued(const uint8_t index)
     queue_length--;
 }
 
+static void on_mark_read_sent(const bool success)
+{
+    mark_read_in_flight = false;
+    if (success)
+    {
+        for (uint8_t i = 0; i < mark_read_count; i++)
+        {
+            if (mark_read_pending[i] == mark_read_in_flight_bucket)
+            {
+                memmove(&mark_read_pending[i], &mark_read_pending[i + 1], mark_read_count - i - 1);
+                mark_read_count--;
+                break;
+            }
+        }
+    }
+    if (timer == NULL) timer = app_timer_register(SEND_RETRY_MS, on_timer, NULL);
+}
+
 static void pump(void)
 {
-    if (has_in_flight || close_after_sync)
+    if (has_in_flight || mark_read_in_flight || close_after_sync)
     {
         return;
     }
@@ -117,10 +141,11 @@ static void pump(void)
         {
             return;
         }
-        if (is_phone_connected && !is_currently_sending_data && send_mark_read(mark_read_pending[0]))
+        if (is_phone_connected && !is_currently_sending_data)
         {
-            memmove(&mark_read_pending[0], &mark_read_pending[1], mark_read_count - 1);
-            mark_read_count--;
+            mark_read_in_flight_bucket = mark_read_pending[0];
+            mark_read_in_flight = true;
+            if (!send_mark_read(mark_read_in_flight_bucket, on_mark_read_sent)) mark_read_in_flight = false;
         }
         if (mark_read_count > 0 && timer == NULL)
         {
@@ -260,6 +285,7 @@ void notification_details_fetcher_reset(void)
 {
     queue_length = 0;
     has_in_flight = false;
+    reset_staging();
     cancel_timer();
     notify_status();
 }
@@ -351,6 +377,8 @@ static void reset_staging(void)
     staging_size = 0;
     staging_bucket = 0;
     staging_num_actions = 0;
+    staging_total_chunks = 0;
+    staging_next_chunk = 0;
 }
 
 static void append_staging(const uint8_t* data, const size_t size)
@@ -416,13 +444,19 @@ void notification_details_fetcher_on_text_received_v2(const uint8_t* data, const
     staging_body = malloc(MAX_BODY_TEXT_SIZE + 1);
     if (staging_body == NULL)
     {
-        // Show what we have; the rest of the text is lost but the actions still work.
-        on_details_complete(bucket_id, (const char*)&data[body_position], data_size - body_position,
-                            staging_actions, staging_num_actions);
+        // Allocation failure is not a complete message; retain the partial preview and retry later.
+        notification_store_on_details_unavailable(bucket_id);
         return;
     }
 
     staging_bucket = bucket_id;
+    staging_total_chunks = total_chunks;
+    staging_next_chunk = 1;
+    if (has_in_flight && in_flight.bucket_id == bucket_id)
+    {
+        cancel_timer();
+        timer = app_timer_register(REQUEST_TIMEOUT_MS, on_timer, NULL);
+    }
     staging_body[0] = '\0';
     append_staging(&data[body_position], data_size - body_position);
 }
@@ -435,11 +469,22 @@ void notification_details_fetcher_on_text_continuation_received(const uint8_t* d
         return;
     }
 
-    append_staging(&data[3], data_size - 3);
-
     const uint8_t chunk_index = data[1];
-    const uint8_t total_chunks = data[2] > 0 ? data[2] : 1;
-    if (chunk_index + 1 >= total_chunks)
+    if (data[2] != staging_total_chunks || chunk_index > staging_next_chunk)
+    {
+        // Missing or mismatched chunk: never publish a truncated body as complete.
+        reset_staging();
+        return;
+    }
+    if (chunk_index < staging_next_chunk) return; // ACK lost: ignore a retransmitted chunk.
+    append_staging(&data[3], data_size - 3);
+    staging_next_chunk++;
+    if (has_in_flight && in_flight.bucket_id == staging_bucket)
+    {
+        cancel_timer();
+        timer = app_timer_register(REQUEST_TIMEOUT_MS, on_timer, NULL);
+    }
+    if (staging_next_chunk == staging_total_chunks)
     {
         const uint8_t bucket_id = staging_bucket;
         char* body = staging_body;

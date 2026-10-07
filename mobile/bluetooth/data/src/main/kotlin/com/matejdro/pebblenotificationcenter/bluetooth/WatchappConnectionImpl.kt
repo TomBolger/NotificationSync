@@ -27,6 +27,7 @@ import io.rebble.pebblekit2.common.model.PebbleDictionaryItem.UInt16
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem.UInt8
 import io.rebble.pebblekit2.common.model.ReceiveResult
 import io.rebble.pebblekit2.common.model.WatchIdentifier
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -55,6 +56,7 @@ class WatchappConnectionImpl(
    private val notificationImageServer: NotificationImageServer,
 ) : WatchAppConnection {
 
+   private var welcomeJob: Job? = null
    private var reInitRequestJob: Job? = null
 
    init {
@@ -125,7 +127,23 @@ class WatchappConnectionImpl(
       }
    }
 
-   private suspend fun processWatchWelcomePacket(data: PebbleDictionary): ReceiveResult {
+   private fun processWatchWelcomePacket(data: PebbleDictionary): ReceiveResult {
+      // ACK the inbound hello before doing listener recovery or waiting for outbound transfers.
+      welcomeJob?.cancel()
+      welcomeJob = coroutineScope.launch {
+         try {
+            initializeWatchConnection(data)
+         } catch (e: CancellationException) {
+            throw e
+         } catch (e: Exception) {
+            logcat { "Watch initialization failed; the watch will retry its hello: $e" }
+            sendReinitRequestAfterAWhile()
+         }
+      }
+      return ReceiveResult.Ack
+   }
+
+   private suspend fun initializeWatchConnection(data: PebbleDictionary) {
       reInitRequestJob?.cancel()
 
       val watchProtocolVersion = data.requireUint(1u)
@@ -137,7 +155,7 @@ class WatchappConnectionImpl(
                1u to PebbleDictionaryItem.UInt16(PROTOCOL_VERSION)
             )
          )
-         return ReceiveResult.Ack
+         return
       }
 
       val watchVersion = data.requireUint(2u).toUShort()
@@ -153,6 +171,9 @@ class WatchappConnectionImpl(
             watchMetadata.screenHeight = it.value.toInt()
          }
 
+      watchMetadata.maxBodyTextBytes = (data[8u] as? PebbleDictionaryItem.UInt32)?.value
+         ?.toInt()?.coerceIn(1_200, 8_192) ?: 3_470
+
       val activeBuckets = data[7u]
          ?.let { it as? PebbleDictionaryItem.Bytes }
          ?.value
@@ -166,11 +187,12 @@ class WatchappConnectionImpl(
       watchMetadata.inlineNotificationImages = (flags and 0x02u) != 0u
 
       watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
-      val resyncedLiveNotifications = notificationServiceController.resyncActiveNotificationsNow()
-      if (!resyncedLiveNotifications) {
-         logcat { "Could not resync live notifications; clearing stale watch sync state" }
-         watchSyncer.clearAllNotifications()
+      while (!notificationServiceController.resyncActiveNotificationsNow()) {
+         // Missing access is not an empty notification shade. Keep retrying without publishing a false empty list.
+         packetQueue.sendPacket(mapOf(0u to UInt8(17u)))
+         delay(1.seconds)
       }
+      val resyncedLiveNotifications = true
       val phoneLaunchNotificationBucket =
          watchappOpenController.getNextWatchappOpenNotificationBucket().takeIf { resyncedLiveNotifications }
 
@@ -189,7 +211,7 @@ class WatchappConnectionImpl(
       )
       preloadInitialNotificationDetails(phoneLaunchNotificationBucket)
 
-      return ReceiveResult.Ack
+      return
    }
 
    private suspend fun preloadInitialNotificationDetails(phoneLaunchNotificationBucket: Int?) {
@@ -322,7 +344,7 @@ private const val INITIAL_DETAIL_PRELOAD_COUNT = 5
 // This should be sent last, so user has everything visible before watch vibrates
 internal const val PRIORITY_VIBRATION = -1
 
-private val RE_INIT_REQUEST_WAIT = 5.seconds
+private val RE_INIT_REQUEST_WAIT = 2.seconds
 
 private fun <K, V> mapOfNotNull(vararg pairs: Pair<K, V>?): Map<K, V> =
    pairs.filterNotNull().toMap()

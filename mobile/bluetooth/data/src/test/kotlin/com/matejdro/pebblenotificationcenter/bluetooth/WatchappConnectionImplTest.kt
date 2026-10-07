@@ -195,38 +195,20 @@ class WatchappConnectionImplTest {
    }
 
    @Test
-   fun `Clear existing buckets when live phone notification resync is unavailable during watch sync`() =
-      scope.runTest {
-         bucketSyncRepository.init(PROTOCOL_VERSION.toInt(), 2..255)
-         bucketSyncRepository.updateBucket(8u, byteArrayOf(9))
-         watchSyncer.onClearAllNotifications = {
-            bucketSyncRepository.clearAllDynamic()
-         }
-         notificationServiceController.returnValue = false
+   fun `Wait for live notification access without clearing the mirror`() = scope.runTest {
+      bucketSyncRepository.init(PROTOCOL_VERSION.toInt(), 2..255)
+      bucketSyncRepository.updateBucket(8u, byteArrayOf(9))
+      notificationServiceController.returnValue = false
+      receiveStandardHelloPacket(version = 1u, currentlyActiveBuckets = byteArrayOf(8))
+      runCurrent()
+      watchSyncer.clearAllCalled shouldBe false
+      sender.sentData.shouldContainExactly(mapOf(0u to PebbleDictionaryItem.UInt8(17u)))
 
-         receiveStandardHelloPacket(
-            version = 1u,
-            bufferSize = 61u,
-            currentlyActiveBuckets = byteArrayOf(8)
-         )
-         runCurrent()
-
-         notificationServiceController.resyncActiveNotificationsNowCalled shouldBe true
-         watchSyncer.clearAllCalled shouldBe true
-         sender.sentData.shouldContainExactly(
-            mapOf(
-               0u to PebbleDictionaryItem.UInt8(1u),
-               1u to PebbleDictionaryItem.UInt16(PROTOCOL_VERSION),
-               2u to PebbleDictionaryItem.Bytes(
-                  byteArrayOf(
-                     1, // Status
-                     0, 2, // Latest version
-                     0, // Num of active buckets
-                  )
-               ),
-            )
-         )
-      }
+      notificationServiceController.returnValue = true
+      delay(1.seconds)
+      runCurrent()
+      sender.sentData.last()[0u] shouldBe PebbleDictionaryItem.UInt8(1u)
+   }
 
    @Test
    fun `Send bucketsync data after Acking first packet`() = scope.runTest {
@@ -275,14 +257,14 @@ class WatchappConnectionImplTest {
    }
 
    @Test
-   fun `Clear stale watch notifications when live notification resync fails`() = scope.runTest {
+   fun `Do not preload stale notifications while live resync is unavailable`() = scope.runTest {
       notificationServiceController.returnValue = false
       watchappOpenController.setNextWatchappOpenNotificationBucket(12)
 
       receiveStandardHelloPacket(bufferSize = 123u, flags = 1u)
       runCurrent()
 
-      watchSyncer.clearAllCalled shouldBe true
+      watchSyncer.clearAllCalled shouldBe false
       sender.sentData.first().shouldNotContainKey(4u)
       notificationDetailsPusher.lastOpenedPreloadRequestId.shouldBeNull()
    }
@@ -627,8 +609,8 @@ class WatchappConnectionImplTest {
       bufferSize: UInt = 1000u,
       flags: UInt = 0u,
       currentlyActiveBuckets: ByteArray = byteArrayOf(),
-   ): ReceiveResult =
-      connection.onPacketReceived(
+   ): ReceiveResult {
+      val result = connection.onPacketReceived(
          mapOf(
             0u to PebbleDictionaryItem.UInt32(0u),
             1u to PebbleDictionaryItem.UInt32(PROTOCOL_VERSION.toUInt()),
@@ -638,4 +620,7 @@ class WatchappConnectionImplTest {
             7u to PebbleDictionaryItem.Bytes(currentlyActiveBuckets),
          )
       )
+      kotlinx.coroutines.yield()
+      return result
+   }
 }

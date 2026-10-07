@@ -5,7 +5,11 @@
 #include "commons/bytes.h"
 #include "connection/notification_details_fetcher.h"
 
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
+#define DETAILS_CACHE_SLOTS 3
+#else
 #define DETAILS_CACHE_SLOTS PBL_PLATFORM_SWITCH(PBL_PLATFORM_TYPE_CURRENT, 2, 3, 5, 3, 5, 5, 5)
+#endif
 #define SETTINGS_BUCKET_ID 1
 
 static const uint32_t STORAGE_SEEN_FLAG_MIN = 3000;
@@ -300,16 +304,11 @@ void notification_store_on_details_received(const uint8_t bucket_id, const char*
 
 void notification_store_on_details_unavailable(const uint8_t bucket_id)
 {
-    for (uint8_t i = 0; i < item_count; i++)
+    // A timeout says nothing about the length of the message. Keep the summary partial so opening or
+    // scrolling this card can request its body again once the connection recovers.
+    if (listener != NULL && listener->details_changed != NULL)
     {
-        if (items[i].bucket_id == bucket_id && !items[i].summary_complete)
-        {
-            items[i].summary_complete = true;
-            if (listener != NULL && listener->details_changed != NULL)
-            {
-                listener->details_changed(bucket_id);
-            }
-        }
+        listener->details_changed(bucket_id);
     }
 }
 

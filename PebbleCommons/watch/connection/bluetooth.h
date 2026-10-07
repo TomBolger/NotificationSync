@@ -27,3 +27,4 @@ void bluetooth_register_reconnect_callback(void (*callback)());
 void bluetooth_app_message_outbox_send();
 
 void bluetooth_show_error(const char* text);
+void bluetooth_request_reconnect(void);

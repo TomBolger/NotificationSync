@@ -40,12 +40,13 @@ static uint8_t launch_target_bucket;
 static AppTimer* launch_timeout_timer;
 
 // Whether the phone app has answered our hello. Without it the list can only ever be empty or stale.
-#define PHONE_ANSWER_TIMEOUT_MS 4000
+#define PHONE_ANSWER_TIMEOUT_MS 15000
 typedef enum
 {
     PhoneStateWaiting,
     PhoneStateAnswered,
     PhoneStateUnreachable,
+    PhoneStateListenerUnavailable,
 } PhoneState;
 static PhoneState phone_state = PhoneStateWaiting;
 static AppTimer* phone_timeout_timer;
@@ -607,6 +608,10 @@ static void empty_layer_update(Layer* layer, GContext* ctx)
     case PhoneStateAnswered:
         draw_centered_message(ctx, bounds, "No Notifications", NULL, false);
         break;
+    case PhoneStateListenerUnavailable:
+        draw_centered_message(ctx, bounds, "Waiting for Notifications",
+                              "Check notification access in the phone app.", false);
+        break;
     case PhoneStateUnreachable:
         if (!connection_service_peek_pebble_app_connection())
         {
@@ -639,6 +644,11 @@ static void on_phone_timeout(void* context)
     {
         set_phone_state(PhoneStateUnreachable);
     }
+}
+
+void window_notification_ui_on_listener_unavailable(void)
+{
+    set_phone_state(PhoneStateListenerUnavailable);
 }
 
 void window_notification_ui_on_phone_answered(void)

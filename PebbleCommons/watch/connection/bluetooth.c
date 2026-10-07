@@ -39,7 +39,7 @@ void bluetooth_init()
     if (appmessage_max_size > 4096)
         appmessage_max_size = 4096; //Limit inbox size to conserve RAM.
 
-    connection_service_peek_pebble_app_connection();
+    is_phone_connected = connection_service_peek_pebble_app_connection();
     const ConnectionHandlers connection_handlers = {
         .pebble_app_connection_handler = on_connection_changed_from_os
 
@@ -54,6 +54,11 @@ void bluetooth_init()
 // ReSharper disable once CppParameterMayBeConstPtrOrRef
 static void on_received_data(DictionaryIterator* iterator, void* context)
 {
+    if (sending_error != APP_MSG_OK)
+    {
+        sending_error = APP_MSG_OK;
+        if (sending_error_callback != NULL) sending_error_callback();
+    }
     on_connection_changed(true);
     if (receive_watch_packet_callback != NULL)
     {
@@ -94,9 +99,10 @@ static void on_sent_data(DictionaryIterator* iterator, void* context)
         local_sending_now_callback();
     }
 
-    trigger_sending_finish_callbacks(true);
-
+    sending_error = APP_MSG_OK;
+    if (sending_error_callback != NULL) sending_error_callback();
     on_connection_changed(true);
+    trigger_sending_finish_callbacks(true);
 }
 
 void bluetooth_app_message_outbox_send()
@@ -259,4 +265,10 @@ void bluetooth_register_receive_watch_packet(void (*callback)(const DictionaryIt
 void bluetooth_register_reconnect_callback(void (*callback)())
 {
     reconnect_callback = callback;
+}
+
+void bluetooth_request_reconnect(void)
+{
+    if (reconnect_init_timer != NULL) app_timer_cancel(reconnect_init_timer);
+    reconnect_init_timer = app_timer_register(500, reconnect_init_callback, NULL);
 }

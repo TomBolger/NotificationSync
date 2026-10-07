@@ -15,6 +15,10 @@ import com.matejdro.pebblenotificationcenter.rules.keys.get
 import dev.zacsweers.metro.Inject
 import dispatch.core.DefaultCoroutineScope
 import io.rebble.pebblekit2.client.PebbleInfoRetriever
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -60,7 +64,10 @@ class NotificationService : NotificationListenerService() {
    private val delayedResyncJobs = HashMap<String, Job>()
    private val events = Channel<ServiceEvent>(Channel.UNLIMITED)
 
+   @Volatile
    private var bound = false
+   private var listenersStarted = false
+   private lateinit var serviceScope: CoroutineScope
 
    override fun onCreate() {
       logcat { "Starting notification service" }
@@ -69,6 +76,7 @@ class NotificationService : NotificationListenerService() {
          .let { it as NotificationInject }
          .inject(this)
 
+      serviceScope = CoroutineScope(coroutineScope.coroutineContext + SupervisorJob(coroutineScope.coroutineContext[Job]))
       instance = this
 
       super.onCreate()
@@ -77,6 +85,7 @@ class NotificationService : NotificationListenerService() {
 
    override fun onDestroy() {
       logcat { "Stopping notification service" }
+      serviceScope.cancel()
       delayedResyncJobs.values.forEach { it.cancel() }
       delayedResyncJobs.clear()
       events.close()
@@ -90,14 +99,17 @@ class NotificationService : NotificationListenerService() {
 
       if (!bound) {
          bound = true
-         controlListenerHintsAndOpenOnReconnect()
+         if (!listenersStarted) {
+            listenersStarted = true
+            controlListenerHintsAndOpenOnReconnect()
+         }
       }
 
       resyncActiveNotifications()
    }
 
    fun resyncActiveNotifications() {
-      coroutineScope.launch {
+      serviceScope.launch {
          resyncActiveNotificationsNow()
       }
    }
@@ -125,33 +137,52 @@ class NotificationService : NotificationListenerService() {
     * notification then stayed on the watch forever.
     */
    private fun processEvents() {
-      coroutineScope.launch {
+      serviceScope.launch {
          for (event in events) {
-            when (event) {
-               is ServiceEvent.Posted -> {
-                  val parsedSuccessfully = mutex.withLock {
-                     val parsed = parseNotification(event.sbn)
-                     if (parsed == null) {
-                        logcat { "Notification ${event.sbn.key} has no text. Skipping..." }
-                        false
-                     } else {
-                        notificationProcessor.onNotificationPosted(parsed)
-                        true
+            try {
+               when (event) {
+                  is ServiceEvent.Posted -> {
+                     val parsedSuccessfully = mutex.withLock {
+                        val parsed = parseNotification(event.sbn)
+                        if (parsed == null) {
+                           logcat { "Notification ${event.sbn.key} has no text. Skipping..." }
+                           false
+                        } else {
+                           notificationProcessor.onNotificationPosted(parsed)
+                           true
+                        }
+                     }
+                     if (parsedSuccessfully) {
+                        scheduleDelayedActiveNotificationResync(event.sbn.key)
                      }
                   }
-                  if (parsedSuccessfully) {
-                     scheduleDelayedActiveNotificationResync(event.sbn.key)
+
+                  is ServiceEvent.Removed -> {
+                     mutex.withLock {
+                        notificationProcessor.onNotificationDismissed(event.key)
+                     }
                   }
                }
-
-               is ServiceEvent.Removed -> {
-                  mutex.withLock {
-                     notificationProcessor.onNotificationDismissed(event.key)
-                  }
+            } catch (e: CancellationException) {
+               throw e
+            } catch (e: Exception) {
+               errorReporter.report(e)
+               // Reconcile against Android instead of letting one bad event kill the only consumer.
+               try {
+                  resyncActiveNotificationsNow()
+               } catch (recoveryError: CancellationException) {
+                  throw recoveryError
+               } catch (recoveryError: Exception) {
+                  errorReporter.report(recoveryError)
                }
             }
          }
       }
+   }
+
+   override fun onListenerDisconnected() {
+      bound = false
+      super.onListenerDisconnected()
    }
 
    private suspend fun parseNotification(sbn: StatusBarNotification): ParsedNotification? {
@@ -182,6 +213,7 @@ class NotificationService : NotificationListenerService() {
       }
 
    private suspend fun resyncActiveNotificationsLocked(): Boolean {
+      if (!bound) return false
       val currentNotifications = try {
          activeNotifications
       } catch (exception: SecurityException) {
@@ -203,6 +235,7 @@ class NotificationService : NotificationListenerService() {
    }
 
    private suspend fun resyncNotificationLocked(key: String): Boolean {
+      if (!bound) return false
       val sbn = try {
          activeNotifications.firstOrNull { it.key == key }
       } catch (exception: SecurityException) {
@@ -228,7 +261,7 @@ class NotificationService : NotificationListenerService() {
 
    private fun scheduleDelayedActiveNotificationResync(key: String) {
       delayedResyncJobs.remove(key)?.cancel()
-      delayedResyncJobs[key] = coroutineScope.launch {
+      delayedResyncJobs[key] = serviceScope.launch {
          delay(NOTIFICATION_STABILIZATION_DELAY)
          mutex.withLock {
             resyncActiveNotificationsLocked()
@@ -251,7 +284,7 @@ class NotificationService : NotificationListenerService() {
          preferences[GlobalPreferenceKeys.mutePhone]
       }.distinctUntilChanged()
 
-      coroutineScope.launch {
+      serviceScope.launch {
          mutePhoneFlow.flatMapLatest { mutePhone ->
             if (mutePhone) {
                anyWatchConnected.map { connected ->
@@ -278,7 +311,7 @@ class NotificationService : NotificationListenerService() {
    }
 
    private fun openOnReconnect(anyWatchConnected: Flow<Boolean>) {
-      coroutineScope.launch {
+      serviceScope.launch {
          var prevConnected: Boolean? = null
          anyWatchConnected.collect { connected ->
             logcat { "Watch connected: $connected" }

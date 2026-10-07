@@ -8,6 +8,7 @@ import java.util.Arrays
 class LimitingStringEncoder {
    private val utf8Encoder = StandardCharsets.UTF_8.newEncoder()
 
+   @Synchronized
    fun encodeSizeLimited(text: String, maxSize: Int, ellipsize: Boolean = true): Result {
       if (ellipsize) {
          val encodedWithoutEllipsis = encodeSizeLimited(text, maxSize, ellipsize = false)

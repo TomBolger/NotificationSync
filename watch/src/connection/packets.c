@@ -25,6 +25,20 @@ static void receive_reset_watch_mirror_packet(void);
 
 static int close_retries_left = 3;
 static uint8_t active_buckets_holder[MAX_BUCKETS];
+static AppTimer* welcome_retry_timer;
+
+static void retry_welcome(void* context)
+{
+    (void)context;
+    welcome_retry_timer = NULL;
+    send_watch_welcome();
+}
+
+static void schedule_welcome_retry(const uint32_t delay_ms)
+{
+    if (welcome_retry_timer != NULL) app_timer_cancel(welcome_retry_timer);
+    welcome_retry_timer = app_timer_register(delay_ms, retry_welcome, NULL);
+}
 
 void packets_init()
 {
@@ -33,6 +47,8 @@ void packets_init()
 
 void send_watch_welcome()
 {
+    schedule_welcome_retry(10000);
+    if (!connection_service_peek_pebble_app_connection() || is_currently_sending_data) return;
     const BucketList* active_buckets = bucket_sync_get_bucket_list();
     for (int i = 0; i < active_buckets->count; i++)
     {
@@ -42,7 +58,8 @@ void send_watch_welcome()
     DictionaryIterator* iterator;
     if (app_message_outbox_begin(&iterator) != APP_MSG_OK)
     {
-        // Outbox busy (e.g. a reconnect raced another message). The phone re-requests the welcome itself.
+        // Retry the hello ourselves if the outbox is busy.
+        schedule_welcome_retry(250);
         return;
     }
     dict_write_uint8(iterator, 0, 0);
@@ -53,6 +70,7 @@ void send_watch_welcome()
     dict_write_uint8(iterator, 4, PBL_IF_COLOR_ELSE(1, 0) | (NOTIFICATION_IMAGE_SUPPORTED ? 2 : 0));
     dict_write_uint16(iterator, 5, PBL_DISPLAY_WIDTH);
     dict_write_uint16(iterator, 6, PBL_DISPLAY_HEIGHT);
+    dict_write_uint16(iterator, 8, MAX_BODY_TEXT_SIZE);
     dict_write_data(iterator, 7, active_buckets_holder, active_buckets->count);
     bluetooth_app_message_outbox_send();
 }
@@ -78,7 +96,7 @@ bool send_notification_opened(const uint8_t id, const bool prefetch)
     return true;
 }
 
-bool send_mark_read(const uint8_t id)
+bool send_mark_read(const uint8_t id, void (*on_sent)(bool))
 {
     DictionaryIterator* iterator;
     if (app_message_outbox_begin(&iterator) != APP_MSG_OK)
@@ -90,6 +108,7 @@ bool send_mark_read(const uint8_t id)
     dict_write_uint8(iterator, 0, 4);
     dict_write_uint8(iterator, 1, id);
     dict_write_uint8(iterator, 3, 1);
+    bluetooth_register_sending_finish(on_sent);
     bluetooth_app_message_outbox_send();
     return true;
 }
@@ -250,6 +269,9 @@ static void receive_watch_packet(const DictionaryIterator* received)
     case 16:
         receive_notification_image_packet(received);
         break;
+    case 17:
+        window_notification_ui_on_listener_unavailable();
+        break;
     default:
         break;
     }
@@ -294,6 +316,11 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
         return;
     }
 
+    if (welcome_retry_timer != NULL)
+    {
+        app_timer_cancel(welcome_retry_timer);
+        welcome_retry_timer = NULL;
+    }
     window_notification_ui_on_phone_answered();
 
     const Tuple* sync = data_tuple(iterator, 2);

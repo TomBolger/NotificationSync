@@ -205,3 +205,11 @@ Bucket data:
 
 * `2` - (optional, uint8) `1` when this is a speculative prefetch. Phone sends details but must not mark the notification read.
 * `3` - (optional, uint8) `1` when the watch already has the details and only reports that the user saw the notification. Phone marks it read and sends nothing back.
+
+## Reliability update (protocol 11)
+
+The watch hello adds key 8 (uint16), its maximum UTF-8 body size. Emery and Gabbro advertise 8192 bytes;
+older watches retain their platform limits. The phone ellipsizes only at that negotiated limit.
+Phone packet 17 means notification-listener access is temporarily unavailable; it is not an empty shade.
+Detail and bucket-sync chunks are transmitted as indivisible batches. Receivers reject missing/mismatched
+text chunks and ignore duplicate continuations. A failed details request keeps its preview partial and retryable.

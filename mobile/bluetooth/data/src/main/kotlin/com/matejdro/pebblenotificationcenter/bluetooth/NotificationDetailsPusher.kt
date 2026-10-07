@@ -18,7 +18,7 @@ import com.matejdro.pebblenotificationcenter.notification.model.Action
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
-import dispatch.core.DefaultCoroutineScope
+import kotlinx.coroutines.CoroutineScope
 import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
 import io.rebble.pebblekit2.common.util.sizeInBytes
 import kotlinx.coroutines.CancellationException
@@ -37,7 +37,7 @@ class NotificationDetailsPusherImpl(
    private val notificationServiceController: NotificationServiceController,
    private val actionOrderRepository: ActionOrderRepository,
    private val drawableExtractor: DrawableExtractor,
-   private val scope: DefaultCoroutineScope,
+   private val scope: CoroutineScope,
    private val errorReporter: ErrorReporter,
    private val watchMetadata: WatchMetadata,
 ) : NotificationDetailsPusher {
@@ -96,7 +96,10 @@ class NotificationDetailsPusherImpl(
          val detailsPackets = createDetailsPackets(
             bucketId = bucketId,
             // Same text the summary was cut from (see watchBody), so the summary is an exact prefix of this.
-            bodyText = notification.systemData.watchBody().replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
+            bodyText = stringEncoder.encodeSizeLimited(
+               notification.systemData.watchBody().replaceUnsupportedPebbleEmoji().fixPebbleIndentation(),
+               watchMetadata.maxBodyTextBytes
+            ).encodedString.toString(Charsets.UTF_8),
             // A watch that shows the photo in the notification itself (like PebbleOS) has no use for "Show image".
             actions = if (watchMetadata.inlineNotificationImages) {
                notification.actions.filterNot { it is Action.ShowImage }
@@ -112,20 +115,13 @@ class NotificationDetailsPusherImpl(
                "(${detailsPackets.encodedActionCount}/${detailsPackets.totalActionCount} actions)"
          }
 
-         // Queue every chunk of this notification together. Waiting for each chunk separately let other
-         // details packets slip in between chunks, which the watch (assembling one message at a time) had to
-         // throw away.
          val priority = when (sendMode) {
             DetailsSendMode.SendAndWait -> PRIORITY_WATCH_TEXT
             DetailsSendMode.EnqueueOnly -> PRIORITY_PRELOAD_WATCH_TEXT
          }
-         val packets = detailsPackets.packets
-         for (packet in packets.dropLast(1)) {
-            queue.enqueuePacket(packet, priority = priority)
-         }
          when (sendMode) {
-            DetailsSendMode.SendAndWait -> queue.sendPacket(packets.last(), priority = priority)
-            DetailsSendMode.EnqueueOnly -> queue.enqueuePacket(packets.last(), priority = priority)
+            DetailsSendMode.SendAndWait -> queue.sendPackets(detailsPackets.packets, priority)
+            DetailsSendMode.EnqueueOnly -> queue.enqueuePackets(detailsPackets.packets, priority)
          }
 
          pushVibration(vibrationPattern)
@@ -345,7 +341,7 @@ class NotificationDetailsPusherImpl(
       iconBytes: ByteArray,
       maxPacketSize: Int,
    ): List<Map<UInt, PebbleDictionaryItem>> {
-      val bodyBytes = stringEncoder.encodeSizeLimited(bodyText, MAX_DETAIL_BODY_TEXT_BYTES).encodedString
+      val bodyBytes = stringEncoder.encodeSizeLimited(bodyText, watchMetadata.maxBodyTextBytes).encodedString
       val initialPayloadWithoutText = Buffer()
       initialPayloadWithoutText.writeUByte(bucketId.toUByte())
       initialPayloadWithoutText.writeUByte(1u) // Replaced with the final chunk count below.
@@ -493,7 +489,6 @@ private const val CONTINUATION_PAYLOAD_HEADER_BYTES = 3
 private const val NOTIFICATION_ICON_SIZE_PX = 32
 private const val MAX_ACTIONS_TO_SEND = 20
 private const val MAX_ACTIONS_TEXT_BYTES = 20
-private const val MAX_DETAIL_BODY_TEXT_BYTES = 3500
 private const val DETAIL_BODY_RESERVE_BYTES = 16
 
 interface NotificationDetailsPusher {

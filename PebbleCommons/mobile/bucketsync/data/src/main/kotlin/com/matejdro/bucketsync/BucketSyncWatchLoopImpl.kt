@@ -85,18 +85,8 @@ class BucketSyncWatchLoopImpl(
             logcat { "Extra packets: ${extraPackets.size}" }
 
             val firstPacket = helloPacketBase + (2u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()))
-            packetQueue.sendPacket(
-               firstPacket,
-               PRIORITY_SYNC
-            )
+            packetQueue.sendPackets(listOf(firstPacket) + extraPackets, PRIORITY_SYNC)
             watchappOpenController.resetNextWatchappOpen()
-
-            for (packet in extraPackets) {
-               packetQueue.sendPacket(
-                  packet,
-                  PRIORITY_SYNC
-               )
-            }
 
             watchVersion = initialUpdate.toVersion
             backgroundSyncNotifier.notifyWatchFullySynced(watch.value)
@@ -106,7 +96,7 @@ class BucketSyncWatchLoopImpl(
             watchVersion,
             bucketsyncBuffer,
             watchBufferSize,
-            currentlyActiveBuckets,
+            initialUpdate?.activeBuckets?.map { it.toUByte() } ?: currentlyActiveBuckets,
             maxActiveBuckets,
             onBucketsChanged
          )
@@ -146,20 +136,13 @@ class BucketSyncWatchLoopImpl(
 
          logcat { "Extra packets: ${extraPackets.size}" }
 
-         packetQueue.sendPacket(
-            mapOf(
+         packetQueue.sendPackets(
+            listOf(mapOf(
                0u to PebbleDictionaryItem.UInt8(2u),
                1u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()),
-            ),
+            )) + extraPackets,
             PRIORITY_SYNC
          )
-
-         for (packet in extraPackets) {
-            packetQueue.sendPacket(
-               packet,
-               PRIORITY_SYNC
-            )
-         }
 
          watchVersion = nextUpdate.toVersion
          backgroundSyncNotifier.notifyWatchFullySynced(watch.value)

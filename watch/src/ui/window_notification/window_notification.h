@@ -50,3 +50,5 @@ GColor window_notification_ui_get_primary_color();
 
 /** Bucket of the alert the user has not acknowledged yet (for periodic reminder vibration), or 0. */
 uint8_t window_notification_ui_unacknowledged_alert(void);
+
+void window_notification_ui_on_listener_unavailable(void);

@@ -24,6 +24,13 @@ jobs:
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
         with:
           packages: platform-tools
+      - name: Watch synchronization regression tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -DPBL_PLATFORM_EMERY -Iwatch/tests/stubs -Iwatch/src watch/tests/details_test.c PebbleCommons/watch/bytes.c -o /tmp/watch-details-test
+          /tmp/watch-details-test
+      - name: Android synchronization regression tests
+        run: ./gradlew :bluetooth-common:testDebugUnitTest :bucketsync:data:testDebugUnitTest :bluetooth:data:testDebugUnitTest :notification:data:testDebugUnitTest
+        working-directory: mobile
       - name: Build phone app
         run: ./gradlew assembleDebug
         working-directory: mobile
@@ -34,6 +41,19 @@ jobs:
       - name: Build watch app
         run: pebble build
         working-directory: watch
+      - name: Upload test results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: sync-test-results
+          path: '**/build/test-results/**/*.xml'
+      - name: Upload installable test builds
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: notification-sync-test-builds
+          path: |
+            mobile/app/build/outputs/apk/debug/*.apk
+            watch/build/watch.pbw
       - name: Publish downloads
         env:
           GH_TOKEN: ${{ github.token }}
