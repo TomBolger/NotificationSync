@@ -4,12 +4,15 @@ name: test-build
 on:
   push:
     branches: [ 'claude/**', 'main' ]
-    tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a release with this version tag (e.g. v2.2); notes come from .github/release-notes/<tag>.md'
+        required: false
 permissions:
   contents: write
 concurrency:
-  group: test-build-${{ github.ref }}
+  group: test-build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 jobs:
   build:
@@ -56,17 +59,18 @@ jobs:
             mobile/app/build/outputs/apk/debug/*.apk
             watch/build/watch.pbw
       - name: Publish release
-        if: github.ref_type == 'tag'
+        if: inputs.release != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release }}
         run: |
           mkdir -p rel
           cp "$(find mobile/app/build/outputs/apk/debug -name '*.apk' | head -1)" rel/NotificationSync.apk
           cp watch/build/watch.pbw rel/NotificationSync.pbw
-          gh release create "$GITHUB_REF_NAME" rel/* --verify-tag --latest \
-            --title "Notification Sync ${GITHUB_REF_NAME#v}" --notes-file ".github/release-notes/${GITHUB_REF_NAME}.md"
+          gh release create "$TAG" rel/* --target "$GITHUB_SHA" --latest \
+            --title "Notification Sync ${TAG#v}" --notes-file ".github/release-notes/${TAG}.md"
       - name: Publish downloads
-        if: github.ref_type != 'tag'
+        if: inputs.release == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
