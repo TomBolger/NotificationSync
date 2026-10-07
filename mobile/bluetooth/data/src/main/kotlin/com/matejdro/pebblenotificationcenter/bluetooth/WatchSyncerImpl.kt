@@ -261,7 +261,7 @@ internal fun ParsedNotification.watchBody(watchTitle: String = watchTitle()): St
    }
 
    val lines = body.lineSequence().toList()
-   if (lines.firstOrNull() != watchTitle) {
+   if (!body.contains('\n') || lines.firstOrNull() != watchTitle) {
       return body.removeSenderPrefix(watchTitle)
    }
 

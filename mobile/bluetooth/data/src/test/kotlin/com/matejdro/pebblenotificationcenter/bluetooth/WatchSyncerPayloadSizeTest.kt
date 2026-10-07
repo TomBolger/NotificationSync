@@ -91,6 +91,7 @@ class WatchSyncerPayloadSizeTest {
       val notification = ParsedNotification("key", "com.app", "Messages", "", "a".repeat(7000), Instant.EPOCH)
       notification.watchTitle() shouldBe "Messages"
       notification.watchBody() shouldBe notification.body
+      notification.copy(body = "Messages").watchBody() shouldBe "Messages"
       syncer.syncNotification(ProcessedNotification(notification), emptyPreferences())
       val update = repository.awaitNextUpdate(0u, emptyList())
       (update.activeBucketFlags.single().toInt() and 0x08) shouldBe 0

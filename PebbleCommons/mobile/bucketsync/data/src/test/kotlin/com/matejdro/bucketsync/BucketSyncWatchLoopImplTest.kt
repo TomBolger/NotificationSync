@@ -49,7 +49,7 @@ class BucketSyncWatchLoopImplTest {
       delay(3.seconds)
       sender.sentPackets.clear()
       bucketSyncRepository.updateBucket(1u, byteArrayOf(2))
-      runCurrent()
+      delay(1.seconds) // Repository updates are debounced before observers receive them.
       sender.sentData.single().getValue(0u) shouldBe PebbleDictionaryItem.UInt8(2u)
    }
 
