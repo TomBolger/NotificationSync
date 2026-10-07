@@ -43,6 +43,8 @@ class NotificationDetailsPusherImplTest {
 
    private val drawableExtractor = FakeDrawableExtractor()
 
+   private val watchMetadata = com.matejdro.pebble.bluetooth.WatchMetadata()
+
    private val notificationDetailsPusher = NotificationDetailsPusherImpl(
       packetQueue,
       notificationRepository,
@@ -51,7 +53,7 @@ class NotificationDetailsPusherImplTest {
       drawableExtractor,
       DefaultCoroutineScope(scope.backgroundScope.coroutineContext),
       {},
-      com.matejdro.pebble.bluetooth.WatchMetadata(),
+      watchMetadata,
    )
 
    @Test
@@ -926,6 +928,31 @@ class NotificationDetailsPusherImplTest {
       runCurrent()
 
       notificationRepository.nextVibration shouldBe intArrayOf(10, 10, 10, 10)
+   }
+
+   @Test
+   fun `Preserve a long paragraph without a sender subtitle across chunks`() = scope.runTest {
+      setup()
+      watchMetadata.maxBodyTextBytes = 8192
+      val body = "a".repeat(7000)
+      notificationRepository.putNotification(
+         12, ProcessedNotification(ParsedNotification("", "", "Messages", "", body, Instant.MIN))
+      )
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 1000, colorWatch = false)
+      runCurrent()
+      parseSentDetails(12).body shouldBe body
+   }
+
+   @Test
+   fun `Respect the watch body capacity when sending long details`() = scope.runTest {
+      setup()
+      watchMetadata.maxBodyTextBytes = 1800
+      notificationRepository.putNotification(
+         12, ProcessedNotification(ParsedNotification("", "", "Messages", "", "a".repeat(7000), Instant.MIN))
+      )
+      notificationDetailsPusher.pushNotificationDetails(bucketId = 12, maxPacketSize = 1000, colorWatch = false)
+      runCurrent()
+      parseSentDetails(12).body shouldBe "a".repeat(1797) + "..."
    }
 
    private fun parseDetailsPayload(payload: ByteArray, bucketId: Int): ParsedDetails {

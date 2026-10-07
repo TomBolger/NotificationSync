@@ -29,11 +29,12 @@ class BackgroundSyncNotifierImplTest {
    }
 
    @Test
-   fun `Start syncing when data changes`() = scope.runTest {
+   fun `Keep background opening disabled when data changes`() = scope.runTest {
       notifier.notifyWatchFullySynced("watch1")
       notifier.notifyDataChanged()
 
-      workController.startedBackgroundWork shouldBe true
+      workController.startedBackgroundWork shouldBe false
+      workController.cancelledBackgroundWork shouldBe true
    }
 
    @Test
@@ -61,14 +62,15 @@ class BackgroundSyncNotifierImplTest {
    }
 
    @Test
-   fun `Start syncing on the startup when there is changed data`() = scope.runTest {
+   fun `Keep background opening disabled on startup with changed data`() = scope.runTest {
       notifier.notifyWatchFullySynced("watch1")
       notifier.notifyDataChanged()
       workController.startedBackgroundWork = false
 
       notifier.notifyAppStarted()
 
-      workController.startedBackgroundWork shouldBe true
+      workController.startedBackgroundWork shouldBe false
+      workController.cancelledBackgroundWork shouldBe true
    }
 
    @Test

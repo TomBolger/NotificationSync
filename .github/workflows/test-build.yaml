@@ -29,7 +29,7 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -DPBL_PLATFORM_EMERY -Iwatch/tests/stubs -Iwatch/src watch/tests/details_test.c PebbleCommons/watch/bytes.c -o /tmp/watch-details-test
           /tmp/watch-details-test
       - name: Android synchronization regression tests
-        run: ./gradlew :bluetooth-common:testDebugUnitTest :bucketsync:data:testDebugUnitTest :bluetooth:data:testDebugUnitTest :notification:data:testDebugUnitTest
+        run: ./gradlew --continue :bluetooth-common:testDebugUnitTest :bucketsync:data:testDebugUnitTest :bluetooth:data:testDebugUnitTest :notification:data:testDebugUnitTest
         working-directory: mobile
       - name: Build phone app
         run: ./gradlew assembleDebug

@@ -243,7 +243,12 @@ private const val MAX_APP_NAME_TEXT_LENGTH = 24
 private const val MAX_TITLE_TEXT_LENGTH = 40
 
 internal fun ParsedNotification.watchTitle(): String {
-   return subtitle.ifBlank { body.lineSequence().firstOrNull().orEmpty() }
+   return subtitle.ifBlank {
+      // A short first line may be a sender header. A paragraph is message content and must remain in the body.
+      body.lineSequence().firstOrNull().orEmpty()
+         .takeIf { body.contains('\n') && it.length <= MAX_TITLE_TEXT_LENGTH }
+         ?: title
+   }
 }
 
 /**

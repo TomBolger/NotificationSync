@@ -66,6 +66,24 @@ int main(void)
     assert(notification_store_is_partial(2));
 
     reset_fixture();
+    notification_details_fetcher_fetch(2);
+    uint8_t long_first[3005] = {2,3,0,0,0};
+    uint8_t long_middle[3003] = {2,1,3};
+    uint8_t long_last[1003] = {2,2,3};
+    memset(long_first+5,'a',3000);
+    memset(long_middle+3,'b',3000);
+    memset(long_last+3,'c',1000);
+    notification_details_fetcher_on_text_received_v2(long_first,sizeof(long_first));
+    notification_details_fetcher_on_text_continuation_received(long_middle,sizeof(long_middle));
+    assert(notification_store_details(2)==NULL);
+    notification_details_fetcher_on_text_continuation_received(long_last,sizeof(long_last));
+    assert(strlen(notification_store_body(2))==7000);
+    assert(notification_store_body(2)[2999]=='a');
+    assert(notification_store_body(2)[3000]=='b');
+    assert(notification_store_body(2)[6000]=='c');
+    assert(!notification_store_is_partial(2));
+
+    reset_fixture();
     notification_details_fetcher_mark_read(2);
     assert(mark_read_count==1);
     read_callback(false);
