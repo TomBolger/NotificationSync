@@ -31,7 +31,7 @@ from libpebble2.services.appmessage import AppMessageService, ByteArray, Uint8, 
 from libpebble2.services.install import AppInstaller
 
 APP_UUID = uuidlib.UUID("1c5f3908-e3ea-419b-ae55-7f167ea8fafa")
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 
 QMP_KEYS = {"back": "left", "select": "right", "up": "up", "down": "down"}
 

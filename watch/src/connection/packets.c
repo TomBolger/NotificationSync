@@ -47,8 +47,20 @@ void packets_init()
 
 void send_watch_welcome()
 {
+    if (!connection_service_peek_pebble_app_connection())
+    {
+        // Reconnecting re-sends the hello; this is only a fallback.
+        schedule_welcome_retry(10000);
+        return;
+    }
+    if (is_currently_sending_data)
+    {
+        // Another message is on its way out: try again as soon as it has gone, not seconds later.
+        schedule_welcome_retry(250);
+        return;
+    }
+    // If the phone never answers, say hello again.
     schedule_welcome_retry(10000);
-    if (!connection_service_peek_pebble_app_connection() || is_currently_sending_data) return;
     const BucketList* active_buckets = bucket_sync_get_bucket_list();
     for (int i = 0; i < active_buckets->count; i++)
     {

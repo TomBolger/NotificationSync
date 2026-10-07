@@ -10,7 +10,10 @@
 #include "ui/window_notification/notification_store.h"
 
 #define QUEUE_SIZE 6
-#define REQUEST_TIMEOUT_MS 12000
+// How long to wait for the phone to start answering a details request, and then for each next chunk of a long
+// message. A lost request is retried after the first; a big transfer that keeps arriving is never cut short.
+#define REQUEST_TIMEOUT_MS 6000
+#define CHUNK_TIMEOUT_MS 12000
 #define SEND_RETRY_MS 250
 #define MAX_ATTEMPTS 3
 
@@ -455,7 +458,7 @@ void notification_details_fetcher_on_text_received_v2(const uint8_t* data, const
     if (has_in_flight && in_flight.bucket_id == bucket_id)
     {
         cancel_timer();
-        timer = app_timer_register(REQUEST_TIMEOUT_MS, on_timer, NULL);
+        timer = app_timer_register(CHUNK_TIMEOUT_MS, on_timer, NULL);
     }
     staging_body[0] = '\0';
     append_staging(&data[body_position], data_size - body_position);
@@ -482,7 +485,7 @@ void notification_details_fetcher_on_text_continuation_received(const uint8_t* d
     if (has_in_flight && in_flight.bucket_id == staging_bucket)
     {
         cancel_timer();
-        timer = app_timer_register(REQUEST_TIMEOUT_MS, on_timer, NULL);
+        timer = app_timer_register(CHUNK_TIMEOUT_MS, on_timer, NULL);
     }
     if (staging_next_chunk == staging_total_chunks)
     {
