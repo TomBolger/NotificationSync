@@ -176,13 +176,9 @@ private fun DefaultSettingsContent(
                onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.popUpOnWatch, it) },
             )
             GroupDivider()
-            SwitchRow(
-               title = stringResource(R.string.always_send_notifications),
-               description = "New apps are shown on the watch unless you turn them off.",
-               checked = preferences[RuleOption.masterSwitch] == MasterSwitch.SHOW,
-               onCheckedChange = { checked ->
-                  updatePreference(RuleOption.masterSwitch, if (checked) MasterSwitch.SHOW else MasterSwitch.MUTE)
-               },
+            DefaultStateRow(
+               selected = preferences[RuleOption.masterSwitch],
+               onSelect = { updatePreference(RuleOption.masterSwitch, it) },
             )
             GroupDivider()
             ValueRow(
@@ -438,6 +434,43 @@ private fun SwitchRow(
       },
       colors = ListItemDefaults.colors(containerColor = Color.Transparent),
       modifier = Modifier.clickable { onCheckedChange(!checked) },
+   )
+}
+
+@Composable
+private fun DefaultStateRow(
+   selected: MasterSwitch,
+   onSelect: (MasterSwitch) -> Unit,
+) {
+   val description = when (selected) {
+      MasterSwitch.SHOW -> "New apps buzz and show on the watch."
+      MasterSwitch.MUTE -> "New apps show on the watch without buzzing."
+      MasterSwitch.HIDE -> "New apps stay off the watch entirely."
+   }
+   ListItem(
+      headlineContent = { Text(stringResource(R.string.always_send_notifications)) },
+      supportingContent = {
+         Column {
+            Text("$description You can still change each app on the Apps screen.")
+            Row(
+               horizontalArrangement = Arrangement.spacedBy(8.dp),
+               modifier = Modifier.padding(top = 8.dp),
+            ) {
+               listOf(
+                  MasterSwitch.SHOW to R.string.shown,
+                  MasterSwitch.MUTE to R.string.silenced,
+                  MasterSwitch.HIDE to R.string.hidden,
+               ).forEach { (value, label) ->
+                  FilterChip(
+                     selected = selected == value,
+                     onClick = { onSelect(value) },
+                     label = { Text(stringResource(label)) },
+                  )
+               }
+            }
+         }
+      },
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
    )
 }
 
