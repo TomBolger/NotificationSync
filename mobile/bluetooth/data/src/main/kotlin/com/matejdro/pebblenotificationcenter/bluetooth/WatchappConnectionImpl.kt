@@ -58,6 +58,7 @@ class WatchappConnectionImpl(
 
    private var welcomeJob: Job? = null
    private var reInitRequestJob: Job? = null
+   private var lastWelcomeData: String? = null
 
    init {
       coroutineScope.launch {
@@ -82,7 +83,11 @@ class WatchappConnectionImpl(
                notificationRepository.markAsRead(data.requireUint(1u).toInt())
                return ReceiveResult.Ack
             }
-            if (watchMetadata.watchBufferSize > 0) {
+            if (watchMetadata.watchBufferSize <= 0) {
+               // This connection never got the watch's hello (the phone app restarted while the watch app stayed
+               // open). Ask for it now instead of leaving the watch waiting on details that never come.
+               requestReinitNow()
+            } else {
                // Key 2 marks a speculative prefetch: the user has not opened this notification yet, so it must
                // not be marked as read and must not consume the pending vibration.
                val prefetch = (data[2u] as? PebbleDictionaryItem.UInt32)?.value == 1u
@@ -129,6 +134,13 @@ class WatchappConnectionImpl(
 
    private fun processWatchWelcomePacket(data: PebbleDictionary): ReceiveResult {
       // ACK the inbound hello before doing listener recovery or waiting for outbound transfers.
+      if (welcomeJob?.isActive == true && data.fingerprint() == lastWelcomeData) {
+         // The watch repeated the same hello while the answer is still on its way (slow link). Restarting would
+         // throw that answer away and could keep the watch waiting forever.
+         logcat { "Repeated hello while answering; keeping the current answer" }
+         return ReceiveResult.Ack
+      }
+      lastWelcomeData = data.fingerprint()
       welcomeJob?.cancel()
       welcomeJob = coroutineScope.launch {
          try {
@@ -187,10 +199,12 @@ class WatchappConnectionImpl(
       watchMetadata.inlineNotificationImages = (flags and 0x02u) != 0u
 
       watchSyncer.updateWatchPayloadLimits(watchMetadata.watchBufferSize)
+      var listenerRetryDelay = 1.seconds
       while (!notificationServiceController.resyncActiveNotificationsNow()) {
          // Missing access is not an empty notification shade. Keep retrying without publishing a false empty list.
          packetQueue.sendPacket(mapOf(0u to UInt8(17u)))
-         delay(1.seconds)
+         delay(listenerRetryDelay)
+         listenerRetryDelay = (listenerRetryDelay * 2).coerceAtMost(10.seconds)
       }
       val resyncedLiveNotifications = true
       val phoneLaunchNotificationBucket =
@@ -308,6 +322,16 @@ class WatchappConnectionImpl(
       packetQueue.sendPacket(packet, priority = PRIORITY_VIBRATION)
    }
 
+   private fun requestReinitNow() {
+      if (reInitRequestJob?.isActive == true) {
+         return
+      }
+      reInitRequestJob = coroutineScope.launch {
+         logcat { "Watch asked for data before saying hello. Requesting a hello." }
+         packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(12u)), priority = PRIORITY_USER_INTERACTION)
+      }
+   }
+
    private fun sendReinitRequestAfterAWhile() {
       // If the phone only got briefly disconnected, it will lose all state on the phone, while the watch still thinks
       // it's connected. Send a re-init request packet to get the watch to re-establish the sync
@@ -336,7 +360,8 @@ class WatchappConnectionImpl(
 }
 
 internal const val PRIORITY_USER_INTERACTION = 2
-internal const val PRIORITY_PRELOAD_WATCH_TEXT = -1
+// Below the buzz: speculative preloads must never hold back the buzz of a new notification.
+internal const val PRIORITY_PRELOAD_WATCH_TEXT = -2
 internal const val PRIORITY_WATCH_TEXT = 1
 internal const val PACKET_RESET_WATCH_MIRROR: UByte = 15u
 private const val INITIAL_DETAIL_PRELOAD_COUNT = 5
@@ -345,6 +370,10 @@ private const val INITIAL_DETAIL_PRELOAD_COUNT = 5
 internal const val PRIORITY_VIBRATION = -1
 
 private val RE_INIT_REQUEST_WAIT = 2.seconds
+
+private fun PebbleDictionary.fingerprint(): String = entries.sortedBy { it.key }.joinToString { (key, value) ->
+   "$key=" + if (value is PebbleDictionaryItem.Bytes) value.value.contentToString() else value.toString()
+}
 
 private fun <K, V> mapOfNotNull(vararg pairs: Pair<K, V>?): Map<K, V> =
    pairs.filterNotNull().toMap()

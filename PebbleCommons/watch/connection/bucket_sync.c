@@ -147,7 +147,7 @@ void bucket_sync_init()
         buckets.count = 0;
     }
 
-    uint16_t written_protocol_version;
+    uint16_t written_protocol_version = 0;
     persist_read_data(
         FILE_PROTOCOL_VERSION,
         &written_protocol_version,
@@ -208,6 +208,13 @@ void bucket_sync_forget_buckets_from(const uint8_t first_bucket_id)
 
     buckets.count = retained_count;
     persist_write_data(FILE_BUCKET_LIST, buckets.data, buckets.count * sizeof(BucketMetadata));
+    // Whatever the phone sends next must be a full sync, not a diff against data that is now gone.
+    bucket_sync_current_version = 0;
+    persist_write_data(
+        FILE_BUCKET_SYNC_VERSION,
+        &bucket_sync_current_version,
+        sizeof(bucket_sync_current_version)
+    );
 
     void (*local_list_change_callback)() = list_change_callback;
     if (local_list_change_callback != NULL)
@@ -485,6 +492,18 @@ static void finish_failed_sync(void)
 {
     if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
     sync_timeout_timer = NULL;
+
+    // The bucket list was already replaced but some of its data never arrived. Ask for everything again on the
+    // next hello, or the phone assumes the missing buckets are here and they stay empty for good.
+    bucket_sync_current_version = 0;
+    persist_write_data(
+        FILE_BUCKET_SYNC_VERSION,
+        &bucket_sync_current_version,
+        sizeof(bucket_sync_current_version)
+    );
+
+    // Clear the flag before telling anyone, so listeners see the sync as finished.
+    bucket_sync_is_currently_syncing = false;
     bluetooth_request_reconnect();
     const bool had_pending_changes = pending_changed_count > 0 || pending_deleted_count > 0;
     dispatch_pending_bucket_changes();
@@ -497,7 +516,6 @@ static void finish_failed_sync(void)
         }
     }
 
-    bucket_sync_is_currently_syncing = false;
     void (*local_syncing_callback)() = syncing_status_callback;
     if (local_syncing_callback != NULL)
     {

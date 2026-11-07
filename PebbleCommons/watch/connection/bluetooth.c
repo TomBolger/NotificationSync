@@ -160,10 +160,16 @@ static void on_sending_failed(DictionaryIterator* iterator, const AppMessageResu
         }
         break;
     case APP_MSG_NOT_CONNECTED:
-    case APP_MSG_SEND_TIMEOUT:
         trigger_sending_finish_callbacks(false);
 
         on_connection_changed(false);
+        break;
+    case APP_MSG_SEND_TIMEOUT:
+        trigger_sending_finish_callbacks(false);
+
+        // A slow phone is not a lost phone: treating it as a disconnect paused detail requests and, on the next
+        // message, sent a second hello that restarted the phone's sync in the middle of a transfer.
+        on_connection_changed(connection_service_peek_pebble_app_connection());
         break;
     }
 }

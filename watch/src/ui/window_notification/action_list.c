@@ -1,4 +1,5 @@
 #include "action_list.h"
+#include <string.h>
 #include "../theme.h"
 
 #include <pebble.h>
@@ -436,28 +437,63 @@ void window_notification_action_select()
     });
 }
 
+#define ACTION_SEND_RETRY_MS 250
+#define ACTION_SEND_ATTEMPTS 8
+
+static AppTimer* action_retry_timer = NULL;
+static int action_attempts_left = 0;
+static char action_text[301];
+static bool action_has_text = false;
+
+static void try_send_action(void* context)
+{
+    (void)context;
+    action_retry_timer = NULL;
+    if (send_action_trigger(sent_notification_id, sent_action_id, sent_menu_id,
+                            action_has_text ? action_text : NULL))
+    {
+        bluetooth_register_sending_finish(on_sending_finished);
+        return;
+    }
+
+    // The outbox is often busy for a moment (a prefetch, a sync answer): try again shortly instead of failing.
+    if (--action_attempts_left > 0)
+    {
+        action_retry_timer = app_timer_register(ACTION_SEND_RETRY_MS, try_send_action, NULL);
+        return;
+    }
+
+    action_send_in_progress = false;
+    vibes_double_pulse();
+    if (action_menu != NULL)
+    {
+        action_menu_unfreeze(action_menu);
+    }
+}
+
 static void confirm_action(const uint8_t notification_id, const uint8_t action_id, const uint8_t menu_id, const char* text)
 {
     action_send_in_progress = true;
     sent_notification_id = notification_id;
     sent_action_id = action_id;
     sent_menu_id = menu_id;
-    if (!send_action_trigger(notification_id, action_id, menu_id, text))
+    action_has_text = text != NULL;
+    if (action_has_text)
     {
-        action_send_in_progress = false;
-        vibes_double_pulse();
-        if (action_menu != NULL)
-        {
-            action_menu_unfreeze(action_menu);
-        }
-        return;
+        strncpy(action_text, text, sizeof(action_text) - 1);
+        action_text[sizeof(action_text) - 1] = '\0';
     }
-
-    bluetooth_register_sending_finish(on_sending_finished);
     if (action_menu != NULL)
     {
         action_menu_freeze(action_menu);
     }
+    if (action_retry_timer != NULL)
+    {
+        app_timer_cancel(action_retry_timer);
+        action_retry_timer = NULL;
+    }
+    action_attempts_left = ACTION_SEND_ATTEMPTS;
+    try_send_action(NULL);
 }
 
 static void voice_callback(DictationSession* session, DictationSessionStatus status, char* transcription, void* context)

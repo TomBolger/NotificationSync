@@ -69,6 +69,22 @@ class WatchappConnectionsManagerImplTest {
    }
 
    @Test
+   fun `Keep the connection a message just created when the app opened event arrives late`() = scope.runTest {
+      connectionsManager.onMessageReceived(
+         WATCHAPP_UUID,
+         mapOf(1u to PebbleDictionaryItem.UInt32(1u)),
+         WatchIdentifier("Watch1")
+      )
+      val firstConnection = createdConnections.getValue("Watch1")
+
+      connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
+      runCurrent()
+
+      (createdConnections.getValue("Watch1") === firstConnection) shouldBe true
+      firstConnection.coroutineScope.coroutineContext.job.isActive shouldBe true
+   }
+
+   @Test
    fun `Cancel connections on app close`() = scope.runTest {
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch1"))
       connectionsManager.onAppOpened(WATCHAPP_UUID, WatchIdentifier("Watch2"))

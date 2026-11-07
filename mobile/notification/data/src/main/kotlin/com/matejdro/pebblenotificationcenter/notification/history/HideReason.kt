@@ -7,4 +7,5 @@ enum class HideReason {
    LOCAL_ONLY_NOTIFICATION,
    MEDIA_NOTIFICATION,
    PHONE_UNLOCKED,
+   APP_PAUSED,
 }

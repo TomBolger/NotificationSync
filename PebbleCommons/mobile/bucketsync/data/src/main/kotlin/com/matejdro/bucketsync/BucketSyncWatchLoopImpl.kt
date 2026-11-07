@@ -130,11 +130,20 @@ class BucketSyncWatchLoopImpl(
       var watchVersion = initialWatchVersion
 
       while (currentCoroutineContext().isActive) {
-         val nextUpdate = bucketSyncRepository.awaitNextUpdate(
-            watchVersion,
-            activeBuckets,
-            maxActiveBuckets
-         )
+         val nextUpdate = try {
+            bucketSyncRepository.awaitNextUpdate(
+               watchVersion,
+               activeBuckets,
+               maxActiveBuckets
+            )
+         } catch (e: CancellationException) {
+            throw e
+         } catch (e: Exception) {
+            // One failed read must not end the live mirror for the rest of the session.
+            logcat { "Waiting for the next update failed; retrying: $e" }
+            delay(1.seconds)
+            continue
+         }
          logcat {
             "Phone updated while the watchapp is open: " +
                "${nextUpdate.toVersion} | ${nextUpdate.bucketsToUpdate.map { it.id }}"
@@ -160,7 +169,14 @@ class BucketSyncWatchLoopImpl(
 
          watchVersion = nextUpdate.toVersion
          backgroundSyncNotifier.notifyWatchFullySynced(watch.value)
-         onBucketsChanged()
+         try {
+            onBucketsChanged()
+         } catch (e: CancellationException) {
+            throw e
+         } catch (e: Exception) {
+            // A failed follow-up (such as the buzz) must not stop later updates from reaching the watch.
+            logcat { "Post-sync step failed: $e" }
+         }
 
          activeBuckets = nextUpdate.activeBuckets.map { it.toUByte() }
       }

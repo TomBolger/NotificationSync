@@ -1,5 +1,6 @@
 package com.matejdro.pebblenotificationcenter.notification
 
+import android.content.ComponentName
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -16,6 +17,7 @@ import dev.zacsweers.metro.Inject
 import dispatch.core.DefaultCoroutineScope
 import io.rebble.pebblekit2.client.PebbleInfoRetriever
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -33,6 +35,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import logcat.logcat
 import si.inova.kotlinova.core.reporting.ErrorReporter
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 
 class NotificationService : NotificationListenerService() {
@@ -61,8 +64,16 @@ class NotificationService : NotificationListenerService() {
    private lateinit var watchOpenController: WatchappOpenController
 
    private val mutex = Mutex()
-   private val delayedResyncJobs = HashMap<String, Job>()
    private val events = Channel<ServiceEvent>(Channel.UNLIMITED)
+
+   // Posts Android delivered that the event loop has not applied yet, per key.
+   private val pendingPosts = ConcurrentHashMap<String, Int>()
+
+   // Keys posted during this session: only a key's first post schedules a reconcile.
+   private val seenKeys: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+   @Volatile
+   private var scheduledReconcile: Job? = null
 
    @Volatile
    private var bound = false
@@ -76,7 +87,11 @@ class NotificationService : NotificationListenerService() {
          .let { it as NotificationInject }
          .inject(this)
 
-      serviceScope = CoroutineScope(coroutineScope.coroutineContext + SupervisorJob(coroutineScope.coroutineContext[Job]))
+      serviceScope = CoroutineScope(
+         coroutineScope.coroutineContext +
+            SupervisorJob(coroutineScope.coroutineContext[Job]) +
+            CoroutineExceptionHandler { _, throwable -> errorReporter.report(throwable) }
+      )
       instance = this
 
       super.onCreate()
@@ -86,8 +101,6 @@ class NotificationService : NotificationListenerService() {
    override fun onDestroy() {
       logcat { "Stopping notification service" }
       serviceScope.cancel()
-      delayedResyncJobs.values.forEach { it.cancel() }
-      delayedResyncJobs.clear()
       events.close()
       instance = null
       bound = false
@@ -128,7 +141,15 @@ class NotificationService : NotificationListenerService() {
 
    override fun onNotificationPosted(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} posted" }
+      pendingPosts.merge(sbn.key, 1, Int::plus)
       events.trySend(ServiceEvent.Posted(sbn))
+   }
+
+   override fun onNotificationRankingUpdate(rankingMap: RankingMap) {
+      super.onNotificationRankingUpdate(rankingMap)
+      // Silencing a conversation, pausing an app (Digital Wellbeing) or a Do Not Disturb change arrives only as a
+      // ranking update, with no post or removal.
+      scheduleReconcile()
    }
 
    /**
@@ -142,25 +163,38 @@ class NotificationService : NotificationListenerService() {
             try {
                when (event) {
                   is ServiceEvent.Posted -> {
-                     val parsedSuccessfully = mutex.withLock {
-                        val parsed = parseNotification(event.sbn)
-                        if (parsed == null) {
-                           logcat { "Notification ${event.sbn.key} has no text. Skipping..." }
-                           false
-                        } else {
-                           notificationProcessor.onNotificationPosted(parsed)
-                           true
+                     try {
+                        mutex.withLock {
+                           val parsed = parseNotification(event.sbn)
+                           if (parsed == null) {
+                              logcat { "Notification ${event.sbn.key} has no text. Skipping..." }
+                              // An update that removed all text must not leave the old text on the watch.
+                              if (notificationProcessor.getNotificationByKey(event.sbn.key) != null) {
+                                 notificationProcessor.onNotificationDismissed(event.sbn.key)
+                              }
+                           } else {
+                              notificationProcessor.onNotificationPosted(parsed)
+                           }
                         }
+                     } finally {
+                        pendingPosts.computeIfPresent(event.sbn.key) { _, count -> (count - 1).takeIf { it > 0 } }
                      }
-                     if (parsedSuccessfully) {
-                        scheduleDelayedActiveNotificationResync(event.sbn.key)
+                     if (seenKeys.add(event.sbn.key)) {
+                        // A new notification can come with group changes elsewhere in the shade (a summary
+                        // replaced, siblings re-posted); one reconcile shortly after catches those.
+                        scheduleReconcile()
                      }
                   }
 
                   is ServiceEvent.Removed -> {
+                     seenKeys.remove(event.key)
                      mutex.withLock {
                         notificationProcessor.onNotificationDismissed(event.key)
                      }
+                  }
+
+                  is ServiceEvent.Reconcile -> {
+                     resyncActiveNotificationsNow()
                   }
                }
             } catch (e: CancellationException) {
@@ -183,7 +217,18 @@ class NotificationService : NotificationListenerService() {
    override fun onListenerDisconnected() {
       bound = false
       super.onListenerDisconnected()
+      // Some phones (Samsung, Xiaomi) unbind listeners in the background. Without this the mirror silently stops.
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+         try {
+            requestRebind(ComponentName(this, NotificationService::class.java))
+         } catch (e: SecurityException) {
+            errorReporter.report(e)
+         }
+      }
    }
+
+   val isListenerBound: Boolean
+      get() = bound
 
    private suspend fun parseNotification(sbn: StatusBarNotification): ParsedNotification? {
       val ranking = Ranking()
@@ -222,7 +267,21 @@ class NotificationService : NotificationListenerService() {
       }
 
       val parsedNotifications = currentNotifications.mapNotNull { sbn ->
-         val parsed = parseNotification(sbn)
+         val known = notificationProcessor.getNotificationByKey(sbn.key) != null
+         if (!known && (pendingPosts[sbn.key] ?: 0) > 0) {
+            // Android already lists it but its post is still queued. Let that post add it (with its buzz);
+            // adding it quietly here would turn the real post into a silent "identical" update.
+            return@mapNotNull null
+         }
+         val parsed = try {
+            parseNotification(sbn)
+         } catch (e: CancellationException) {
+            throw e
+         } catch (e: Exception) {
+            // One malformed notification must not stop the rest of the shade from being mirrored.
+            errorReporter.report(e)
+            null
+         }
          if (parsed == null) {
             logcat { "Notification ${sbn.key} has no text. Skipping..." }
          }
@@ -255,18 +314,20 @@ class NotificationService : NotificationListenerService() {
 
    override fun onNotificationRemoved(sbn: StatusBarNotification) {
       logcat { "Notification ${sbn.key} removed" }
-      delayedResyncJobs.remove(sbn.key)?.cancel()
       events.trySend(ServiceEvent.Removed(sbn.key))
    }
 
-   private fun scheduleDelayedActiveNotificationResync(key: String) {
-      delayedResyncJobs.remove(key)?.cancel()
-      delayedResyncJobs[key] = serviceScope.launch {
+   /**
+    * At most one reconcile is waiting at a time, so a notification that updates every second (navigation,
+    * downloads) cannot flood the watch with full resyncs. It runs in order with posts and removals.
+    */
+   private fun scheduleReconcile() {
+      if (scheduledReconcile?.isActive == true) {
+         return
+      }
+      scheduledReconcile = serviceScope.launch {
          delay(NOTIFICATION_STABILIZATION_DELAY)
-         mutex.withLock {
-            resyncActiveNotificationsLocked()
-         }
-         delayedResyncJobs.remove(key)
+         events.trySend(ServiceEvent.Reconcile)
       }
    }
 
@@ -352,6 +413,7 @@ class NotificationService : NotificationListenerService() {
 private sealed interface ServiceEvent {
    data class Posted(val sbn: StatusBarNotification) : ServiceEvent
    data class Removed(val key: String) : ServiceEvent
+   data object Reconcile : ServiceEvent
 }
 
 private const val CDM_WAIT_ATTEMPTS = 10

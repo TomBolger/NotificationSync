@@ -11,6 +11,11 @@ interface WatchSyncer {
 
    fun updateWatchPayloadLimits(watchBufferSize: Int)
 
+   /**
+    * Changes every time [clearAllNotifications] wipes the watch, so callers know their earlier syncs are gone.
+    */
+   val mirrorGeneration: Int get() = 0
+
    suspend fun clearAllNotifications()
    suspend fun clearNotification(key: String)
 

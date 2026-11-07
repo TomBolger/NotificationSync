@@ -317,6 +317,12 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
     const uint16_t phone_protocol_version = version != NULL ? version->value->uint16 : 0;
     if (phone_protocol_version != PROTOCOL_VERSION)
     {
+        // Saying hello again cannot fix this; it would only rebuild the error screen every 10 seconds.
+        if (welcome_retry_timer != NULL)
+        {
+            app_timer_cancel(welcome_retry_timer);
+            welcome_retry_timer = NULL;
+        }
         if (phone_protocol_version > PROTOCOL_VERSION)
         {
             window_status_show_error("Version mismatch\n\nPlease update watch app");

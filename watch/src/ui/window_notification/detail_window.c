@@ -1271,6 +1271,8 @@ static void window_load(Window* w)
 
 static void window_unload(Window* w)
 {
+    // A dismiss whose animation is cut short by leaving the window still has to happen.
+    const uint8_t interrupted_dismiss = anim_kind == AnimDismiss ? dismiss_bucket : 0;
     window_notification_action_list_hide();
     cancel_actions_wait();
     hold_cancel();
@@ -1300,6 +1302,10 @@ static void window_unload(Window* w)
     window = NULL;
     current_bucket = 0;
     window_notification_data.detail_open = false;
+    if (interrupted_dismiss != 0)
+    {
+        notification_store_hide(interrupted_dismiss);
+    }
     notification_store_pin(0);
 }
 

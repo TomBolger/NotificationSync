@@ -25,7 +25,10 @@ class FakeWatchSyncer : WatchSyncer {
       this.watchBufferSize = watchBufferSize
    }
 
+   override var mirrorGeneration: Int = 0
+
    override suspend fun clearAllNotifications() {
+      mirrorGeneration++
       clearAllCalled = true
       bucketIdsByKey.clear()
       onClearAllNotifications()

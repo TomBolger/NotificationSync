@@ -19,6 +19,8 @@
     <string name="reason_silent_notification">Silent notification</string>
     <string name="reason_dnd">Do not disturb on the phone active</string>
     <string name="reason_identical">Identical to the previous notification</string>
+    <string name="reason_alert_once">Update the app marked as not needing another alert</string>
+    <string name="reason_app_paused">App paused on the phone</string>
     <string name="reason_ongoing">Ongoing notification</string>
     <string name="reason_group_summary">Group summary notification</string>
     <string name="reason_local_only">Local only notification</string>

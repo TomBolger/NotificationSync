@@ -171,7 +171,12 @@ class WatchSyncerImpl(
       return flags
    }
 
+   @Volatile
+   override var mirrorGeneration: Int = 0
+      private set
+
    override suspend fun clearAllNotifications() {
+      mirrorGeneration++
       summaryCompleteByKey.clear()
       notificationImageStore.forgetAll()
       bucketSyncRepository.clearAllDynamic()

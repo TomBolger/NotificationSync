@@ -18,6 +18,20 @@ data class ParsedNotification(
     * When true, the phone has the do not disturb on and this notification would be filtered by it
     */
    val isFilteredByDoNotDisturb: Boolean = false,
+   /**
+    * When true, updates of this notification must not alert again (Notification.FLAG_ONLY_ALERT_ONCE).
+    */
+   val onlyAlertOnce: Boolean = false,
+   /**
+    * When true, the app's group alert behaviour keeps this notification quiet (its group alerts through another
+    * member).
+    */
+   val groupAlertSuppressed: Boolean = false,
+   val groupKey: String? = null,
+   /**
+    * When true, the app is paused (Digital Wellbeing, Focus mode) and the phone hides its notifications.
+    */
+   val isSuspended: Boolean = false,
    val nativeActions: List<NativeAction> = emptyList(),
    val channel: String? = null,
    val isOngoing: Boolean = false,

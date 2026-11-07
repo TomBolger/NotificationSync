@@ -153,10 +153,12 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     item->loaded = true;
 }
 
-// A mirror, not a store: what was saved on the watch last time is never shown. Notifications appear once the phone
-// has answered and finished syncing in this session; from then on every update comes straight through.
+// A mirror, not a store. Notifications become live once the phone has answered and finished syncing in this
+// session; from then on every update comes straight through. When the user opens the app and the phone is slow or
+// away, the list saved at the end of the last sync is shown meanwhile, marked as not up to date (show_saved).
 static bool phone_answered;
 static bool live;
+static bool show_saved;
 
 static void rebuild_items(void)
 {
@@ -166,7 +168,7 @@ static void rebuild_items(void)
     {
         live = true;
     }
-    if (!live)
+    if (!live && !show_saved)
     {
         return;
     }
@@ -526,6 +528,16 @@ void notification_store_on_phone_synced(void)
 bool notification_store_is_live(void)
 {
     return live;
+}
+
+void notification_store_show_saved(void)
+{
+    if (live || show_saved)
+    {
+        return;
+    }
+    show_saved = true;
+    on_bucket_list_changed();
 }
 
 void notification_store_set_listener(const StoreListener* new_listener)

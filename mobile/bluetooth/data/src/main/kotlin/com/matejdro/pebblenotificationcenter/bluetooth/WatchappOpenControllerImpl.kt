@@ -20,8 +20,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import logcat.logcat
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.minutes
 
 @Inject
 @SingleIn(AppScope::class)
@@ -36,8 +39,8 @@ class WatchappOpenControllerImpl(
    private var nextWatchappOpenForAutoSync: Boolean = false
    private var nextWatchappOpenNotificationBucket: Int? = null
    private var nextWatchappOpenForMirrorReset: Boolean = false
-   private val lastOpenedApps = HashMap<WatchIdentifier, UUID?>()
-   private val deferredOpenJobs = HashMap<WatchIdentifier, Job>()
+   private val lastOpenedApps = ConcurrentHashMap<WatchIdentifier, UUID>()
+   private val deferredOpenJobs = ConcurrentHashMap<WatchIdentifier, Job>()
 
    override fun isNextWatchappOpenForAutoSync(): Boolean {
       return nextWatchappOpenForAutoSync
@@ -91,10 +94,17 @@ class WatchappOpenControllerImpl(
       logcat { "Deferring watchapp open on $watchId until watch returns to a watchface. Active app: $activeApp" }
       deferredOpenJobs.remove(watchId)?.cancel()
       deferredOpenJobs[watchId] = defaultCoroutineScope.launch {
-         val watchface = pebbleInfoRetriever.getActiveApp(watchId)
-            .filter { it?.type == Watchapp.Type.WATCHFACE || it?.id == WATCHAPP_UUID }
-            .first()
+         // A notification that waited longer than this is old news: don't pop it up out of nowhere later.
+         val watchface = withTimeoutOrNull(DEFERRED_OPEN_TIMEOUT) {
+            pebbleInfoRetriever.getActiveApp(watchId)
+               .filter { it?.type == Watchapp.Type.WATCHFACE || it?.id == WATCHAPP_UUID }
+               .first()
+         }
          deferredOpenJobs.remove(watchId)
+         if (watchface == null) {
+            logcat { "Gave up waiting for the watchface on $watchId" }
+            return@launch
+         }
          openWatchappNow(watchId, watchface)
       }
    }
@@ -102,7 +112,7 @@ class WatchappOpenControllerImpl(
    private suspend fun openWatchappNow(watchId: WatchIdentifier, openedApp: Watchapp?) {
       val openedAppId = openedApp?.id
       if (openedAppId != WATCHAPP_UUID) {
-         lastOpenedApps[watchId] = openedAppId
+         if (openedAppId == null) lastOpenedApps.remove(watchId) else lastOpenedApps[watchId] = openedAppId
       }
 
       logcat { "Opening app on the $watchId, from ${openedApp ?: "null"}" }
@@ -120,3 +130,5 @@ class WatchappOpenControllerImpl(
       }
    }
 }
+
+private val DEFERRED_OPEN_TIMEOUT = 10.minutes

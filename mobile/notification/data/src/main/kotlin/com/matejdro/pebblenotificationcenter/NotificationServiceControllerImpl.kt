@@ -42,18 +42,23 @@ class NotificationServiceControllerImpl(private val context: Context) : Notifica
 
    override suspend fun resyncActiveNotificationsNow(): Boolean {
       val service = NotificationService.instance
-      if (service != null) {
+      if (service != null && service.isListenerBound) {
          return service.resyncActiveNotificationsNow()
       }
 
+      // Either the service is gone or Android disconnected the listener while keeping the service alive.
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-         NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
+         try {
+            NotificationListenerService.requestRebind(ComponentName(context, NotificationService::class.java))
+         } catch (e: SecurityException) {
+            logcat { "Rebind refused: $e" }
+         }
       }
 
       repeat(RESYNC_REBIND_WAIT_ATTEMPTS) {
          delay(RESYNC_REBIND_WAIT_INTERVAL)
          val reboundService = NotificationService.instance
-         if (reboundService != null) {
+         if (reboundService != null && reboundService.isListenerBound) {
             return reboundService.resyncActiveNotificationsNow()
          }
       }

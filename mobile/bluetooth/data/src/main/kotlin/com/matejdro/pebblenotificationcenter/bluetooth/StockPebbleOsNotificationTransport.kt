@@ -66,6 +66,15 @@ class StockPebbleOsNotificationTransport(
    private val utf8Encoder = LimitingStringEncoder()
    private val keysByUuid = ConcurrentHashMap<UUID, String>()
    private val uuidsByKey = ConcurrentHashMap<String, UUID>()
+   private val unknownDeletesSent = object : LinkedHashMap<String, Unit>() {
+      override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean = size > 200
+   }
+
+   /** @return true the first time a delete for this never-sent key is seen. */
+   private fun rememberUnknownDelete(key: String): Boolean = synchronized(unknownDeletesSent) {
+      unknownDeletesSent.put(key, Unit) == null
+   }
+
    private val _actions = MutableSharedFlow<StockNotificationAction>(extraBufferCapacity = 32)
 
    override val actions: SharedFlow<StockNotificationAction> = _actions
@@ -88,7 +97,12 @@ class StockPebbleOsNotificationTransport(
    }
 
    override suspend fun delete(key: String) {
-      val uuid = uuidsByKey.remove(key) ?: uuidForKey(key)
+      val knownUuid = uuidsByKey.remove(key)
+      if (knownUuid == null && !rememberUnknownDelete(key)) {
+         // Hidden notifications (ongoing, media...) are "deleted" on every update; one delete is enough.
+         return
+      }
+      val uuid = knownUuid ?: uuidForKey(key)
       keysByUuid.remove(uuid)
       bridge.send(byteArrayOf(CMD_DELETE) + uuid.toPebbleBytes())
    }

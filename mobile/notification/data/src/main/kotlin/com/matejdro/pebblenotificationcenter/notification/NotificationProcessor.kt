@@ -28,6 +28,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dispatch.core.DefaultCoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import logcat.logcat
@@ -51,7 +52,8 @@ class NotificationProcessor(
    private val androidVersion: Int,
 ) : NotificationRepository {
    private val notifications = ConcurrentHashMap<Int, ProcessedNotification>()
-   private val notificationIdsByKeys = HashMap<String, Int>()
+   private val notificationIdsByKeys = ConcurrentHashMap<String, Int>()
+   private val appliedSettings = ConcurrentHashMap<String, Pair<Preferences, Int>>()
 
    // Resyncs re-post every active notification (with suppressVibration). Those are not new notifications and
    // must not be written to history again, otherwise history fills with duplicates and the per-app counts on the
@@ -75,16 +77,28 @@ class NotificationProcessor(
       insert()
    }
 
-   private var nextVibration: AtomicReference<IntArray?> = AtomicReference(null)
+   private val nextVibration: AtomicReference<PendingVibration?> = AtomicReference(null)
 
    init {
       defaultScope.launch {
          watchSyncer.stockNotificationActions.collect { action ->
-            when (action) {
-               is StockNotificationAction.Dismiss -> {
-                  NotificationService.instance?.cancelNotification(action.key)
-                  onNotificationDismissed(action.key)
+            try {
+               when (action) {
+                  is StockNotificationAction.Dismiss -> {
+                     val service = NotificationService.instance
+                     if (service != null) {
+                        // Android reports the removal back through the listener, which then updates the mirror
+                        // in order with everything else. Ongoing notifications cannot be dismissed and stay.
+                        service.cancelNotification(action.key)
+                     } else {
+                        onNotificationDismissed(action.key)
+                     }
+                  }
                }
+            } catch (e: CancellationException) {
+               throw e
+            } catch (e: Exception) {
+               logcat { "Stock dismiss failed: $e" }
             }
          }
       }
@@ -94,6 +108,13 @@ class NotificationProcessor(
       val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
       val notification = parsedNotification.withRicherFieldsFrom(previousNotification?.systemData)
       val resolvedRules = ruleResolver.resolveRules(notification)
+      if (suppressVibration && previousNotification != null &&
+         appliedSettings[notification.key] == (resolvedRules.preferences to watchSyncer.mirrorGeneration) &&
+         previousNotification.systemData.isSameContentAs(notification, resolvedRules.preferences)
+      ) {
+         // A reconcile found this notification exactly as the watch already has it: nothing to send.
+         return
+      }
       val affectedRules = resolvedRules.involvedRules
       val settings = resolvedRules.preferences
       logcat { "Notification ${notification.key} rules: $affectedRules" }
@@ -127,20 +148,16 @@ class NotificationProcessor(
 
       val actions = processActions(notification, pauseStatus, settings)
 
+      val regexReplacedParsedNotification = notification.withRegexesReplaced(settings)
+
       val (muteReason, vibrationPattern) = getVibrationPattern(
          previousNotification,
-         notification,
+         // Compared with the stored copy, which already has the replacements applied.
+         regexReplacedParsedNotification,
          suppressVibration,
          settings,
          pauseStatusBeforeInsert,
          resolvedRules.hasExplicitShowRule,
-      )
-
-      val regexesToReplace = settings[RuleOption.regexReplacements]
-      val regexReplacedParsedNotification = notification.copy(
-         title = replaceRegexes(notification.title, regexesToReplace),
-         subtitle = replaceRegexes(notification.subtitle, regexesToReplace),
-         body = replaceRegexes(notification.body, regexesToReplace),
       )
 
       val initialProcessedNotification = ProcessedNotification(
@@ -170,11 +187,12 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[notification.key] = bucketId
+      appliedSettings[notification.key] = settings to watchSyncer.mirrorGeneration
       if (vibrationPattern != null && !usingStockPebbleOsNotifications() &&
          globalPreferenceStore.data.first()[GlobalPreferenceKeys.popUpOnWatch]
       ) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
-         nextVibration.set(vibrationPattern)
+         nextVibration.set(PendingVibration(vibrationPattern, bucketId, System.currentTimeMillis()))
          openController.setNextWatchappOpenNotificationBucket(bucketId)
          openController.openWatchapp()
       }
@@ -182,6 +200,34 @@ class NotificationProcessor(
       insertHistoryOnce(notification.key, suppressVibration) {
          historyInserter.insertHistoryEntry(regexReplacedParsedNotification, affectedRules, null, muteReason)
       }
+   }
+
+   private fun ParsedNotification.withRegexesReplaced(settings: Preferences): ParsedNotification {
+      val regexesToReplace = settings[RuleOption.regexReplacements]
+      return copy(
+         title = replaceRegexes(title, regexesToReplace),
+         subtitle = replaceRegexes(subtitle, regexesToReplace),
+         body = replaceRegexes(body, regexesToReplace),
+      )
+   }
+
+   /**
+    * `this` is the stored copy (replacements applied), [fresh] a new parse of the same notification.
+    */
+   private fun ParsedNotification.isSameContentAs(fresh: ParsedNotification, settings: Preferences): Boolean {
+      val replaced = fresh.withRegexesReplaced(settings)
+      return title == replaced.title &&
+         subtitle == replaced.subtitle &&
+         body == replaced.body &&
+         timestamp == replaced.timestamp &&
+         isSilent == replaced.isSilent &&
+         isFilteredByDoNotDisturb == replaced.isFilteredByDoNotDisturb &&
+         isSuspended == replaced.isSuspended &&
+         isOngoing == replaced.isOngoing &&
+         channel == replaced.channel &&
+         (largeImage == null) == (replaced.largeImage == null) &&
+         nativeActions.map { it.text to it.remoteInputResultKey } ==
+         replaced.nativeActions.map { it.text to it.remoteInputResultKey }
    }
 
    private fun ParsedNotification.withRicherFieldsFrom(previous: ParsedNotification?): ParsedNotification {
@@ -215,6 +261,12 @@ class NotificationProcessor(
       if (preferences[RuleOption.masterSwitch] == MasterSwitch.HIDE) {
          logcat { "Hiding: master switch is hidden" }
          return HideReason.MASTER_SWITCH
+      }
+
+      if (notification.isSuspended) {
+         // Paused by Digital Wellbeing or a Focus mode: the phone hides it from the shade, so the mirror does too.
+         logcat { "Hiding: app paused on the phone" }
+         return HideReason.APP_PAUSED
       }
 
       if (notification.isOngoing && preferences[RuleOption.hideOngoingNotifications]) {
@@ -299,6 +351,12 @@ class NotificationProcessor(
       if (notification.isFilteredByDoNotDisturb && preferences[RuleOption.muteDndNotifications]) {
          logcat { "Not vibrating: DND filter" }
          return MuteReason.DO_NOT_DISTURB to null
+      }
+
+      if (previousNotification != null && notification.onlyAlertOnce) {
+         // Android only alerts for the first post of these (live scores, delivery status, edited messages).
+         logcat { "Not vibrating: update of an alert-once notification" }
+         return MuteReason.ALERT_ONCE to null
       }
 
       val identicalText = previousNotification != null &&
@@ -419,6 +477,7 @@ class NotificationProcessor(
    }
 
    suspend fun onNotificationDismissed(key: String) {
+      appliedSettings.remove(key)
       val notificationId = notificationIdsByKeys.remove(key)
       if (notificationId != null) {
          val processedNotification = notifications.remove(notificationId)
@@ -453,6 +512,7 @@ class NotificationProcessor(
    suspend fun onNotificationsCleared() {
       notifications.clear()
       notificationIdsByKeys.clear()
+      appliedSettings.clear()
 
       watchSyncer.clearAllNotifications()
    }
@@ -470,16 +530,27 @@ class NotificationProcessor(
    }
 
    override fun pollNextVibration(): IntArray? {
-      return nextVibration.getAndSet(null)
+      return nextVibration.getAndSet(null)?.takeIf { it.isCurrent() }?.pattern
    }
 
    fun peekNextVibration(): IntArray? {
-      return nextVibration.get()
+      return nextVibration.get()?.takeIf { it.isCurrent() }?.pattern
    }
 
    override fun resetNextVibration(value: IntArray) {
-      nextVibration.compareAndSet(null, value)
+      nextVibration.compareAndSet(null, PendingVibration(value, null, System.currentTimeMillis()))
    }
+
+   /**
+    * A buzz that could not be delivered stays pending only while its notification is still there and recent;
+    * otherwise a later, unrelated update (or reconnect) would buzz for something old or already dismissed.
+    */
+   private fun PendingVibration.isCurrent(): Boolean {
+      val fresh = System.currentTimeMillis() - createdAtMillis < PENDING_VIBRATION_MAX_AGE_MILLIS
+      return fresh && (bucketId == null || notifications.containsKey(bucketId))
+   }
+
+   private class PendingVibration(val pattern: IntArray, val bucketId: Int?, val createdAtMillis: Long)
 
    override suspend fun markAsRead(bucketId: Int) {
       logcat { "Marking $bucketId as read" }
@@ -523,3 +594,4 @@ class NotificationProcessor(
 
 private const val DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY = false
 private const val MAX_HISTORY_LOGGED_KEYS = 500
+private const val PENDING_VIBRATION_MAX_AGE_MILLIS = 60_000L

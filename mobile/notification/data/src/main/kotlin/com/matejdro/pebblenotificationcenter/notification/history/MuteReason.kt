@@ -8,4 +8,5 @@ enum class MuteReason {
    SILENT_NOTIFICATION,
    DO_NOT_DISTURB,
    IDENTICAL_TEXT,
+   ALERT_ONCE,
 }

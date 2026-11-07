@@ -25,7 +25,12 @@ typedef enum
     SlotPending,
     SlotReady,
     SlotNone,
+    // The transfer failed (busy outbox, timeout): blank for now, asked again when the card next comes on screen.
+    SlotFailed,
 } SlotState;
+
+#define FAILED_RETRY_AFTER_S 5
+static time_t failed_at;
 
 static uint8_t slot_bucket;
 static uint8_t slot_aspect;
@@ -75,6 +80,10 @@ int16_t notification_image_band_height(const NotificationItem* item, const int16
 
 static bool slot_is(const NotificationItem* item)
 {
+    if (slot_state == SlotFailed && time(NULL) - failed_at >= FAILED_RETRY_AFTER_S)
+    {
+        return false;
+    }
     return item != NULL && slot_state != SlotEmpty && slot_bucket == item->bucket_id &&
         slot_aspect == item->image_aspect && slot_tag == item->image_tag;
 }
@@ -147,6 +156,10 @@ static void resolve(const SlotState state)
     cancel_timer(&retry_timer);
     cancel_timer(&timeout_timer);
     slot_state = state;
+    if (state == SlotFailed)
+    {
+        failed_at = time(NULL);
+    }
     if (state != SlotReady)
     {
         free_bitmap();
@@ -163,7 +176,7 @@ static void on_transfer_timeout(void* context)
     timeout_timer = NULL;
     if (slot_state == SlotPending)
     {
-        resolve(SlotNone);
+        resolve(SlotFailed);
     }
 }
 
@@ -193,7 +206,7 @@ static void try_send_request(void* context)
     }
     else
     {
-        resolve(SlotNone);
+        resolve(SlotFailed);
     }
 }
 

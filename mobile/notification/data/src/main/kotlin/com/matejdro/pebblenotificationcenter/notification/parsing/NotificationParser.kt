@@ -42,7 +42,7 @@ class NotificationParser(
          return null
       }
 
-      val (channelId, isSilent) = processChannel(notification, channel)
+      val (channelId, isSilent) = processChannel(notification, channel, ranking)
 
       val timestampMillis = if (NotificationCompat.getShowWhen(notification)) {
          notification.`when`
@@ -72,6 +72,10 @@ class NotificationParser(
          timestamp = Instant.ofEpochMilli(notification.parseMessagingStyleTimestamp() ?: timestampMillis),
          isSilent = isSilent,
          isFilteredByDoNotDisturb = ranking?.matchesInterruptionFilter() == false,
+         onlyAlertOnce = notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0,
+         groupAlertSuppressed = notification.isGroupAlertSuppressed(),
+         groupKey = notification.group,
+         isSuspended = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && ranking?.isSuspended == true,
          nativeActions = notification.parseActions(),
          channel = channelId,
          isOngoing = sbn.isOngoing,
@@ -123,29 +127,53 @@ class NotificationParser(
       return updatedSubtitle to updatedText
    }
 
-   private fun processChannel(notification: Notification, channel: Any?): Pair<String?, Boolean> {
-      val channelId: String?
-      val isSilentChannel: Boolean
+   /**
+    * Whether the phone itself would stay quiet for this notification.
+    *
+    * Android 8+: the effective importance from the ranking, which includes the user silencing a channel or a
+    * conversation ("Silent" on the notification), adaptive demotion and app defaults. Importance below DEFAULT
+    * never makes sound or vibrates, whatever the app asked for. Before Android 8: priority and the legacy
+    * sound/vibrate fields.
+    */
+   private fun processChannel(
+      notification: Notification,
+      channel: Any?,
+      ranking: NotificationListenerService.Ranking?,
+   ): Pair<String?, Boolean> {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
          val channelCast: NotificationChannel? = channel as? NotificationChannel
          val channelIdOnly: String? = channel as? String
+         val channelId = channelCast?.id ?: channelIdOnly ?: notification.channelId
 
-         channelId = channelCast?.id ?: channelIdOnly ?: notification.channelId
-         isSilentChannel = channelCast != null &&
-            channelCast.importance < NotificationManager.IMPORTANCE_DEFAULT &&
-            !channelCast.shouldVibrate()
-      } else {
-         channelId = null
-         isSilentChannel = true
+         val importance = ranking?.importance?.takeIf { it != NotificationManager.IMPORTANCE_UNSPECIFIED }
+            ?: channelCast?.importance?.takeIf { it != NotificationManager.IMPORTANCE_UNSPECIFIED }
+         return channelId to (importance != null && importance < NotificationManager.IMPORTANCE_DEFAULT)
       }
 
       @Suppress("DEPRECATION") // We still need to support legacy pre-channel notifications
-      val isSilent = isSilentChannel &&
+      val isSilent = notification.priority <= Notification.PRIORITY_LOW || (
          notification.vibrate == null &&
-         notification.sound == null &&
-         (notification.defaults and (NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)) == 0
+            notification.sound == null &&
+            (notification.defaults and (NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)) == 0
+         )
 
-      return channelId to isSilent
+      return null to isSilent
+   }
+
+   /**
+    * Android skips the alert of grouped notifications the app asked to keep quiet: children when the group alerts
+    * through its summary, and the summary when the group alerts through its children.
+    */
+   private fun Notification.isGroupAlertSuppressed(): Boolean {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || group == null) {
+         return false
+      }
+      val summary = flags and Notification.FLAG_GROUP_SUMMARY != 0
+      return when (groupAlertBehavior) {
+         Notification.GROUP_ALERT_SUMMARY -> !summary
+         Notification.GROUP_ALERT_CHILDREN -> summary
+         else -> false
+      }
    }
 
    private fun Notification.parseMessagingStyle(showChronologically: Boolean): Pair<Uri?, String?> {

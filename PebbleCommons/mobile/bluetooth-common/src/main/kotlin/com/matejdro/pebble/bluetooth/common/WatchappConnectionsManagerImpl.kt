@@ -41,7 +41,7 @@ class WatchappConnectionsManagerImpl(
       }
 
       val connection = synchronized(activeConnections) {
-         activeConnections[watch] ?: createConnection(watch)
+         activeConnections[watch] ?: createConnection(watch, createdByMessage = true)
       }
 
       return try {
@@ -62,7 +62,14 @@ class WatchappConnectionsManagerImpl(
       }
 
       synchronized(activeConnections) {
-         if (activeConnections.containsKey(watch)) {
+         val existing = activeConnections[watch]
+         if (existing != null) {
+            if (existing.createdByMessage && System.nanoTime() - existing.createdAtNanos < FRESH_CONNECTION_NANOS) {
+               // The watch's first message can overtake the "app opened" event. That connection was made for this
+               // very launch and may already be answering the hello; replacing it would cost the watch a retry.
+               logcat { "Connection for the $watch was just created for this launch, keeping it" }
+               return
+            }
             logcat { "Connection for the $watch is already opened, replacing stale connection" }
             activeConnections.remove(watch)?.scope?.cancel()
          }
@@ -71,7 +78,7 @@ class WatchappConnectionsManagerImpl(
       }
    }
 
-   private fun createConnection(watch: WatchIdentifier): ConnectionWrapper {
+   private fun createConnection(watch: WatchIdentifier, createdByMessage: Boolean = false): ConnectionWrapper {
       val newScope = CoroutineScope(
          defaultScope.coroutineContext +
             CoroutineExceptionHandler { _, throwable -> errorReporter.report(throwable) } +
@@ -79,7 +86,7 @@ class WatchappConnectionsManagerImpl(
       )
 
       val newConnection = connectionFactory.create(watch, newScope)
-      val wrapper = ConnectionWrapper(newConnection, newScope)
+      val wrapper = ConnectionWrapper(newConnection, newScope, System.nanoTime(), createdByMessage)
       activeConnections[watch] = wrapper
       return wrapper
    }
@@ -95,5 +102,9 @@ class WatchappConnectionsManagerImpl(
    private data class ConnectionWrapper(
       val connection: WatchAppConnection,
       val scope: CoroutineScope,
+      val createdAtNanos: Long,
+      val createdByMessage: Boolean,
    )
 }
+
+private const val FRESH_CONNECTION_NANOS = 3_000_000_000L

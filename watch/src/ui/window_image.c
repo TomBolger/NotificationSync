@@ -60,8 +60,14 @@ static void window_unload(Window* window)
 }
 
 
+static size_t bitmap_data_size = 0;
+
 void window_image_show(const uint8_t* image_data, const size_t length)
 {
+    if (length < 3)
+    {
+        return;
+    }
     const uint8_t flags = image_data[2];
     const bool first_packet = (flags & 0x01) != 0;
     const bool last_packet = (flags & 0x02) != 0;
@@ -69,6 +75,21 @@ void window_image_show(const uint8_t* image_data, const size_t length)
     if (first_packet)
     {
         bitmap_data_position = 0;
+
+        const size_t bitmap_size_bytes = read_uint16_from_byte_array(image_data, 0);
+        if (bitmap_data != NULL)
+        {
+            free(bitmap_data);
+            bitmap_data = NULL;
+        }
+        bitmap_data = malloc(bitmap_size_bytes);
+        bitmap_data_size = bitmap_data != NULL ? bitmap_size_bytes : 0;
+        if (bitmap_data == NULL)
+        {
+            // Not enough memory for this picture: say so instead of crashing.
+            vibes_double_pulse();
+            return;
+        }
 
         Window* window = window_create();
 
@@ -82,17 +103,22 @@ void window_image_show(const uint8_t* image_data, const size_t length)
         );
 
         window_stack_push(window, true);
+    }
 
-        const size_t bitmap_size_bytes = read_uint16_from_byte_array(image_data, 0);
-        if (bitmap_data != NULL)
-        {
-            free(bitmap_data);
-            bitmap_data = NULL;
-        }
-        bitmap_data = malloc(bitmap_size_bytes);
+    if (bitmap_data == NULL)
+    {
+        // A continuation without its first part (or after a failed allocation).
+        return;
     }
 
     const size_t png_data_length = length - 3;
+    if (bitmap_data_position + png_data_length > bitmap_data_size)
+    {
+        free(bitmap_data);
+        bitmap_data = NULL;
+        bitmap_data_size = 0;
+        return;
+    }
     memcpy(&bitmap_data[bitmap_data_position], &image_data[3], png_data_length);
     bitmap_data_position += png_data_length;
 
@@ -101,6 +127,7 @@ void window_image_show(const uint8_t* image_data, const size_t length)
         bitmap = gbitmap_create_from_png_data(bitmap_data, bitmap_data_position);
         free(bitmap_data);
         bitmap_data = NULL;
+        bitmap_data_size = 0;
         if (drawing_layer != NULL)
         {
             layer_mark_dirty(drawing_layer);

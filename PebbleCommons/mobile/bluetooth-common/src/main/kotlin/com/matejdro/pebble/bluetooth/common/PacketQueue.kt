@@ -180,5 +180,7 @@ class PacketQueue(
 private val START_RETRY_DELAY = 100.milliseconds
 
 private val MAX_RETRY_DELAY = 2_000.milliseconds
-private val SEND_TIMEOUT = 5_000.milliseconds
-private const val MAX_SEND_ATTEMPTS = 8
+// Longer than the Pebble app's own 10 s AppMessage timeout: giving up earlier put a second copy of the same
+// packet in flight while the first was still being delivered (double buzzes, busy retry storms).
+private val SEND_TIMEOUT = 12_000.milliseconds
+private const val MAX_SEND_ATTEMPTS = 5

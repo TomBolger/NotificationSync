@@ -53,6 +53,7 @@ class HistoryInserterImpl(
          MuteReason.SILENT_NOTIFICATION -> context.getString(R.string.reason_silent_notification)
          MuteReason.DO_NOT_DISTURB -> context.getString(R.string.reason_dnd)
          MuteReason.IDENTICAL_TEXT -> context.getString(R.string.reason_identical)
+         MuteReason.ALERT_ONCE -> context.getString(R.string.reason_alert_once)
       }
    }
 
@@ -64,6 +65,7 @@ class HistoryInserterImpl(
          HideReason.LOCAL_ONLY_NOTIFICATION -> context.getString(R.string.reason_local_only)
          HideReason.MEDIA_NOTIFICATION -> context.getString(R.string.reason_media)
          HideReason.PHONE_UNLOCKED -> context.getString(R.string.reason_phone_unlocked)
+         HideReason.APP_PAUSED -> context.getString(R.string.reason_app_paused)
       }
    }
 }
