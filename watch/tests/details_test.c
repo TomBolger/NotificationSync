@@ -7,6 +7,7 @@
 bool is_currently_sending_data;
 bool is_phone_connected = true;
 bool bucket_sync_is_currently_syncing;
+bool bucket_sync_last_sync_failed;
 bool close_after_sync;
 static AppTimer fake_timer;
 static void (*read_callback)(bool);
