@@ -237,7 +237,7 @@ class NotificationService : NotificationListenerService() {
       return notificationParser.parse(
          sbn,
          getFastNotificationChannel(sbn, ranking, hasRanking),
-         ranking,
+         ranking.takeIf { hasRanking },
          preferenceStore.data.first()[GlobalPreferenceKeys.showMessagingStyleChronologically]
       )
    }
@@ -266,11 +266,13 @@ class NotificationService : NotificationListenerService() {
          return false
       }
 
+      // Active on the phone but left out of this pass: they must not be mistaken for dismissed.
+      val skippedKeys = HashSet<String>()
       val parsedNotifications = currentNotifications.mapNotNull { sbn ->
-         val known = notificationProcessor.getNotificationByKey(sbn.key) != null
-         if (!known && (pendingPosts[sbn.key] ?: 0) > 0) {
-            // Android already lists it but its post is still queued. Let that post add it (with its buzz);
-            // adding it quietly here would turn the real post into a silent "identical" update.
+         if ((pendingPosts[sbn.key] ?: 0) > 0) {
+            // Android already lists this version but its post is still queued. Let that post apply it (with its
+            // buzz); applying it quietly here would turn the real post into a silent "identical" update.
+            skippedKeys += sbn.key
             return@mapNotNull null
          }
          val parsed = try {
@@ -280,6 +282,7 @@ class NotificationService : NotificationListenerService() {
          } catch (e: Exception) {
             // One malformed notification must not stop the rest of the shade from being mirrored.
             errorReporter.report(e)
+            skippedKeys += sbn.key
             null
          }
          if (parsed == null) {
@@ -289,7 +292,7 @@ class NotificationService : NotificationListenerService() {
          parsed
       }
 
-      notificationProcessor.onActiveNotificationsResynced(parsedNotifications)
+      notificationProcessor.onActiveNotificationsResynced(parsedNotifications, skippedKeys)
       return true
    }
 
@@ -321,6 +324,7 @@ class NotificationService : NotificationListenerService() {
     * At most one reconcile is waiting at a time, so a notification that updates every second (navigation,
     * downloads) cannot flood the watch with full resyncs. It runs in order with posts and removals.
     */
+   @Synchronized
    private fun scheduleReconcile() {
       if (scheduledReconcile?.isActive == true) {
          return
@@ -328,6 +332,26 @@ class NotificationService : NotificationListenerService() {
       scheduledReconcile = serviceScope.launch {
          delay(NOTIFICATION_STABILIZATION_DELAY)
          events.trySend(ServiceEvent.Reconcile)
+      }
+   }
+
+   /** @return true when Android still lists the notification and was asked to cancel it. */
+   fun cancelIfActive(key: String): Boolean {
+      val active = try {
+         activeNotifications.any { it.key == key }
+      } catch (e: SecurityException) {
+         errorReporter.report(e)
+         return false
+      }
+      if (!active) {
+         return false
+      }
+      return try {
+         cancelNotification(key)
+         true
+      } catch (e: SecurityException) {
+         errorReporter.report(e)
+         false
       }
    }
 

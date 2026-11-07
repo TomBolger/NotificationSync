@@ -383,8 +383,10 @@ static int16_t list_content_height(void)
 /** Round menus pad the content so the first and last rows can sit in the middle of the screen. */
 static int16_t list_top_padding(void)
 {
-    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT) / 2;
-    return padding > 0 ? padding : 0;
+    // Rows start below the "not up to date" header when it shows.
+    const int16_t header = showing_saved_list() ? STALE_HEADER_HEIGHT : 0;
+    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT - header) / 2;
+    return (padding > 0 ? padding : 0) + header;
 }
 
 static int16_t list_max_offset(void)

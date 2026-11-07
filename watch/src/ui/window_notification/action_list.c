@@ -2,6 +2,8 @@
 #include <string.h>
 #include "../theme.h"
 
+static AppTimer* action_retry_timer = NULL;
+
 #include <pebble.h>
 
 #include "window_notification.h"
@@ -287,6 +289,13 @@ void window_notification_action_list_init(const Window* window)
 
 void window_notification_action_list_deinit()
 {
+    if (action_retry_timer != NULL)
+    {
+        // Leaving the window abandons an action that has not gone out yet.
+        app_timer_cancel(action_retry_timer);
+        action_retry_timer = NULL;
+        action_send_in_progress = false;
+    }
     close_current_menu(false);
 
     if (action_menu != NULL)
@@ -440,7 +449,6 @@ void window_notification_action_select()
 #define ACTION_SEND_RETRY_MS 250
 #define ACTION_SEND_ATTEMPTS 8
 
-static AppTimer* action_retry_timer = NULL;
 static int action_attempts_left = 0;
 static char action_text[301];
 static bool action_has_text = false;

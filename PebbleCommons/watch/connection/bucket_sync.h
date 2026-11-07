@@ -22,6 +22,8 @@ BucketList;
 
 extern uint16_t bucket_sync_current_version;
 extern bool bucket_sync_is_currently_syncing;
+/** The last sync broke off before completing; a full resync has been requested. */
+extern bool bucket_sync_last_sync_failed;
 extern bool close_after_sync;
 
 void bucket_sync_init();

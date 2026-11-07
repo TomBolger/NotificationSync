@@ -86,13 +86,14 @@ class NotificationProcessor(
                when (action) {
                   is StockNotificationAction.Dismiss -> {
                      val service = NotificationService.instance
-                     if (service != null) {
-                        // Android reports the removal back through the listener, which then updates the mirror
-                        // in order with everything else. Ongoing notifications cannot be dismissed and stay.
-                        service.cancelNotification(action.key)
-                     } else {
+                     val cancelledOnPhone = service != null && service.isListenerBound &&
+                        service.cancelIfActive(action.key)
+                     if (!cancelledOnPhone) {
+                        // No listener to report the removal back, or it is already gone from the phone.
                         onNotificationDismissed(action.key)
                      }
+                     // Otherwise Android reports the removal through the listener, which updates the mirror in
+                     // order with everything else. Ongoing notifications cannot be dismissed and stay.
                   }
                }
             } catch (e: CancellationException) {
@@ -108,8 +109,10 @@ class NotificationProcessor(
       val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
       val notification = parsedNotification.withRicherFieldsFrom(previousNotification?.systemData)
       val resolvedRules = ruleResolver.resolveRules(notification)
+      // Read once, before syncing: a wipe that happens meanwhile must make the next reconcile send this again.
+      val mirrorGeneration = watchSyncer.mirrorGeneration
       if (suppressVibration && previousNotification != null &&
-         appliedSettings[notification.key] == (resolvedRules.preferences to watchSyncer.mirrorGeneration) &&
+         appliedSettings[notification.key] == (resolvedRules.preferences to mirrorGeneration) &&
          previousNotification.systemData.isSameContentAs(notification, resolvedRules.preferences)
       ) {
          // A reconcile found this notification exactly as the watch already has it: nothing to send.
@@ -187,7 +190,7 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[notification.key] = bucketId
-      appliedSettings[notification.key] = settings to watchSyncer.mirrorGeneration
+      appliedSettings[notification.key] = settings to mirrorGeneration
       if (vibrationPattern != null && !usingStockPebbleOsNotifications() &&
          globalPreferenceStore.data.first()[GlobalPreferenceKeys.popUpOnWatch]
       ) {
@@ -489,13 +492,16 @@ class NotificationProcessor(
       watchSyncer.clearNotification(key)
    }
 
-   suspend fun onActiveNotificationsResynced(activeNotifications: List<ParsedNotification>) {
-      if (activeNotifications.isEmpty()) {
+   suspend fun onActiveNotificationsResynced(
+      activeNotifications: List<ParsedNotification>,
+      skippedKeys: Set<String> = emptySet(),
+   ) {
+      if (activeNotifications.isEmpty() && skippedKeys.isEmpty()) {
          onNotificationsCleared()
          return
       }
 
-      val activeKeys = activeNotifications.mapTo(HashSet()) { it.key }
+      val activeKeys = activeNotifications.mapTo(HashSet()) { it.key } + skippedKeys
       val missingKeys = notificationIdsByKeys.keys
          .filterNot { it in activeKeys }
          .toList()

@@ -163,11 +163,17 @@ static bool show_saved;
 static void rebuild_items(void)
 {
     const BucketList* buckets = bucket_sync_get_bucket_list();
-    item_count = 0;
-    if (!live && phone_answered && !bucket_sync_is_currently_syncing)
+    if (!live && phone_answered && !bucket_sync_is_currently_syncing && !bucket_sync_last_sync_failed)
     {
         live = true;
     }
+    if (!live && show_saved && phone_answered)
+    {
+        // The phone's sync is replacing the saved list right now: keep showing the saved items as they were
+        // until it is complete, rather than a half-replaced list.
+        return;
+    }
+    item_count = 0;
     if (!live && !show_saved)
     {
         return;
@@ -532,8 +538,9 @@ bool notification_store_is_live(void)
 
 void notification_store_show_saved(void)
 {
-    if (live || show_saved)
+    if (live || show_saved || phone_answered)
     {
+        // Once the phone has answered, its live list is moments away.
         return;
     }
     show_saved = true;

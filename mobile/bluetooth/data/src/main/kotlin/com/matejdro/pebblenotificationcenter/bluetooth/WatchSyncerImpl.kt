@@ -71,9 +71,14 @@ class WatchSyncerImpl(
          return
       }
 
-      maxWatchSyncBucketPayloadBytes = (watchBufferSize - WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES)
+      val newLimit = (watchBufferSize - WATCH_SYNC_PACKET_OVERHEAD_RESERVE_BYTES)
          .coerceAtLeast(BASALT_SAFE_WATCH_SYNC_BUCKET_PAYLOAD_BYTES)
          .coerceAtMost(BucketSyncRepository.MAX_BUCKET_SIZE_BYTES)
+      if (newLimit != maxWatchSyncBucketPayloadBytes) {
+         // Summaries already encoded for the old limit must be encoded again by the next resync.
+         mirrorGeneration++
+      }
+      maxWatchSyncBucketPayloadBytes = newLimit
       logcat { "Watch summary payload limit: $maxWatchSyncBucketPayloadBytes bytes (buffer=$watchBufferSize)" }
    }
 

@@ -24,6 +24,7 @@ static void (*second_syncing_status_callback)() = NULL;
 
 static uint16_t bucket_sync_pending_next_version = 0;
 bool bucket_sync_is_currently_syncing = true;
+bool bucket_sync_last_sync_failed = false;
 bool close_after_sync = false;
 
 static void (*bucket_deleted_callback)(uint8_t) = NULL;
@@ -297,6 +298,7 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
         if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
         sync_timeout_timer = NULL;
         bucket_sync_is_currently_syncing = false;
+        bucket_sync_last_sync_failed = false;
         void (*local_syncing_callback)() = syncing_status_callback;
         if (local_syncing_callback != NULL)
         {
@@ -463,6 +465,7 @@ static void complete_sync(void)
     );
 
     bucket_sync_is_currently_syncing = false;
+    bucket_sync_last_sync_failed = false;
     void (*local_syncing_callback)() = syncing_status_callback;
     if (local_syncing_callback != NULL)
     {
@@ -502,8 +505,9 @@ static void finish_failed_sync(void)
         sizeof(bucket_sync_current_version)
     );
 
-    // Clear the flag before telling anyone, so listeners see the sync as finished.
+    // Clear the flag before telling anyone, so listeners see the sync as finished (but not as a good one).
     bucket_sync_is_currently_syncing = false;
+    bucket_sync_last_sync_failed = true;
     bluetooth_request_reconnect();
     const bool had_pending_changes = pending_changed_count > 0 || pending_deleted_count > 0;
     dispatch_pending_bucket_changes();
