@@ -1,4 +1,5 @@
 #include "window_notification.h"
+#include "../theme.h"
 
 #include <pebble.h>
 
@@ -243,7 +244,7 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
         box.origin.x += inset;
         GRect icon_rect = {.size = icon_size};
         grect_align(&icon_rect, &box, GAlignLeft, false);
-        gdraw_command_image_draw(ctx, icon, icon_rect.origin);
+        theme_draw_icon(ctx, icon, icon_rect.origin, menu_cell_layer_is_highlighted(cell_layer));
     }
 
     // PebbleOS: notifications with the generic icon are titled with the app name.
@@ -550,7 +551,7 @@ static void sync_list_selection(void)
 static void draw_unreachable_phone_icon(GContext* ctx, const GPoint center)
 {
     // A phone outline with a slash through it, drawn in the 2px stroke style of the PebbleOS system icons.
-    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, theme_fg());
     graphics_context_set_stroke_width(ctx, 3);
     const GRect phone = GRect(center.x - 13, center.y - 21, 26, 42);
     graphics_draw_round_rect(ctx, phone, 4);
@@ -583,7 +584,7 @@ static void draw_centered_message(GContext* ctx, const GRect bounds, const char*
         y += icon_height;
     }
 
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, theme_fg());
     graphics_draw_text(ctx, title, title_font, GRect(text_box.origin.x, y, text_box.size.w, title_height + 4),
                        GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     y += title_height + 4;
@@ -597,7 +598,7 @@ static void draw_centered_message(GContext* ctx, const GRect bounds, const char*
 static void empty_layer_update(Layer* layer, GContext* ctx)
 {
     const GRect bounds = layer_get_bounds(layer);
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     switch (phone_state)
@@ -663,8 +664,8 @@ void window_notification_ui_on_phone_answered(void)
 
 static void splash_layer_update(Layer* layer, GContext* ctx)
 {
-    // Plain white while the phone hands us the notification, so nothing flashes before the card appears.
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    // Plain background while the phone hands us the notification, so nothing flashes before the card appears.
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, layer_get_bounds(layer), 0, GCornerNone);
 }
 
@@ -1038,14 +1039,37 @@ static void on_details_changed(const uint8_t bucket_id)
 #define SETTINGS_TEXT_SIZE_INDEX 5
 #define SETTINGS_SENDER_WEIGHT_INDEX 6
 #define SETTINGS_MESSAGE_WEIGHT_INDEX 7
+#define SETTINGS_THEME_INDEX 8
+
+static void apply_list_colors(void)
+{
+    if (menu_layer == NULL)
+    {
+        return;
+    }
+    menu_layer_set_normal_colors(menu_layer, theme_bg(), theme_fg());
+    // Black and white watches highlight with the text colour: black in light mode, white in dark mode.
+    menu_layer_set_highlight_colors(menu_layer, PBL_IF_COLOR_ELSE(DEFAULT_LIST_HIGHLIGHT, theme_fg()),
+                                    PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()));
+    if (list_window != NULL)
+    {
+        window_set_background_color(list_window, theme_bg());
+    }
+    layer_mark_dirty(menu_layer_get_layer(menu_layer));
+    if (empty_layer != NULL)
+    {
+        layer_mark_dirty(empty_layer);
+    }
+}
 
 static void load_text_size(void)
 {
-    uint8_t config[SETTINGS_MESSAGE_WEIGHT_INDEX + 1];
+    uint8_t config[SETTINGS_THEME_INDEX + 1];
     memset(config, 0, sizeof(config));
     config[SETTINGS_TEXT_SIZE_INDEX] = CARD_TEXT_SIZE_DEFAULT;
     config[SETTINGS_SENDER_WEIGHT_INDEX] = 1;
     config[SETTINGS_MESSAGE_WEIGHT_INDEX] = 1;
+    config[SETTINGS_THEME_INDEX] = 0;
     const uint8_t size = bucket_sync_get_bucket_size(1);
     if (size > SETTINGS_TEXT_SIZE_INDEX)
     {
@@ -1053,6 +1077,8 @@ static void load_text_size(void)
     }
     card_set_text_style(config[SETTINGS_TEXT_SIZE_INDEX], config[SETTINGS_SENDER_WEIGHT_INDEX] != 0,
                         config[SETTINGS_MESSAGE_WEIGHT_INDEX] != 0);
+    theme_set_dark(config[SETTINGS_THEME_INDEX] == 1);
+    apply_list_colors();
     detail_window_on_style_changed();
 }
 
@@ -1083,8 +1109,7 @@ static void window_load(Window* window)
         .select_click = select_click,
         .selection_changed = selection_changed,
     });
-    menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
-    menu_layer_set_highlight_colors(menu_layer, PBL_IF_COLOR_ELSE(DEFAULT_LIST_HIGHLIGHT, GColorBlack), GColorWhite);
+    apply_list_colors();
     menu_layer_set_click_config_onto_window(menu_layer, window);
     layer_add_child(root, menu_layer_get_layer(menu_layer));
 
@@ -1158,7 +1183,7 @@ void window_notification_show()
     notification_image_set_listener(detail_window_on_image_changed);
     load_text_size();
 
-    window_set_background_color(list_window, GColorWhite);
+    window_set_background_color(list_window, theme_bg());
     window_set_window_handlers(list_window, (WindowHandlers){
         .load = window_load,
         .unload = window_unload,

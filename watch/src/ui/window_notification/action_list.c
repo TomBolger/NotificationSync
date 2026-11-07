@@ -1,4 +1,5 @@
 #include "action_list.h"
+#include "../theme.h"
 
 #include <pebble.h>
 
@@ -204,9 +205,9 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
         first_row = selected_action_index - visible_rows + 1;
     }
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, theme_fg());
     graphics_draw_text(ctx,
                        "Actions",
                        fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
@@ -226,13 +227,13 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
         const GRect row = GRect(0, header_height + (visible_index * row_height), bounds.size.w, row_height);
         if (action_index == selected_action_index)
         {
-            graphics_context_set_fill_color(ctx, GColorBlack);
+            graphics_context_set_fill_color(ctx, theme_fg());
             graphics_fill_rect(ctx, row, 0, GCornerNone);
-            graphics_context_set_text_color(ctx, GColorWhite);
+            graphics_context_set_text_color(ctx, theme_bg());
         }
         else
         {
-            graphics_context_set_text_color(ctx, GColorBlack);
+            graphics_context_set_text_color(ctx, theme_fg());
         }
 
         graphics_draw_text(ctx,

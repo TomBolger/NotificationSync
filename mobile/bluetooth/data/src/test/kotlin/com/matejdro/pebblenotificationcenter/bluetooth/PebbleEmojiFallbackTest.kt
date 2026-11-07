@@ -29,4 +29,9 @@ class PebbleEmojiFallbackTest {
    fun `Drop unsupported emoji modifiers`() {
       "thumb 👍🏻".replaceUnsupportedPebbleEmoji() shouldBe "thumb 👍"
    }
+
+   @Test
+   fun `Draw styled letters as plain letters`() {
+      "\uD835\uDC01\uD835\uDC28\uD835\uDC25\uD835\uDC1D ｗｉｄｅ \u210D \uD835\uDFCF".replaceUnsupportedPebbleEmoji() shouldBe "Bold wide H 1"
+   }
 }

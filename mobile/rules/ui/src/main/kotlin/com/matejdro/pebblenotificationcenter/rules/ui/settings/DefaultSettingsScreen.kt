@@ -228,6 +228,14 @@ private fun DefaultSettingsContent(
                onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchMessageBold, it) },
             )
             GroupDivider()
+            SwitchRow(
+               title = "Dark mode",
+               description = "White text on a black background, like PebbleOS dark mode. Turn it on to match " +
+                  "your watch if you use dark mode there.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchDarkMode],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchDarkMode, it) },
+            )
+            GroupDivider()
             NumberRow(
                title = stringResource(R.string.notification_timeout),
                description = stringResource(R.string.notification_timeout_description),

@@ -39,6 +39,9 @@ object GlobalPreferenceKeys {
    val watchSenderBold = BooleanPreferenceKeyWithDefault("watch_sender_bold", true)
    val watchMessageBold = BooleanPreferenceKeyWithDefault("watch_message_bold", true)
 
+   /** White text on black on the watch, like PebbleOS dark mode. */
+   val watchDarkMode = BooleanPreferenceKeyWithDefault("watch_dark_mode", false)
+
    /**
     * When off, the watchapp never buzzes or opens by itself: it is only a mirror of the shade, e.g. alongside
     * PebbleOS's own notifications from the Pebble app.

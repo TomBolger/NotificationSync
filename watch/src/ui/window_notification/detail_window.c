@@ -1,4 +1,5 @@
 #include "detail_window.h"
+#include "../theme.h"
 
 #include "action_list.h"
 #include "card.h"
@@ -249,9 +250,9 @@ static bool card_wants_arrow(const uint8_t bucket)
 static void draw_down_arrow(GContext* ctx, const int16_t y)
 {
     const int16_t width = PBL_DISPLAY_WIDTH;
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, GRect(0, y, width, CARD_ARROW_HEIGHT), 0, GCornerNone);
-    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_color(ctx, theme_fg());
     const int16_t center_x = width / 2;
     for (int16_t row = 0; row <= 5; row++)
     {
@@ -310,7 +311,7 @@ static void card_layer_update(Layer* layer, GContext* ctx)
 
     if (anim_kind == AnimDismiss)
     {
-        graphics_context_set_fill_color(ctx, GColorWhite);
+        graphics_context_set_fill_color(ctx, theme_bg());
         graphics_fill_rect(ctx, bounds, 0, GCornerNone);
         if (dismiss_sequence != NULL)
         {
@@ -325,7 +326,7 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         return;
     }
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
     if (current_bucket == 0)
@@ -370,7 +371,7 @@ static void action_dot_update(Layer* layer, GContext* ctx)
     // PebbleOS src/fw/applib/ui/action_button.c
     const GRect bounds = layer_get_bounds(layer);
     const int radius = 13;
-    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_context_set_fill_color(ctx, theme_fg());
     graphics_fill_circle(ctx, GPoint(bounds.size.w + radius - 5, bounds.size.h / 2), radius);
 }
 
@@ -1334,7 +1335,7 @@ void detail_window_open(const uint8_t bucket_id, const bool animated)
     invalidate_metrics();
     current_bucket = 0;
     window_notification_data.detail_open = true;
-    window_set_background_color(window, GColorWhite);
+    window_set_background_color(window, theme_bg());
     window_set_click_config_provider(window, click_config_provider);
     // Touch is handled by this window itself (finger-tracked scrolling), not by the system's button emulation.
     window_set_touch_bridge_disabled(window, true);
@@ -1526,6 +1527,7 @@ void detail_window_on_style_changed(void)
     {
         return;
     }
+    window_set_background_color(window, theme_bg());
     finish_animation();
     const int16_t max = max_scroll();
     if (offset > max)

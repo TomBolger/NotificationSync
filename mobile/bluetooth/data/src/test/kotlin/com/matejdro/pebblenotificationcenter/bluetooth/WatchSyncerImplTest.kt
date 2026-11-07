@@ -497,6 +497,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
+                  0, // Light theme
                )
             )
          )
@@ -528,6 +529,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
+                  0, // Light theme
                )
             )
          )
@@ -559,6 +561,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
+                  0, // Light theme
                )
             )
          )
@@ -590,6 +593,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
+                  0, // Light theme
                )
             )
          )
@@ -622,6 +626,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
+                  0, // Light theme
                )
             )
          )

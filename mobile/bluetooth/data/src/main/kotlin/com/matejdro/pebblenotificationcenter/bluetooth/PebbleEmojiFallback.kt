@@ -23,6 +23,7 @@ internal fun String.replaceUnsupportedPebbleEmoji(): String {
             codePoint.isPebbleSupportedEmoji() -> appendCodePoint(codePoint)
             codePoint.isRegionalIndicator() -> appendCodePoint(codePoint)
             codePoint == ZERO_WIDTH_JOINER -> Unit
+            codePoint.plainLatin() != codePoint -> appendCodePoint(codePoint.plainLatin())
             codePoint.isLikelyEmoji() -> append(codePoint.unsupportedEmojiShortcode())
             else -> append(input, index, index + charCount)
          }
@@ -47,6 +48,34 @@ internal fun Int.isPebbleSupportedEmoji(): Boolean {
       }
    }
    return false
+}
+
+/**
+ * Styled letters and digits (𝐛𝐨𝐥𝐝, 𝘪𝘵𝘢𝘭𝘪𝘤, ｆｕｌｌｗｉｄｔｈ, ℍ...) that names on messaging apps often use. No watch font has
+ * them; PebbleOS 4.45 draws them as plain letters. Doing the same here makes them readable on every firmware.
+ * Same mapping as PebbleOS applib/graphics/text_resources.c prv_plain_latin_codepoint.
+ */
+internal fun Int.plainLatin(): Int {
+   return when {
+      this in 0x1D400 until 0x1D6A4 -> {
+         val offset = (this - 0x1D400) % 52
+         if (offset < 26) 'A'.code + offset else 'a'.code + offset - 26
+      }
+      this in 0x1D7CE until 0x1D800 -> '0'.code + (this - 0x1D7CE) % 10
+      this in 0xFF01..0xFF5E -> this - 0xFF01 + '!'.code
+      this in 0x2100..0x2149 -> LETTERLIKE_LATIN[this - 0x2100].takeIf { it != 0 } ?: this
+      else -> this
+   }
+}
+
+private val LETTERLIKE_LATIN = IntArray(0x4A).apply {
+   mapOf(
+      0x02 to 'C', 0x0a to 'g', 0x0b to 'H', 0x0c to 'H', 0x0d to 'H', 0x0e to 'h', 0x10 to 'I', 0x11 to 'I',
+      0x12 to 'L', 0x13 to 'l', 0x15 to 'N', 0x19 to 'P', 0x1a to 'Q', 0x1b to 'R', 0x1c to 'R', 0x1d to 'R',
+      0x24 to 'Z', 0x28 to 'Z', 0x2a to 'K', 0x2b to 'Å', 0x2c to 'B', 0x2d to 'C', 0x2f to 'e', 0x30 to 'E',
+      0x31 to 'F', 0x33 to 'M', 0x34 to 'o', 0x39 to 'i', 0x45 to 'D', 0x46 to 'd', 0x47 to 'e', 0x48 to 'i',
+      0x49 to 'j',
+   ).forEach { (index, char) -> this[index] = char.code }
 }
 
 private fun Int.isRegionalIndicator(): Boolean = this in 0x1F1E6..0x1F1FF

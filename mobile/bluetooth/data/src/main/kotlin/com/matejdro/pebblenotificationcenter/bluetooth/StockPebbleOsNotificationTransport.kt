@@ -151,7 +151,10 @@ class StockPebbleOsNotificationTransport(
          writeIntLe(parsed.timestamp.epochSecond.toInt())
          writeShortLe(0)
          writeByte(TIMELINE_TYPE_NOTIFICATION)
-         writeShortLe(0)
+         // Flags, then status. Newer PebbleOS keeps items with the silent flag out of the popup, buzz and backlight
+         // (when the watch's "respect phone silence" setting is on), so quiet notifications stay quiet there too.
+         writeByte(if (notification.vibrated) 0 else TIMELINE_FLAG_SILENT)
+         writeByte(0)
          writeByte(LAYOUT_GENERIC_NOTIFICATION)
          writeShortLe(attrBytes.size + actionBytes.size)
          writeByte(attrs.size)
@@ -243,6 +246,7 @@ class StockPebbleOsNotificationTransport(
       private const val ATTR_VIBRATION_PATTERN = 0x31
 
       private const val TIMELINE_TYPE_NOTIFICATION = 1
+      private const val TIMELINE_FLAG_SILENT = 0x40
       private const val LAYOUT_GENERIC_NOTIFICATION = 4
       private const val ACTION_TYPE_GENERIC = 0x02
       private const val ACTION_TYPE_RESPONSE = 0x03

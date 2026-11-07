@@ -2,7 +2,7 @@
 
 1. EMU_DIR=<dir with <platform>/qemu images> QEMU=<qemu-system-arm> ./run_emulator.sh <platform>
    (images: the "emulator-images" release, built by .github/workflows/emulator-images.yaml)
-2. python screenshots.py <pbw> <platform> <outdir>     (platform: basalt, diorite, emery, flint, gabbro)
+2. python screenshots.py <pbw> <platform> <outdir> [dark]     (platform: basalt, diorite, emery, flint, gabbro)
 """
 import os, sys, time, random
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -10,6 +10,7 @@ from fakephone import FakePhone
 from PIL import Image, ImageDraw, ImageFilter
 
 pbw, platform, out = sys.argv[1], sys.argv[2], sys.argv[3]
+DARK = len(sys.argv) > 4 and sys.argv[4] == 'dark'
 os.makedirs(out, exist_ok=True)
 D = os.environ.get('EMU_DIR', '.')
 SIZE = {'emery': (200, 228), 'gabbro': (260, 260)}.get(platform, (144, 168))
@@ -34,6 +35,8 @@ def photo():
 
 p = FakePhone(qmp_socket=D + '/qmp.sock')
 p.connect()
+if DARK:
+    p.set_dark(True, sync=False)
 p.install(pbw)
 time.sleep(4)  # let a launch triggered by the install settle before navigating
 actions = ["Dismiss", "Reply", "Snooze", "Pause convo", "Pause app", "Open on phone"]
@@ -63,7 +66,7 @@ def shot(name):
     if platform in ('diorite', 'flint', 'aplite'):
         # Black and white screen: the emulator draws "white" as light grey.
         img = img.convert('L').point(lambda v: 255 if v > 100 else 0).convert('RGB')
-    img.save(os.path.join(out, f'{platform}_{name}.png'))
+    img.save(os.path.join(out, f'{platform}_{"dark_" if DARK else ""}{name}.png'))
     os.remove(raw)
 
 

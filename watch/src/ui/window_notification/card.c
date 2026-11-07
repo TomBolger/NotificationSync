@@ -1,4 +1,5 @@
 #include "card.h"
+#include "../theme.h"
 
 #include <stdlib.h>
 
@@ -360,7 +361,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
         return;
     }
 
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_context_set_fill_color(ctx, theme_bg());
     graphics_fill_rect(ctx, GRect(0, origin_y, width, metrics->total_height), 0, GCornerNone);
 
     graphics_context_set_fill_color(ctx, card_color_for_id(item != NULL ? item->color_id : 0));
@@ -423,7 +424,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
 
     const int16_t text_width = width - (CARD_MARGIN * 2);
     int16_t y = origin_y + top_height + HEADER_TOP_GAP;
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, theme_fg());
 
     if (y < screen_height && y + metrics->header_height > 0)
     {
@@ -445,7 +446,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
     {
         if (y < screen_height && y + metrics->footer_height > 0)
         {
-            graphics_context_set_text_color(ctx, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorBlack));
+            graphics_context_set_text_color(ctx, theme_secondary());
             graphics_draw_text(ctx, "...", body_font(), GRect(CARD_MARGIN, y, text_width, metrics->footer_height + 4),
                                GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
         }
