@@ -63,7 +63,7 @@ class PacketQueueTest {
       assertThrows<UnrecoverableWatchTransferException> {
          packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(1u)))
       }
-      sender.sentPackets.size shouldBe 5
+      sender.sentPackets.size shouldBe 8
       sender.sendingResult = TransmissionResult.Success
       packetQueue.sendPacket(mapOf(0u to PebbleDictionaryItem.UInt8(2u)))
       sender.sentPackets.last().data[0u] shouldBe PebbleDictionaryItem.UInt8(2u)
