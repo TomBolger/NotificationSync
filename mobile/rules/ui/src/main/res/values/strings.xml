@@ -154,10 +154,10 @@
     <string name="setting_defer_new_notifications_description">When enabled, new phone notifications are added to the top of the list without replacing the open notification if you pressed a watch button recently.</string>
     <string name="setting_new_notification_interaction_timeout">Current notification timeout</string>
     <string name="setting_new_notification_interaction_timeout_description">Seconds after a watch button press that a new notification should wait in the list instead of replacing the open notification. Set to 0 to always show the newest notification.</string>
-    <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
-    <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
-    <string name="setting_wait_for_watchface">Wait until watchface before opening</string>
-    <string name="setting_wait_for_watchface_description">When enabled, notifications wait until the watch returns to a watchface before opening Notification Sync.</string>
+    <string name="setting_skip_when_phone_unlocked">Quiet while phone is in use</string>
+    <string name="setting_skip_when_phone_unlocked_description">Mirror without buzzing while your phone is unlocked, since you\'re already looking at it.</string>
+    <string name="setting_wait_for_watchface">Wait until watchface</string>
+    <string name="setting_wait_for_watchface_description">Hold new notifications until you leave the app you\'re using on the watch, to avoid interrupting your watch app.</string>
     <string name="setting_stock_pebble_os_notifications">Use stock PebbleOS notifications</string>
     <string name="setting_stock_pebble_os_notifications_description">Experimental firmware mode. Sends notifications to the built-in PebbleOS notification list instead of opening the companion watch app.</string>
     <string name="advanced">Advanced</string>

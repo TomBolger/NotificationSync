@@ -41,7 +41,9 @@ class NotificationParser(
       showMessagingStyleChronologically: Boolean = false,
    ): ParsedNotification? {
       val notification = sbn.notification
-      val title = appNameProvider.getAppName(sbn.packageName)
+      val title = notification.extras.getString(NotificationConstants.KEY_TEST_APP_NAME)
+         ?.takeIf { sbn.packageName == context.packageName }
+         ?: appNameProvider.getAppName(sbn.packageName)
 
       val (imageUri, messagingStyleText) = notification.parseMessagingStyle(showMessagingStyleChronologically)
       val (subtitle, text) = parseSubtitleAndBody(notification, messagingStyleText)

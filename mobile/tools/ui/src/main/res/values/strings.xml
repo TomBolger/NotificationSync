@@ -1,24 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="permissions">Permissions</string>
-    <string name="version">Notification Center version %1$s</string>
+    <string name="version">Notification Sync %1$s</string>
+    <string name="tools_title">Tools</string>
+    <string name="save_logs_hint">If something goes wrong, tap Save logs and send the file to the developer.</string>
+    <string name="about_credits">Based on Notification Center 2 by Matej Drobnič. Open source under the Apache 2.0 license. No internet access, no tracking.</string>
     <string name="save_logs">Save logs</string>
     <string name="setting_action_order">Action order</string>
-    <string name="setting_action_order_description">Change order of the actions</string>
+    <string name="setting_action_order_description">Choose which actions come first on the watch, so the ones you use most are one press away.</string>
     <string name="setting_auto_close">Auto close</string>
     <string name="setting_auto_close_description">%1$d\n\nAuto close the notification popup after this many seconds. Pressing any
         button will stop the timer until the next notification. Set to 0 to disable.
     </string>
-    <string name="setting_messaging_style_chronological">Show chat messages chronologically</string>
-    <string name="setting_messaging_style_chronological_description">Display MessagingStyle conversation bodies oldest-first. When disabled,
-        newest messages are shown first to reduce scrolling.
-    </string>
-    <string name="setting_skip_when_phone_unlocked">Skip watch alerts while phone is unlocked</string>
-    <string name="setting_skip_when_phone_unlocked_description">When enabled, notifications received while the phone is unlocked are not sent to the watch and do not open the watch app.</string>
-    <string name="setting_wait_for_watchface">Wait until watchface before opening</string>
-    <string name="setting_wait_for_watchface_description">When enabled, notifications wait until the watch returns to a watchface before opening Notification Sync.</string>
-    <string name="setting_notify_on_reconnect">Open missed notifications on reconnect</string>
-    <string name="setting_notify_on_reconnect_description">If phone received any non-muted notifications during watch disconnect,
-        it will show them on the watch after it reconnects
-    </string>
+    <string name="setting_messaging_style_chronological">Oldest message first</string>
+    <string name="setting_messaging_style_chronological_description">Show chats in reading order. Off puts the newest message on top, so there\'s less scrolling.</string>
+    <string name="setting_skip_when_phone_unlocked">Quiet while phone is in use</string>
+    <string name="setting_skip_when_phone_unlocked_description">Mirror without buzzing while your phone is unlocked, since you\'re already looking at it.</string>
+    <string name="setting_wait_for_watchface">Wait until watchface</string>
+    <string name="setting_wait_for_watchface_description">Hold new notifications until you leave the app you\'re using on the watch, to avoid interrupting your watch app.</string>
+    <string name="setting_notify_on_reconnect">Catch up after reconnecting</string>
+    <string name="setting_notify_on_reconnect_description">If notifications arrived while the watch was disconnected, show them when it reconnects, so nothing slips by.</string>
 </resources>

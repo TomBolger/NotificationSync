@@ -433,10 +433,10 @@
     },
     "companionApp": {
       "android": {
-        "url": "https://github.com/matejdro/PebbleNotificationCenter2",
+        "url": "https://github.com/TomBolger/NotificationSync",
         "apps": [
           {
-            "package": "com.matejdro.pebblenotificationcenter2"
+            "package": "io.github.tombolger.notificationsync"
           }
         ]
       }

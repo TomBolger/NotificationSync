@@ -7,9 +7,7 @@
     <string name="delete">Delete</string>
 
     <string name="setting_mute_watch">Mute watch</string>
-    <string name="setting_mute_watch_description">When enabled, watch will not vibrate for any notifications</string>
+    <string name="setting_mute_watch_description">No buzzing on the watch at all. Notifications still arrive in the list.</string>
     <string name="setting_mute_phone">Mute phone</string>
-    <string name="setting_mute_phone_description">When enabled and the watch is connected, phone will not vibrate or make sounds
-        for any notifications
-    </string>
+    <string name="setting_mute_phone_description">While the watch is connected, the phone stays silent, so only your wrist buzzes.</string>
 </resources>

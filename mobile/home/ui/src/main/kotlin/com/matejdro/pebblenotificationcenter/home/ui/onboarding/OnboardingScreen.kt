@@ -138,8 +138,12 @@ private fun ColumnScope.OnboardingScrollContent(
    serviceStatus: NotificationServiceStatus,
    pebbleAndroidAppPicker: PebbleAndroidAppPicker,
 ) {
-   Text(stringResource(R.string.onboarding_title))
-   Text(stringResource(R.string.onboarding_intro))
+   Text(
+      stringResource(R.string.onboarding_title),
+      style = MaterialTheme.typography.headlineMedium,
+      modifier = Modifier.padding(top = 16.dp),
+   )
+   Text(stringResource(R.string.onboarding_intro), style = MaterialTheme.typography.bodyLarge)
 
    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       NotificationPermission()
@@ -151,6 +155,15 @@ private fun ColumnScope.OnboardingScrollContent(
    }
 
    PebblekitPermission(pebbleAndroidAppPicker)
+
+   val context = LocalContext.current
+   val privacyUrl = stringResource(R.string.privacy_policy_url)
+   TextButton(
+      onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(privacyUrl))) },
+      modifier = Modifier.padding(bottom = 8.dp),
+   ) {
+      Text(stringResource(R.string.privacy_policy))
+   }
 }
 
 @Composable
@@ -165,12 +178,12 @@ private fun NotificationPermission() {
       }
    }
 
-   Card(Modifier.fillMaxWidth()) {
+   Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
       Column(
-         Modifier.padding(8.dp),
-         verticalArrangement = Arrangement.spacedBy(8.dp)
+         Modifier.padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-         Text(stringResource(R.string.notifications_permission_title), style = MaterialTheme.typography.headlineSmall)
+         Text(stringResource(R.string.notifications_permission_title), style = MaterialTheme.typography.titleLarge)
          Text(stringResource(R.string.notification_permission_description))
 
          SinglePermissionButton(permissionState, rejectedPermission)
@@ -284,7 +297,7 @@ private fun NotificationAccessPermissionCompanion(
       )
    }
 
-   Card(Modifier.fillMaxWidth()) {
+   Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
       Column(
          Modifier.padding(16.dp),
          verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -293,7 +306,7 @@ private fun NotificationAccessPermissionCompanion(
          Text(stringResource(R.string.permission_notification_access_companion_description))
 
          when {
-            permissionGranted -> Text("✅")
+            permissionGranted -> GrantedLabel()
             paired -> Button(onClick = { openNotificationAccess() }) {
                Text(stringResource(R.string.permission_notification_access_open))
             }
@@ -324,16 +337,16 @@ private fun NotificationAccessPermissionLegacy(
       onPauseOrDispose { }
    }
 
-   Card(Modifier.fillMaxWidth()) {
+   Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
       Column(
-         Modifier.padding(8.dp),
-         verticalArrangement = Arrangement.spacedBy(8.dp)
+         Modifier.padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-         Text(stringResource(R.string.permission_notification_access_title), style = MaterialTheme.typography.headlineSmall)
+         Text(stringResource(R.string.permission_notification_access_title), style = MaterialTheme.typography.titleLarge)
          Text(stringResource(R.string.permission_notification_access_legacy_description))
 
          if (permissionGranted) {
-            Text("✅")
+            GrantedLabel()
          } else {
             Button(onClick = { serviceStatus.requestNotificationAccess() }) { Text(stringResource(grant)) }
          }
@@ -371,16 +384,16 @@ private fun PebblekitPermission(
       )
    }
 
-   Card(Modifier.fillMaxWidth()) {
+   Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
       Column(
-         Modifier.padding(8.dp),
-         verticalArrangement = Arrangement.spacedBy(8.dp)
+         Modifier.padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-         Text(stringResource(R.string.permission_pebble_app_access_title), style = MaterialTheme.typography.headlineSmall)
+         Text(stringResource(R.string.permission_pebble_app_access_title), style = MaterialTheme.typography.titleLarge)
          Text(stringResource(R.string.permission_pebble_app_access_description))
 
          if (permissionGranted) {
-            Text("✅")
+            GrantedLabel()
          } else {
             Button(onClick = { showGrantDialog = true }) { Text(stringResource(grant)) }
          }
@@ -396,7 +409,7 @@ private fun SinglePermissionButton(
    val context = LocalContext.current
 
    if (permissionState.status == PermissionStatus.Granted) {
-      Text("✅")
+      GrantedLabel()
    } else if (rejectedPermission) {
       Button(
          onClick = {
@@ -406,6 +419,11 @@ private fun SinglePermissionButton(
    } else {
       Button(onClick = { permissionState.launchPermissionRequest() }) { Text(stringResource(R.string.grant)) }
    }
+}
+
+@Composable
+private fun GrantedLabel() {
+   Text("✓ Allowed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
 }
 
 private fun openSystemPermissionSettings(context: Context) {
@@ -431,8 +449,8 @@ internal fun OnboardingContentPreview() {
 private fun OnboardingWholeListPreview() {
    PreviewTheme {
       Column(
-         Modifier.padding(8.dp),
-         verticalArrangement = Arrangement.spacedBy(8.dp)
+         Modifier.padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
          OnboardingScrollContent(FAKE_SERVICE_STATUS, FAKE_APP_PICKER)
       }

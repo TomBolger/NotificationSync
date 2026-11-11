@@ -79,7 +79,7 @@ class ToolsViewModel(
             zipOutputStream.addAllLogsToZip(logFolder, logsZipFile)
          }
 
-         FileProvider.getUriForFile(context, "com.matejdro.pebblenotificationcenter2.logs", logsZipFile)
+         FileProvider.getUriForFile(context, "${context.packageName}.logs", logsZipFile)
       }
 
       emit(Outcome.Success(zipUri))

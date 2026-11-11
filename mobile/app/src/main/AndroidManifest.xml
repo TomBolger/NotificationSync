@@ -13,8 +13,17 @@
     <uses-permission android:name="io.rebble.pebblekit2.permission.SEND_DATA_TO_WATCH" />
     <uses-permission android:name="io.rebble.pebblekit2.permission.READ_PROVIDER" />
 
-    <!-- To get names of all applications and to allow for rules -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+    <!--
+        To show app names and icons for the per-app rules. Google Play restricts QUERY_ALL_PACKAGES, so instead we only
+        ask to see apps that can be opened from the launcher, which covers every app that posts notifications people
+        care about.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <!-- Grant access to notifications -->
     <uses-feature android:name="android.software.companion_device_setup" />
@@ -61,7 +70,7 @@
 
         <provider
             android:name="com.matejdro.pebble.common.logging.LogFileProvider"
-            android:authorities="com.matejdro.pebblenotificationcenter2.logs"
+            android:authorities="${applicationId}.logs"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

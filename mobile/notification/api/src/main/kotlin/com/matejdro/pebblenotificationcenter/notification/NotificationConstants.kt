@@ -11,4 +11,10 @@ object NotificationConstants {
     * NC will vibrate with the provided pattern instead of a default one
     */
    const val KEY_VIBRATION_PATTERN: String = "com.matejdro.pebblenotificationcenter.VIBRATION_PATTERN"
+
+   /**
+    * Test notifications from Tools put an app name in this extra so the watch shows that app's icon and colour,
+    * as if the notification came from that app. Only honoured for notifications posted by this app.
+    */
+   const val KEY_TEST_APP_NAME: String = "com.matejdro.pebblenotificationcenter.TEST_APP_NAME"
 }

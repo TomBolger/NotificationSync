@@ -38,6 +38,28 @@ jobs:
       - name: Build phone app
         run: ./gradlew assembleDebug
         working-directory: mobile
+      - name: Build Google Play bundle
+        # Also checks that the shrunk (R8) release build still compiles. It is signed only when the upload key
+        # secrets exist (UPLOAD_KEYSTORE_BASE64, UPLOAD_KEYSTORE_PASSWORD, UPLOAD_KEY_ALIAS); see PLAY_STORE.md.
+        id: bundle
+        continue-on-error: true
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+        run: |
+          if [ -n "$UPLOAD_KEYSTORE_BASE64" ]; then
+            echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export RELEASE_KEYSTORE_PATH="$RUNNER_TEMP/upload.jks"
+          fi
+          ./gradlew bundleRelease
+        working-directory: mobile
+      - name: Upload Google Play bundle
+        if: steps.bundle.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: notification-sync-play-bundle
+          path: mobile/app/build/outputs/bundle/release/*.aab
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - name: Install Pebble SDK
         # Installation sometimes exits non-zero while still succeeding; the build below catches real failures.

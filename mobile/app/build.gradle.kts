@@ -15,7 +15,7 @@ android {
    }
 
    defaultConfig {
-      applicationId = "com.matejdro.pebblenotificationcenter2"
+      applicationId = "io.github.tombolger.notificationsync"
       targetSdk = 36
       versionCode = 5
       versionName = "2.3.0"
@@ -33,13 +33,12 @@ android {
       }
 
       create("release") {
-         // SHA1: D5:85:7B:28:10:D2:80:C6:47:34:66:64:90:33:04:14:41:A0:87:D6
-         // SHA256: 96:18:EB:20:0B:58:2A:B0:F9:0A:9C:48:19:24:36:A5:98:59:92:62:2D:5C:53:06:24:DA:0B:9E:D6:16:65:65
-
-         storeFile = File(rootDir, "keys/release.jks")
+         // Your own upload key for Google Play, never committed. Set these in the environment (or as GitHub secrets,
+         // see .github/workflows/test-build.yaml) to sign release builds; without them the release build is unsigned.
+         System.getenv("RELEASE_KEYSTORE_PATH")?.let { storeFile = File(it) }
          storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
-         keyAlias = "app"
-         keyPassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+         keyAlias = System.getenv("RELEASE_KEY_ALIAS") ?: "upload"
+         keyPassword = System.getenv("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
       }
    }
 
@@ -57,7 +56,9 @@ android {
             "proguard-rules.pro"
          )
 
-         signingConfig = signingConfigs.getByName("release")
+         if (System.getenv("RELEASE_KEYSTORE_PATH") != null) {
+            signingConfig = signingConfigs.getByName("release")
+         }
       }
    }
 

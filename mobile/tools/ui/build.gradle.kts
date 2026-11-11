@@ -28,4 +28,5 @@ dependencies {
    implementation(libs.androidx.datastore.preferences)
    implementation(libs.composePreference)
    implementation(libs.dispatch)
+   implementation(libs.logcat)
 }
