@@ -69,6 +69,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -129,6 +130,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
                ) +
 
                   // 21 'a' characters, followed by the ... and null
@@ -137,8 +139,8 @@ class WatchSyncerImplTest {
                   // 37 'b' characters, followed by the ... and null
                   ByteArray(37) { 'b'.code.toByte() } +
                   byteArrayOf(46, 46, 46, 0) +
-                  // 23 'c' characters, followed by the ...
-                  ByteArray(23) { 'c'.code.toByte() } +
+                  // 21 'c' characters, followed by the ...
+                  ByteArray(21) { 'c'.code.toByte() } +
                   byteArrayOf(46, 46, 46)
             )
          )
@@ -175,6 +177,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   97,
@@ -184,8 +187,8 @@ class WatchSyncerImplTest {
                   98,
                   0,
                ) +
-                  // 85 'c' characters, followed by the ...
-                  ByteArray(85) { 'c'.code.toByte() } +
+                  // 83 'c' characters, followed by the ...
+                  ByteArray(83) { 'c'.code.toByte() } +
                   byteArrayOf(46, 46, 46)
             )
          )
@@ -327,6 +330,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -458,6 +462,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   97,
@@ -498,6 +503,8 @@ class WatchSyncerImplTest {
                   1, // Bold sender
                   1, // Bold message
                   0, // Light theme
+                  1, // Group into sections
+                  1, // Stack app notifications
                )
             )
          )
@@ -530,6 +537,8 @@ class WatchSyncerImplTest {
                   1, // Bold sender
                   1, // Bold message
                   0, // Light theme
+                  1, // Group into sections
+                  1, // Stack app notifications
                )
             )
          )
@@ -562,6 +571,8 @@ class WatchSyncerImplTest {
                   1, // Bold sender
                   1, // Bold message
                   0, // Light theme
+                  1, // Group into sections
+                  1, // Stack app notifications
                )
             )
          )
@@ -594,6 +605,8 @@ class WatchSyncerImplTest {
                   1, // Bold sender
                   1, // Bold message
                   0, // Light theme
+                  1, // Group into sections
+                  1, // Stack app notifications
                )
             )
          )
@@ -627,6 +640,8 @@ class WatchSyncerImplTest {
                   1, // Bold sender
                   1, // Bold message
                   0, // Light theme
+                  1, // Group into sections
+                  1, // Stack app notifications
                )
             )
          )
@@ -668,6 +683,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -732,6 +748,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
@@ -798,6 +815,7 @@ class WatchSyncerImplTest {
 
                   // Icon, color, image aspect, image tag
                   0, 0, 0, 0,
+                  0, 0, // Section and category, stack
 
                   // UTF8 Bytes for the title, followed by null terminator
                   84,
