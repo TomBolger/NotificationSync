@@ -13,11 +13,9 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.rebble.pebblekit2.common.model.WatchIdentifier
 import io.rebble.pebblekit2.model.Watchapp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import si.inova.kotlinova.core.test.time.virtualTimeProvider
@@ -84,11 +82,8 @@ class WatchappOpenControllerImplTest {
       pebbleSender.startedApps.shouldBeEmpty()
 
       pebbleInfoRetriever.setActiveApp(WatchIdentifier("TheWatch"), Watchapp(watchface, "Watchface", Watchapp.Type.WATCHFACE))
-      withTimeout(1000) {
-         while (pebbleSender.startedApps.isEmpty()) {
-            delay(10)
-         }
-      }
+      // Let the waiting job see the watchface (no polling: that raced the scheduler and failed at random).
+      runCurrent()
 
       pebbleSender.startedApps.size shouldBe 1
       pebbleSender.startedApps.first().watchappUUID shouldBe WATCHAPP_UUID
