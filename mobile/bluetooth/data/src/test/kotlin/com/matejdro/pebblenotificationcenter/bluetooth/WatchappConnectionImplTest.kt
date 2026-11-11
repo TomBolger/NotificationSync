@@ -149,8 +149,8 @@ class WatchappConnectionImplTest {
                   0, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                )
             ),
@@ -186,7 +186,7 @@ class WatchappConnectionImplTest {
                   1, // Status
                   0, 1, // Latest version
                   1, // Num of active buckets
-                  8, 0, // Metadata for bucket 8
+                  8, -128, // Metadata for bucket 8, data follows
                   8, 1, 9, // Sync data for bucket 8
                )
             ),

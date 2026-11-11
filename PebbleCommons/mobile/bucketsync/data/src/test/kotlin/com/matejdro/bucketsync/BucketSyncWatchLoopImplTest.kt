@@ -224,8 +224,8 @@ class BucketSyncWatchLoopImplTest {
                   2, // Num of active buckets
                   1, -128, // Metadata for bucket 1, data follows
                   2, -128, // Metadata for bucket 2, data follows
+                  1, 1, 1, // Sync data for bucket 1 (list order)
                   2, 1, 2, // Sync data for bucket 2
-                  1, 1, 1, // Sync data for bucket 1
                )
             ),
          )
