@@ -13,9 +13,13 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.rebble.pebblekit2.common.model.WatchIdentifier
 import io.rebble.pebblekit2.model.Watchapp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import si.inova.kotlinova.core.test.time.virtualTimeProvider
@@ -82,8 +86,15 @@ class WatchappOpenControllerImplTest {
       pebbleSender.startedApps.shouldBeEmpty()
 
       pebbleInfoRetriever.setActiveApp(WatchIdentifier("TheWatch"), Watchapp(watchface, "Watchface", Watchapp.Type.WATCHFACE))
-      // Let the waiting job see the watchface (no polling: that raced the scheduler and failed at random).
-      runCurrent()
+      // The waiting job runs on a real background thread, so give it real time (a busy CI machine needed more than
+      // the instant virtual second this used to allow).
+      withContext(Dispatchers.Default) {
+         withTimeout(REAL_WAIT_MS) {
+            while (pebbleSender.startedApps.isEmpty()) {
+               delay(REAL_POLL_MS)
+            }
+         }
+      }
 
       pebbleSender.startedApps.size shouldBe 1
       pebbleSender.startedApps.first().watchappUUID shouldBe WATCHAPP_UUID
@@ -168,3 +179,6 @@ class WatchappOpenControllerImplTest {
       pebbleSender.stoppedApps.shouldBeEmpty()
    }
 }
+
+private const val REAL_WAIT_MS = 5_000L
+private const val REAL_POLL_MS = 10L
