@@ -153,12 +153,28 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     item->loaded = true;
 }
 
-// A mirror, not a store. Notifications become live once the phone has answered and finished syncing in this
-// session; from then on every update comes straight through. When the user opens the app and the phone is slow or
-// away, the list saved at the end of the last sync is shown meanwhile, marked as not up to date (show_saved).
+// A mirror, not a store: what was saved on the watch last time is never shown as such. Once the phone answers,
+// its first sync lists the current notifications in order and says which of them still have data on the way;
+// the list fills from the top as that data arrives (everything else the watch holds is confirmed current), and
+// rows never disappear or reorder while filling. After that sync every update comes straight through.
 static bool phone_answered;
 static bool live;
-static bool show_saved;
+
+// Buckets already on screen during the first fill. They stay, even if a retried sync sends them again.
+static uint8_t shown_ids[STORE_MAX_ITEMS];
+static uint8_t shown_count;
+
+static bool was_shown(const uint8_t id)
+{
+    for (int i = 0; i < shown_count; i++)
+    {
+        if (shown_ids[i] == id)
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 static void rebuild_items(void)
 {
@@ -167,25 +183,44 @@ static void rebuild_items(void)
     {
         live = true;
     }
-    if (!live && show_saved && phone_answered)
-    {
-        // The phone's sync is replacing the saved list right now: keep showing the saved items as they were
-        // until it is complete, rather than a half-replaced list.
-        return;
-    }
     item_count = 0;
-    if (!live && !show_saved)
+    if (!live && !phone_answered)
     {
         return;
     }
     for (int i = 0; i < buckets->count && item_count < STORE_MAX_ITEMS; i++)
     {
-        if (buckets->data[i].id == SETTINGS_BUCKET_ID || is_hidden(buckets->data[i].id))
+        const uint8_t id = buckets->data[i].id;
+        if (id == SETTINGS_BUCKET_ID || is_hidden(id))
         {
             continue;
         }
+        if (!live && bucket_sync_is_bucket_awaited(id) && !was_shown(id))
+        {
+            // First fill: stop at the first row whose current data hasn't arrived; more fill in below.
+            break;
+        }
 
-        parse_item(buckets->data[i], &items[item_count++]);
+        parse_item(buckets->data[i], &items[item_count]);
+        if (!live && !items[item_count].loaded)
+        {
+            break;
+        }
+        if (!live && !was_shown(id) && shown_count < STORE_MAX_ITEMS)
+        {
+            shown_ids[shown_count++] = id;
+        }
+        item_count++;
+    }
+}
+
+static void on_bucket_list_changed(void);
+
+static void on_sync_progress(void)
+{
+    if (!live && phone_answered)
+    {
+        on_bucket_list_changed();
     }
 }
 
@@ -499,6 +534,7 @@ void notification_store_init(void)
     bucket_sync_set_bucket_list_change_callback(on_bucket_list_changed);
     bucket_sync_set_bucket_data_change_callback(on_bucket_data_changed, NULL);
     bucket_sync_register_bucket_deleted_callback(on_bucket_deleted);
+    bucket_sync_set_progress_callback(on_sync_progress);
     rebuild_items();
 }
 
@@ -534,17 +570,6 @@ void notification_store_on_phone_synced(void)
 bool notification_store_is_live(void)
 {
     return live;
-}
-
-void notification_store_show_saved(void)
-{
-    if (live || show_saved || phone_answered)
-    {
-        // Once the phone has answered, its live list is moments away.
-        return;
-    }
-    show_saved = true;
-    on_bucket_list_changed();
 }
 
 void notification_store_set_listener(const StoreListener* new_listener)

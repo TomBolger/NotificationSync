@@ -24,6 +24,12 @@ extern uint16_t bucket_sync_current_version;
 extern bool bucket_sync_is_currently_syncing;
 /** The last sync broke off before completing; a full resync has been requested. */
 extern bool bucket_sync_last_sync_failed;
+
+/** During a sync: this listed bucket's data has not arrived yet (it is part of this sync). */
+bool bucket_sync_is_bucket_awaited(uint8_t id);
+
+/** Called after each sync packet's data is stored while the sync is still going (data arrives top first). */
+void bucket_sync_set_progress_callback(void (*callback)(void));
 extern bool close_after_sync;
 
 void bucket_sync_init();

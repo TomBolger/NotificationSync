@@ -74,9 +74,6 @@ void notification_store_on_phone_synced(void);
 void notification_store_on_details_unavailable(uint8_t bucket_id);
 /** True once notifications come from this session's sync (never from what was saved last time). */
 bool notification_store_is_live(void);
-
-/** Until the phone has synced, list what was saved last time (the list marks it as not up to date). */
-void notification_store_show_saved(void);
 void notification_store_set_settings_listener(void (*listener)(void));
 
 uint8_t notification_store_count(void);

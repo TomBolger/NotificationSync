@@ -31,7 +31,7 @@ from libpebble2.services.appmessage import AppMessageService, ByteArray, Uint8, 
 from libpebble2.services.install import AppInstaller
 
 APP_UUID = uuidlib.UUID("1c5f3908-e3ea-419b-ae55-7f167ea8fafa")
-PROTOCOL_VERSION = 11
+PROTOCOL_VERSION = 12
 
 QMP_KEYS = {"back": "left", "select": "right", "up": "up", "down": "down"}
 
@@ -252,9 +252,9 @@ class FakePhone:
         payloads = []
         if since_version < self.settings_version:
             payloads.append((1, self.settings))
-        active_ids = {bucket_id for bucket_id, _ in self.active_buckets()}
-        for n in self.notifications.values():
-            if n.bucket_id in active_ids and n.version > since_version:
+        order = [bucket_id for bucket_id, _ in self.active_buckets()]
+        for n in sorted(self.notifications.values(), key=lambda n: order.index(n.bucket_id) if n.bucket_id in order else 999):
+            if n.bucket_id in order and n.version > since_version:
                 payloads.append((n.bucket_id, n.bucket_bytes()))
         return payloads
 
@@ -263,8 +263,10 @@ class FakePhone:
         active = self.active_buckets()
         payloads = self._bucket_payloads(since_version)
         header = struct.pack(">HB", self.version, len(active))
+        awaited = {bucket_id for bucket_id, _ in payloads}
         for bucket_id, flags in active:
-            header += bytes([bucket_id, flags])
+            # 0x80: this bucket's data is part of this sync (protocol 12).
+            header += bytes([bucket_id, flags | (0x80 if bucket_id in awaited else 0)])
 
         packets = []
         current = bytearray(header)

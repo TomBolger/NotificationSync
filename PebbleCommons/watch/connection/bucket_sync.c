@@ -25,6 +25,49 @@ static void (*second_syncing_status_callback)() = NULL;
 static uint16_t bucket_sync_pending_next_version = 0;
 bool bucket_sync_is_currently_syncing = true;
 bool bucket_sync_last_sync_failed = false;
+
+#define FLAG_DATA_FOLLOWS 0x80
+static uint8_t awaited_buckets[MAX_BUCKETS + 1];
+static uint8_t awaited_count = 0;
+static void (*progress_callback)(void) = NULL;
+
+bool bucket_sync_is_bucket_awaited(const uint8_t id)
+{
+    for (int i = 0; i < awaited_count; i++)
+    {
+        if (awaited_buckets[i] == id)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void bucket_sync_set_progress_callback(void (*callback)(void))
+{
+    progress_callback = callback;
+}
+
+static void mark_bucket_arrived(const uint8_t id)
+{
+    for (int i = 0; i < awaited_count; i++)
+    {
+        if (awaited_buckets[i] == id)
+        {
+            awaited_buckets[i] = awaited_buckets[--awaited_count];
+            return;
+        }
+    }
+}
+
+static void report_progress(void)
+{
+    void (*local_progress_callback)(void) = progress_callback;
+    if (local_progress_callback != NULL && bucket_sync_is_currently_syncing)
+    {
+        local_progress_callback();
+    }
+}
 bool close_after_sync = false;
 
 static void (*bucket_deleted_callback)(uint8_t) = NULL;
@@ -355,11 +398,17 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
     delete_inactive_buckets(data, new_active_buckets);
 
     buckets.count = new_active_buckets;
+    awaited_count = 0;
     for (int i = 0; i < new_active_buckets; i++)
     {
         BucketMetadata* bucket_metadata = &buckets.data[i];
         bucket_metadata->id = data[4 + i * sizeof(BucketMetadata)];
-        bucket_metadata->flags = data[4 + i * sizeof(BucketMetadata) + 1];
+        const uint8_t flags = data[4 + i * sizeof(BucketMetadata) + 1];
+        bucket_metadata->flags = flags & ~FLAG_DATA_FOLLOWS;
+        if ((flags & FLAG_DATA_FOLLOWS) != 0 && awaited_count < MAX_BUCKETS + 1)
+        {
+            awaited_buckets[awaited_count++] = bucket_metadata->id;
+        }
     }
 
     persist_write_data(FILE_BUCKET_LIST, buckets.data, buckets.count * sizeof(BucketMetadata));
@@ -373,6 +422,10 @@ void bucket_sync_on_start_received(const uint8_t* data, const size_t data_size)
     if (sync_status == 1)
     {
         complete_sync();
+    }
+    else
+    {
+        report_progress();
     }
 }
 
@@ -403,6 +456,10 @@ void bucket_sync_on_next_packet_received(const uint8_t* data, const size_t data_
     if (sync_status == 1)
     {
         complete_sync();
+    }
+    else
+    {
+        report_progress();
     }
 }
 
@@ -441,6 +498,7 @@ static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t
         };
 
         remember_bucket_id(pending_changed_buckets, &pending_changed_count, id);
+        mark_bucket_arrived(id);
 
         position += size;
     }
@@ -450,6 +508,7 @@ static bool save_bucket_data(const uint8_t* data, const size_t data_size, size_t
 
 static void complete_sync(void)
 {
+    awaited_count = 0;
     if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
     sync_timeout_timer = NULL;
     bucket_sync_current_version = bucket_sync_pending_next_version;
@@ -493,6 +552,7 @@ static void complete_sync(void)
 
 static void finish_failed_sync(void)
 {
+    awaited_count = 0;
     if (sync_timeout_timer != NULL) app_timer_cancel(sync_timeout_timer);
     sync_timeout_timer = NULL;
 

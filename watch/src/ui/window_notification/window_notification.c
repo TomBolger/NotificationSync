@@ -42,9 +42,9 @@ static AppTimer* launch_timeout_timer;
 
 // Whether the phone app has answered our hello. Without it the list can only ever be empty or stale.
 #define PHONE_ANSWER_TIMEOUT_MS 10000
-// Opened by hand: how long to wait for the phone before showing the notifications saved last time.
-#define SAVED_LIST_GRACE_MS 700
-#define STALE_HEADER_HEIGHT 22
+// Nothing at all on screen for this long while the phone answers: a blank screen that fills is calmer than a
+// "Loading..." flashing up for a fraction of a second.
+#define QUIET_START_MS 1500
 typedef enum
 {
     PhoneStateWaiting,
@@ -186,54 +186,6 @@ static void update_app_glance(void)
 }
 
 // ------------------------------------------------------------------------------------------------ list window
-
-static uint16_t get_num_sections(MenuLayer* layer, void* context)
-{
-    (void)layer;
-    (void)context;
-    return 1;
-}
-
-static bool showing_saved_list(void)
-{
-    return !notification_store_is_live() && notification_store_count() > 0;
-}
-
-static int16_t get_header_height(MenuLayer* layer, uint16_t section, void* context)
-{
-    (void)layer;
-    (void)section;
-    (void)context;
-    return showing_saved_list() ? STALE_HEADER_HEIGHT : 0;
-}
-
-static void draw_header(GContext* ctx, const Layer* cell_layer, uint16_t section, void* context)
-{
-    (void)section;
-    (void)context;
-    if (!showing_saved_list())
-    {
-        return;
-    }
-    const char* text;
-    switch (phone_state)
-    {
-    case PhoneStateUnreachable:
-        text = connection_service_peek_pebble_app_connection() ? "Phone app not responding" : "Phone disconnected";
-        break;
-    case PhoneStateListenerUnavailable:
-        text = "No notification access";
-        break;
-    default:
-        text = "Updating\u2026";
-        break;
-    }
-    const GRect bounds = layer_get_bounds(cell_layer);
-    graphics_context_set_text_color(ctx, theme_secondary());
-    graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                       GRect(bounds.origin.x + 4, bounds.origin.y + 2, bounds.size.w - 8, bounds.size.h - 2),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-}
 
 static uint16_t get_num_rows(MenuLayer* layer, uint16_t section, void* context)
 {
@@ -383,10 +335,8 @@ static int16_t list_content_height(void)
 /** Round menus pad the content so the first and last rows can sit in the middle of the screen. */
 static int16_t list_top_padding(void)
 {
-    // Rows start below the "not up to date" header when it shows.
-    const int16_t header = showing_saved_list() ? STALE_HEADER_HEIGHT : 0;
-    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT - header) / 2;
-    return (padding > 0 ? padding : 0) + header;
+    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT) / 2;
+    return padding > 0 ? padding : 0;
 }
 
 static int16_t list_max_offset(void)
@@ -648,6 +598,8 @@ static void draw_centered_message(GContext* ctx, const GRect bounds, const char*
     }
 }
 
+static bool quiet_start;
+
 static void empty_layer_update(Layer* layer, GContext* ctx)
 {
     const GRect bounds = layer_get_bounds(layer);
@@ -657,10 +609,21 @@ static void empty_layer_update(Layer* layer, GContext* ctx)
     switch (phone_state)
     {
     case PhoneStateWaiting:
-        draw_centered_message(ctx, bounds, "Loading...", NULL, false);
+        if (!quiet_start)
+        {
+            draw_centered_message(ctx, bounds, "Loading...", NULL, false);
+        }
         break;
     case PhoneStateAnswered:
-        draw_centered_message(ctx, bounds, "No Notifications", NULL, false);
+        if (notification_store_is_live())
+        {
+            draw_centered_message(ctx, bounds, "No Notifications", NULL, false);
+        }
+        else if (!quiet_start)
+        {
+            // Answered, first notifications still on the way.
+            draw_centered_message(ctx, bounds, "Loading...", NULL, false);
+        }
         break;
     case PhoneStateListenerUnavailable:
         draw_centered_message(ctx, bounds, "Waiting for Notifications",
@@ -694,13 +657,17 @@ static void set_phone_state(const PhoneState state)
     }
 }
 
-static AppTimer* saved_list_timer = NULL;
+static AppTimer* quiet_start_timer = NULL;
 
-static void on_saved_list_grace(void* context)
+static void on_quiet_start_over(void* context)
 {
     (void)context;
-    saved_list_timer = NULL;
-    notification_store_show_saved();
+    quiet_start_timer = NULL;
+    quiet_start = false;
+    if (empty_layer != NULL)
+    {
+        layer_mark_dirty(empty_layer);
+    }
 }
 
 static void on_phone_timeout(void* context)
@@ -1169,9 +1136,6 @@ static void window_load(Window* window)
 
     menu_layer = menu_layer_create(bounds);
     menu_layer_set_callbacks(menu_layer, NULL, (MenuLayerCallbacks){
-        .get_num_sections = get_num_sections,
-        .get_header_height = get_header_height,
-        .draw_header = draw_header,
         .get_num_rows = get_num_rows,
         .get_cell_height = get_cell_height,
         .draw_row = draw_row,
@@ -1212,11 +1176,12 @@ static void window_unload(Window* window)
         app_timer_cancel(phone_timeout_timer);
         phone_timeout_timer = NULL;
     }
-    if (saved_list_timer != NULL)
+    if (quiet_start_timer != NULL)
     {
-        app_timer_cancel(saved_list_timer);
-        saved_list_timer = NULL;
+        app_timer_cancel(quiet_start_timer);
+        quiet_start_timer = NULL;
     }
+    quiet_start = false;
     touch_service_unsubscribe();
     stop_list_fling();
     touch_gesture_reset(&list_touch);
@@ -1279,18 +1244,10 @@ void window_notification_show()
             phone_state = PhoneStateUnreachable;
         }
     }
-    if (!popup_session && !notification_store_is_live())
+    if (phone_state == PhoneStateWaiting)
     {
-        // Normally the phone answers within a fraction of a second and the live list appears directly. If it is
-        // slow (its app woken from the background) or away, show what was saved instead of an empty screen.
-        if (phone_state == PhoneStateUnreachable)
-        {
-            notification_store_show_saved();
-        }
-        else
-        {
-            saved_list_timer = app_timer_register(SAVED_LIST_GRACE_MS, on_saved_list_grace, NULL);
-        }
+        quiet_start = true;
+        quiet_start_timer = app_timer_register(QUIET_START_MS, on_quiet_start_over, NULL);
     }
     idle_handler_register_timers();
 }

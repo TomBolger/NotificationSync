@@ -162,10 +162,13 @@ class BucketsyncRepositoryImpl(
             "extraBucketsToTransmit: ${extraBucketsToTransmit.map { it.id }}"
       }
 
+      // Same order as the list on the watch (newest first), so the watch can fill its list from the top.
+      val positions = activeBuckets.withIndex().associate { (index, bucket) -> bucket.first.toUByte() to index }
       return BucketUpdate(
          newVersion,
          activeBuckets.map { it.first },
-         bucketsToUpdate.map { Bucket(it.id.toUByte(), it.data_) } + extraBucketsToTransmit,
+         (bucketsToUpdate.map { Bucket(it.id.toUByte(), it.data_) } + extraBucketsToTransmit)
+            .sortedBy { positions[it.id] ?: Int.MAX_VALUE },
          activeBuckets.map { it.second },
       )
    }

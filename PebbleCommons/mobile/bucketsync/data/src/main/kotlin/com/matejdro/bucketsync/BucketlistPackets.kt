@@ -104,9 +104,13 @@ private fun createFirstPacket(
 
    firstPacketBuffer.writeUShort(update.toVersion)
    firstPacketBuffer.writeUByte(update.activeBuckets.size.toUByte())
+   val idsWithDataInThisSync = bucketsToUpdate.mapTo(HashSet()) { it.id }
    for ((id, flags) in update.activeBuckets.zip(update.activeBucketFlags)) {
       firstPacketBuffer.writeUByte(id.toUByte())
-      firstPacketBuffer.writeUByte(flags)
+      // Tells the watch which listed buckets still have data on the way in this sync, so it can show the list
+      // from the top as data arrives while everything else it holds is known to be current.
+      val awaited = if (id.toUByte() in idsWithDataInThisSync) FLAG_DATA_FOLLOWS else 0u
+      firstPacketBuffer.writeUByte(flags or awaited)
    }
 
    for (updatedBucket in bucketsToUpdate.take(bucketsToSendInFirstPacket)) {
@@ -117,6 +121,9 @@ private fun createFirstPacket(
 
    return bucketsToUpdate.drop(bucketsToSendInFirstPacket)
 }
+
+/** Sync-start only, never stored: this bucket's data is part of this sync. */
+internal const val FLAG_DATA_FOLLOWS: UByte = 0x80u
 
 private fun List<Bucket>.calculateNumUpdatesThatFitInto(bytes: Int): Int {
    var dataLeft = bytes
