@@ -486,8 +486,9 @@ class BucketSyncRepositoryImplTest {
          3u,
          listOf(2u, 1u),
          listOf(
-            Bucket(1u, byteArrayOf(1)),
+            // Data comes in the same order as the active list.
             Bucket(2u, byteArrayOf(2)),
+            Bucket(1u, byteArrayOf(1)),
          )
       )
    }
@@ -672,9 +673,10 @@ class BucketSyncRepositoryImplTest {
          6u,
          listOf(2u, 3u, 1u),
          listOf(
-            Bucket(1u, byteArrayOf(1)),
+            // Data comes in the same order as the active list.
             Bucket(2u, byteArrayOf(5)),
             Bucket(3u, byteArrayOf(4)),
+            Bucket(1u, byteArrayOf(1)),
          )
       )
    }

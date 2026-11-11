@@ -98,8 +98,8 @@ class BucketSyncWatchLoopImplTest {
                   1, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                   2, 1, 2, // Sync data for bucket 2
                )
@@ -130,8 +130,8 @@ class BucketSyncWatchLoopImplTest {
                   0, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                )
             ),
@@ -171,9 +171,9 @@ class BucketSyncWatchLoopImplTest {
                   0, // Status
                   0, 3, // Latest version
                   3, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
-                  3, 0, // Metadata for bucket 3
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
+                  3, -128, // Metadata for bucket 3, data follows
                   1, 1, 1, // Sync data for bucket 1
                )
             ),
@@ -222,8 +222,8 @@ class BucketSyncWatchLoopImplTest {
                   1, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
                   2, 1, 2, // Sync data for bucket 2
                   1, 1, 1, // Sync data for bucket 1
                )
@@ -256,7 +256,7 @@ class BucketSyncWatchLoopImplTest {
                   0, 2, // Latest version
                   2, // Num of active buckets
                   1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  2, -128, // Metadata for bucket 2, data follows
                   2, 1, 2, // Sync data for bucket 2
                )
             ),
@@ -289,8 +289,8 @@ class BucketSyncWatchLoopImplTest {
                   1, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                   2, 1, 2, // Sync data for bucket 2
                )
@@ -324,9 +324,9 @@ class BucketSyncWatchLoopImplTest {
                   0, // Status
                   0, 3, // Latest version
                   3, // Num of active buckets
-                  1, 0, // Metadata for bucket 1
-                  2, 0, // Metadata for bucket 2
-                  3, 0, // Metadata for bucket 2
+                  1, -128, // Metadata for bucket 1, data follows
+                  2, -128, // Metadata for bucket 2, data follows
+                  3, -128, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                )
             ),
@@ -454,8 +454,8 @@ class BucketSyncWatchLoopImplTest {
                   1, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 56, // Metadata for bucket 1
-                  2, 75, // Metadata for bucket 2
+                  1, -72, // Metadata for bucket 1, data follows
+                  2, -53, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                   2, 1, 2, // Sync data for bucket 2
                )
@@ -489,8 +489,8 @@ class BucketSyncWatchLoopImplTest {
                   1, // Status
                   0, 2, // Latest version
                   2, // Num of active buckets
-                  1, 33, // Metadata for bucket 1
-                  2, 89, // Metadata for bucket 2
+                  1, -95, // Metadata for bucket 1, data follows
+                  2, -39, // Metadata for bucket 2, data follows
                   1, 1, 1, // Sync data for bucket 1
                   2, 1, 2, // Sync data for bucket 2
                )
