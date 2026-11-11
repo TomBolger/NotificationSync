@@ -3,6 +3,7 @@
 #include "commons/connection/bucket_sync.h"
 #include "connection/notification_details_fetcher.h"
 #include "connection/packets.h"
+#include "connection/timing.h"
 #include "ui/window_status.h"
 #include "ui/window_notification/notification_store.h"
 #include "ui/window_notification/window_notification.h"
@@ -12,6 +13,7 @@ const uint16_t PROTOCOL_VERSION = 13;
 
 int main(void)
 {
+    timing_init();
     packets_init();
     bluetooth_init();
     idle_handler_reset_user_interaction();

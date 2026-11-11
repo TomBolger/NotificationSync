@@ -4,6 +4,7 @@
 #include <pebble.h>
 
 #include "notification_details_fetcher.h"
+#include "timing.h"
 #include "../ui/window_status.h"
 #include "commons/bytes.h"
 #include "ui/window_image.h"
@@ -45,6 +46,32 @@ void packets_init()
     bluetooth_register_receive_watch_packet(receive_watch_packet);
 }
 
+// A hello that fails is retried quickly: waiting the full 10 s fallback left the list on "Loading..." for
+// seconds whenever the first message after launch didn't get through.
+#define WELCOME_FAST_RETRY_FIRST_MS 300
+#define WELCOME_FAST_RETRY_MAX_MS 2000
+static uint32_t welcome_fast_retry_ms = WELCOME_FAST_RETRY_FIRST_MS;
+
+static void on_welcome_sent(const bool success)
+{
+    if (success)
+    {
+        welcome_fast_retry_ms = WELCOME_FAST_RETRY_FIRST_MS;
+        timing_mark(TIMING_HELLO_DELIVERED);
+        return;
+    }
+    timing_hello_failed(last_send_failure);
+    if (welcome_retry_timer == NULL)
+    {
+        // The phone already answered (the retry timer is cancelled then); nothing to do.
+        return;
+    }
+    schedule_welcome_retry(welcome_fast_retry_ms);
+    welcome_fast_retry_ms = welcome_fast_retry_ms * 2 > WELCOME_FAST_RETRY_MAX_MS
+                                ? WELCOME_FAST_RETRY_MAX_MS
+                                : welcome_fast_retry_ms * 2;
+}
+
 void send_watch_welcome()
 {
     if (!connection_service_peek_pebble_app_connection())
@@ -84,6 +111,8 @@ void send_watch_welcome()
     dict_write_uint16(iterator, 6, PBL_DISPLAY_HEIGHT);
     dict_write_uint16(iterator, 8, MAX_BODY_TEXT_SIZE);
     dict_write_data(iterator, 7, active_buckets_holder, active_buckets->count);
+    timing_hello_attempt();
+    bluetooth_register_sending_finish(on_welcome_sent);
     bluetooth_app_message_outbox_send();
 }
 
@@ -339,6 +368,7 @@ static void receive_phone_welcome(const DictionaryIterator* iterator)
         app_timer_cancel(welcome_retry_timer);
         welcome_retry_timer = NULL;
     }
+    timing_mark(TIMING_PHONE_ANSWERED);
     window_notification_ui_on_phone_answered();
 
     const Tuple* sync = data_tuple(iterator, 2);

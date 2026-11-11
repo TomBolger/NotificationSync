@@ -1,4 +1,5 @@
 #include "notification_store.h"
+#include "../../connection/timing.h"
 
 #include <stdlib.h>
 
@@ -212,6 +213,7 @@ static void rebuild_items(void)
     if (!live && phone_answered && !bucket_sync_is_currently_syncing && !bucket_sync_last_sync_failed)
     {
         live = true;
+        timing_mark(TIMING_LIVE);
     }
     item_count = 0;
     if (!live && !phone_answered)
@@ -241,6 +243,10 @@ static void rebuild_items(void)
             shown_ids[shown_count++] = id;
         }
         item_count++;
+    }
+    if (item_count > 0)
+    {
+        timing_mark(TIMING_FIRST_ROW);
     }
     rebuild_layout();
 }
@@ -577,6 +583,7 @@ static NotificationDetails* slot_for_details(const uint8_t bucket_id)
 void notification_store_on_details_received(const uint8_t bucket_id, const char* body, const size_t body_size,
                                             const Action* actions, const uint8_t num_actions)
 {
+    timing_mark(TIMING_FIRST_DETAILS);
     if (notification_store_index_of(bucket_id) < 0 && !bucket_sync_is_currently_syncing)
     {
         // Details for a notification that is no longer on the watch. Not useful.

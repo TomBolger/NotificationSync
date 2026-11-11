@@ -6,6 +6,8 @@ extern uint32_t appmessage_max_size;
 extern bool is_currently_sending_data;
 extern bool is_phone_connected;
 extern AppMessageResult sending_error;
+/** Why the most recent outgoing message failed. */
+extern AppMessageResult last_send_failure;
 extern bool ignore_bluetooth_busy_errors;
 
 extern const uint16_t PROTOCOL_VERSION;

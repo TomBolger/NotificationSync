@@ -52,6 +52,7 @@ class BucketSyncWatchLoopImpl(
       lastActiveBuckets = currentlyActiveBuckets
       bucketSyncJob?.cancel()
       bucketSyncJob = coroutineScope.launch {
+         val startedAt = System.currentTimeMillis()
          val bucketsyncBuffer = Buffer()
          val initialUpdate = bucketSyncRepository.checkForNextUpdate(
             initialWatchVersion,
@@ -65,6 +66,7 @@ class BucketSyncWatchLoopImpl(
             val packet = helloPacketBase + (2u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()))
 
             sendSyncPackets(listOf(packet))
+            logcat { "Answer to hello (up to date) delivered in ${System.currentTimeMillis() - startedAt}ms" }
             watchVersion = initialWatchVersion
             backgroundSyncNotifier.notifyWatchFullySynced(watch.value)
             watchappOpenController.resetNextWatchappOpen()
@@ -86,6 +88,7 @@ class BucketSyncWatchLoopImpl(
 
             val firstPacket = helloPacketBase + (2u to PebbleDictionaryItem.Bytes(bucketsyncBuffer.readByteArray()))
             sendSyncPackets(listOf(firstPacket) + extraPackets)
+            logcat { "Answer to hello with ${extraPackets.size + 1} packets delivered in ${System.currentTimeMillis() - startedAt}ms" }
             watchappOpenController.resetNextWatchappOpen()
 
             watchVersion = initialUpdate.toVersion

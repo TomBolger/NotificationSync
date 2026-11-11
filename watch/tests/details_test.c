@@ -30,6 +30,7 @@ void bucket_sync_set_bucket_data_change_callback(void(*cb)(BucketMetadata,void*)
 void bucket_sync_register_bucket_deleted_callback(void(*cb)(uint8_t)) { (void)cb; }
 bool bucket_sync_is_bucket_awaited(uint8_t id) { (void)id; return false; }
 void bucket_sync_set_progress_callback(void(*cb)(void)) { (void)cb; }
+void timing_mark(TimingMark mark) { (void)mark; }
 
 static void reset_fixture(void)
 {

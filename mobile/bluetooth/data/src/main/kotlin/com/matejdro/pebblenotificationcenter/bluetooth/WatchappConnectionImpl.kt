@@ -115,6 +115,11 @@ class WatchappConnectionImpl(
             processSettingSetPacket(data)
          }
 
+         18u -> {
+            logWatchTiming(data)
+            ReceiveResult.Ack
+         }
+
          16u -> {
             // The watch brought a card with a photo on screen and wants its pixels at the size of the band.
             notificationImageServer.onImageRequested(
@@ -132,7 +137,29 @@ class WatchappConnectionImpl(
       }
    }
 
+   /** The watch's own startup timing (packet 18), so Save logs shows where a slow open spent its time. */
+   private fun logWatchTiming(data: PebbleDictionary) {
+      val bytes = (data[1u] as? PebbleDictionaryItem.Bytes)?.value ?: return
+      val names = listOf("hello sent", "hello delivered", "phone answered", "live", "first row", "first details")
+      val marks = names.mapIndexedNotNull { index, name ->
+         if (index * 2 + 1 >= bytes.size) return@mapIndexedNotNull null
+         val value = (bytes[index * 2].toInt() and 0xFF) or ((bytes[index * 2 + 1].toInt() and 0xFF) shl 8)
+         "$name=" + if (value == 0xFFFF) "never" else "${value}ms"
+      }
+      val attempts = (data[2u] as? PebbleDictionaryItem.UInt32)?.value
+      val failures = (data[3u] as? PebbleDictionaryItem.UInt32)?.value
+      val lastFailure = (data[4u] as? PebbleDictionaryItem.UInt32)?.value
+      logcat {
+         "Watch startup timing (since the app started on the watch): ${marks.joinToString()}; " +
+            "hello attempts=$attempts, failed=$failures, last failure code=$lastFailure; " +
+            "phone saw the hello ${helloReceivedAt?.let { System.currentTimeMillis() - it }?.let { "${it}ms ago" }}"
+      }
+   }
+
+   private var helloReceivedAt: Long? = null
+
    private fun processWatchWelcomePacket(data: PebbleDictionary): ReceiveResult {
+      helloReceivedAt = System.currentTimeMillis()
       // ACK the inbound hello before doing listener recovery or waiting for outbound transfers.
       if (welcomeJob?.isActive == true && data.fingerprint() == lastWelcomeData) {
          // The watch repeated the same hello while the answer is still on its way (slow link). Restarting would
@@ -206,6 +233,7 @@ class WatchappConnectionImpl(
          delay(listenerRetryDelay)
          listenerRetryDelay = (listenerRetryDelay * 2).coerceAtMost(10.seconds)
       }
+      logcat { "Notifications re-read ${helloReceivedAt?.let { System.currentTimeMillis() - it }}ms after the hello" }
       val resyncedLiveNotifications = true
       val phoneLaunchNotificationBucket =
          watchappOpenController.getNextWatchappOpenNotificationBucket().takeIf { resyncedLiveNotifications }
