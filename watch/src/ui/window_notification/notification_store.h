@@ -120,6 +120,8 @@ const ListRow* notification_store_row(uint8_t row);
 int16_t notification_store_row_of_bucket(uint8_t bucket_id);
 /** Open or close the header or stack at this row (remembered for sections and categories). */
 void notification_store_toggle_row(uint8_t row);
+/** How many rows closing this open header or stack would remove (0 if it isn't open). Changes nothing. */
+uint8_t notification_store_rows_folded_by(uint8_t row);
 const char* notification_store_group_name(uint8_t group);
 
 /** All notifications in list order (closed headers and stacks included), for paging through cards. */

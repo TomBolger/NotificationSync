@@ -461,17 +461,20 @@ int16_t notification_store_row_of_bucket(const uint8_t bucket_id)
     return container;
 }
 
-void notification_store_toggle_row(const uint8_t index)
+static bool flip_row(const uint8_t index, const bool persist)
 {
     const ListRow* row = notification_store_row(index);
     if (row == NULL)
     {
-        return;
+        return false;
     }
     if (row->kind == ROW_HEADER)
     {
         collapsed_groups ^= 1 << row->group;
-        persist_write_data(STORAGE_COLLAPSED_GROUPS, &collapsed_groups, sizeof(collapsed_groups));
+        if (persist)
+        {
+            persist_write_data(STORAGE_COLLAPSED_GROUPS, &collapsed_groups, sizeof(collapsed_groups));
+        }
     }
     else if (row->kind == ROW_STACK)
     {
@@ -479,9 +482,36 @@ void notification_store_toggle_row(const uint8_t index)
     }
     else
     {
-        return;
+        return false;
+    }
+    return true;
+}
+
+void notification_store_toggle_row(const uint8_t index)
+{
+    if (flip_row(index, true))
+    {
+        rebuild_layout();
+    }
+}
+
+uint8_t notification_store_rows_folded_by(const uint8_t index)
+{
+    const ListRow* row = notification_store_row(index);
+    if (row == NULL || !row->expanded)
+    {
+        return 0;
+    }
+    const uint8_t before = row_count;
+    if (!flip_row(index, false))
+    {
+        return 0;
     }
     rebuild_layout();
+    const uint8_t after = row_count;
+    flip_row(index, false);
+    rebuild_layout();
+    return before > after ? before - after : 0;
 }
 
 const char* notification_store_group_name(const uint8_t group)

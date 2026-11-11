@@ -228,13 +228,181 @@ static void update_app_glance(void)
 
 #define LIST_HEADER_HEIGHT PBL_IF_ROUND_ELSE(26, 22)
 
-static int16_t row_height(const ListRow* row)
+static int16_t full_row_height(const ListRow* row)
 {
     if (row != NULL && (row->kind == ROW_HEADER || (row->kind == ROW_STACK && row->expanded)))
     {
         return LIST_HEADER_HEIGHT;
     }
     return LIST_CELL_HEIGHT;
+}
+
+// ---------------------------------------------------------------------------------- open / close animation
+// Opening or closing a section grows or shrinks its rows in place, so the rows below slide instead of jumping,
+// with a little overshoot like PebbleOS's own animations.
+
+#define FOLD_OPEN_MS 280
+#define FOLD_CLOSE_MS 220
+#define FOLD_FULL 1000
+
+static Animation* fold_animation;
+static int16_t fold_first = -1;
+static int16_t fold_count;
+static int16_t fold_header;
+static bool fold_opening;
+// How open the folding rows are, in thousandths; overshoots a little past FOLD_FULL.
+static int32_t fold_amount = FOLD_FULL;
+
+static bool row_is_folding(const int16_t index)
+{
+    return fold_first >= 0 && index >= fold_first && index < fold_first + fold_count;
+}
+
+static int16_t row_height_at(const int16_t index)
+{
+    const int16_t full = full_row_height(notification_store_row(index));
+    if (row_is_folding(index))
+    {
+        const int32_t height = full * fold_amount / FOLD_FULL;
+        return height > 0 ? height : 0;
+    }
+    return full;
+}
+
+/** Back easing: past the target by about a tenth, then back (PebbleOS calls its version "moook"). */
+static int32_t ease_out_back(const int32_t t)
+{
+    const int64_t u = t - FOLD_FULL;
+    return FOLD_FULL + (int32_t)(2702 * u * u * u / 1000000000LL + 1702 * u * u / 1000000LL);
+}
+
+static int32_t ease_in_back(const int32_t t)
+{
+    const int64_t v = t;
+    return (int32_t)(2702 * v * v * v / 1000000000LL - 1702 * v * v / 1000000LL);
+}
+
+static void fold_reload(void)
+{
+    if (menu_layer != NULL)
+    {
+        menu_layer_reload_data(menu_layer);
+    }
+}
+
+static void fold_finish(const bool apply)
+{
+    if (fold_first < 0)
+    {
+        return;
+    }
+    const bool closing = !fold_opening;
+    const int16_t header = fold_header;
+    fold_first = -1;
+    fold_count = 0;
+    fold_amount = FOLD_FULL;
+    Animation* running = fold_animation;
+    fold_animation = NULL;
+    if (running != NULL)
+    {
+        animation_unschedule(running);
+    }
+    if (closing && apply)
+    {
+        notification_store_toggle_row(header);
+    }
+    fold_reload();
+}
+
+/** After a section opens, scroll just enough to show what it revealed, keeping its header on screen. */
+static void reveal_opened_rows(const int16_t header, const int16_t count)
+{
+#if !PBL_ROUND
+    ScrollLayer* scroll = menu_layer_get_scroll_layer(menu_layer);
+    const int16_t offset = -scroll_layer_get_content_offset(scroll).y;
+    int16_t header_top = 0;
+    for (int16_t i = 0; i < header; i++)
+    {
+        header_top += row_height_at(i);
+    }
+    int16_t bottom = header_top + row_height_at(header);
+    for (int16_t i = 1; i <= count; i++)
+    {
+        bottom += row_height_at(header + i);
+    }
+    const int16_t view = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.h;
+    if (bottom <= offset + view)
+    {
+        return;
+    }
+    int16_t target = bottom - view;
+    if (target > header_top)
+    {
+        target = header_top;
+    }
+    if (target > offset)
+    {
+        scroll_layer_set_content_offset(scroll, GPoint(0, -target), true);
+    }
+#else
+    (void)header;
+    (void)count;
+#endif
+}
+
+static void fold_update(Animation* animation, const AnimationProgress progress)
+{
+    (void)animation;
+    const int32_t t = (int32_t)progress * FOLD_FULL / ANIMATION_NORMALIZED_MAX;
+    fold_amount = fold_opening ? ease_out_back(t) : FOLD_FULL - ease_in_back(t);
+    fold_reload();
+}
+
+static void fold_stopped(Animation* animation, const bool finished, void* context)
+{
+    (void)context;
+    if (animation != fold_animation)
+    {
+        return;
+    }
+    fold_animation = NULL;
+    if (finished)
+    {
+        const bool opened = fold_opening;
+        const int16_t header = fold_header;
+        const int16_t count = fold_count;
+        fold_finish(true);
+        if (opened)
+        {
+            reveal_opened_rows(header, count);
+        }
+    }
+}
+
+static void fold_start(const int16_t header, const int16_t count, const bool opening)
+{
+    fold_header = header;
+    fold_first = header + 1;
+    fold_count = count;
+    fold_opening = opening;
+    fold_amount = opening ? 0 : FOLD_FULL;
+
+    static const AnimationImplementation implementation = {.update = fold_update};
+    fold_animation = animation_create();
+    if (fold_animation == NULL)
+    {
+        fold_finish(true);
+        return;
+    }
+    animation_set_implementation(fold_animation, &implementation);
+    animation_set_duration(fold_animation, opening ? FOLD_OPEN_MS : FOLD_CLOSE_MS);
+    animation_set_curve(fold_animation, AnimationCurveLinear);
+    animation_set_handlers(fold_animation, (AnimationHandlers){.stopped = fold_stopped}, NULL);
+    fold_reload();
+    if (!animation_schedule(fold_animation))
+    {
+        fold_finish(true);
+    }
 }
 
 static uint16_t get_num_rows(MenuLayer* layer, uint16_t section, void* context)
@@ -249,7 +417,7 @@ static int16_t get_cell_height(MenuLayer* layer, MenuIndex* index, void* context
 {
     (void)layer;
     (void)context;
-    return row_height(notification_store_row(index->row));
+    return row_height_at(index->row);
 }
 
 /** A small triangle: pointing down when open, right when closed. */
@@ -268,19 +436,26 @@ static void draw_caret(GContext* ctx, const GPoint center, const bool open)
         points[1] = GPoint(center.x - 2, center.y + 4);
         points[2] = GPoint(center.x + 3, center.y);
     }
-    const GPathInfo info = {.num_points = 3, .points = points};
-    GPath* path = gpath_create(&info);
-    if (path != NULL)
+    // Filled line by line: no allocation while the list is scrolling.
+    if (open)
     {
-        gpath_draw_filled(ctx, path);
-        gpath_destroy(path);
+        for (int16_t i = 0; i <= 4; i++)
+        {
+            graphics_fill_rect(ctx, GRect(points[0].x + i, points[0].y + i, 9 - 2 * i, 1), 0, GCornerNone);
+        }
+    }
+    else
+    {
+        for (int16_t i = 0; i <= 4; i++)
+        {
+            graphics_fill_rect(ctx, GRect(points[0].x + i, points[0].y + i, 1, 9 - 2 * i), 0, GCornerNone);
+        }
     }
 }
 
 /** Section, category or opened stack: a small caption with a caret, and the count when closed. */
-static void draw_header_row(GContext* ctx, const Layer* cell_layer, const ListRow* row)
+static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const ListRow* row)
 {
-    const GRect bounds = layer_get_bounds(cell_layer);
     const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
     const GColor color = highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()) : theme_secondary();
     graphics_context_set_text_color(ctx, color);
@@ -315,7 +490,8 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const ListRo
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
 
-static void draw_item_row(GContext* ctx, const Layer* cell_layer, const NotificationItem* item, const ListRow* row);
+static void draw_item_row(GContext* ctx, const Layer* cell_layer, GRect bounds, const NotificationItem* item,
+                          const ListRow* row);
 
 static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, void* context)
 {
@@ -325,24 +501,32 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     {
         return;
     }
+    // A row that is opening or closing is drawn at full size, sliding out from under the row above it.
+    GRect bounds = layer_get_bounds(cell_layer);
+    const int16_t full = full_row_height(row);
+    if (bounds.size.h < full)
+    {
+        bounds.origin.y = bounds.size.h - full;
+        bounds.size.h = full;
+    }
     const NotificationItem* item = row_item(row);
     if (item == NULL)
     {
-        draw_header_row(ctx, cell_layer, row);
+        draw_header_row(ctx, cell_layer, bounds, row);
         return;
     }
-    draw_item_row(ctx, cell_layer, item, row);
+    draw_item_row(ctx, cell_layer, bounds, item, row);
 }
 
 // PebbleOS source: src/fw/apps/system/notifications.c (prv_draw_notification_cell_rect)
-static void draw_item_row(GContext* ctx, const Layer* cell_layer, const NotificationItem* item, const ListRow* row)
+static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const NotificationItem* item,
+                          const ListRow* row)
 {
-    const GRect bounds = layer_get_bounds(cell_layer);
 #if PBL_ROUND
     // Keep the icon and text clear of the curved edge: rows above and below the centre start further in.
     int16_t inset = 12;
     {
-        const GPoint on_screen = layer_convert_point_to_screen(cell_layer, GPointZero);
+        const GPoint on_screen = layer_convert_point_to_screen(cell_layer, bounds.origin);
         const int32_t radius = PBL_DISPLAY_WIDTH / 2;
         int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
         dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2; // the row's edge nearest the rim
@@ -358,9 +542,22 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const Notifica
             inset = edge > 60 ? 60 : edge;
         }
     }
+    if (row->in_stack)
+    {
+        inset += 7;
+    }
 #else
     const int16_t inset = row->in_stack ? 12 : 5;
 #endif
+
+    if (row->in_stack)
+    {
+        // A line down the left of an opened stack ties its notifications together without indenting them more.
+        const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
+        graphics_context_set_fill_color(ctx, highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg())
+                                                         : theme_secondary());
+        graphics_fill_rect(ctx, GRect(inset - 7, bounds.origin.y, 2, bounds.size.h), 0, GCornerNone);
+    }
 
     GDrawCommandImage* icon = card_icon_for_id(item->icon_id);
     GSize icon_size = GSize(0, 0);
@@ -430,12 +627,47 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const Notifica
 
 static void toggle_row(const uint8_t row)
 {
+    if (fold_first >= 0)
+    {
+        // Pressed again mid-animation: just finish it (closing changes which row is where).
+        const bool was_closing = !fold_opening;
+        fold_finish(true);
+        if (was_closing)
+        {
+            return;
+        }
+    }
     list_selection_moved = true;
     list_selected_row = row;
     list_selected_bucket = 0;
-    notification_store_toggle_row(row);
+    const ListRow* current = notification_store_row(row);
+    if (current == NULL)
+    {
+        return;
+    }
+    if (current->expanded)
+    {
+        // Close: shrink the rows first, the store drops them when the animation ends.
+        const uint8_t count = notification_store_rows_folded_by(row);
+        if (count > 0)
+        {
+            fold_start(row, count, false);
+            return;
+        }
+        notification_store_toggle_row(row);
+    }
+    else
+    {
+        const uint8_t before = notification_store_row_count();
+        notification_store_toggle_row(row);
+        const uint8_t after = notification_store_row_count();
+        if (after > before)
+        {
+            fold_start(row, after - before, true);
+            return;
+        }
+    }
     menu_layer_reload_data(menu_layer);
-    menu_layer_set_selected_index(menu_layer, MenuIndex(0, row), MenuRowAlignNone, false);
 }
 
 static void activate_row(const uint8_t index)
@@ -468,6 +700,21 @@ static void select_click(MenuLayer* layer, MenuIndex* index, void* context)
     activate_row(index->row);
 }
 
+// Fetching a message's full text while the list is still moving makes scrolling stutter, so wait until the
+// selection rests for a moment.
+#define PREFETCH_DELAY_MS 350
+static AppTimer* prefetch_timer;
+
+static void prefetch_selected(void* context)
+{
+    (void)context;
+    prefetch_timer = NULL;
+    if (list_selected_bucket != 0)
+    {
+        notification_store_want_details(list_selected_bucket, false);
+    }
+}
+
 static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex old_index, void* context)
 {
     (void)layer;
@@ -482,9 +729,20 @@ static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex o
     list_selected_row = new_index.row;
     const NotificationItem* item = row_item(notification_store_row(new_index.row));
     list_selected_bucket = item != NULL ? item->bucket_id : 0;
+    if (fold_first >= 0 && new_index.row != fold_header)
+    {
+        fold_finish(true);
+    }
     if (item != NULL)
     {
-        notification_store_want_details(item->bucket_id, false);
+        if (prefetch_timer != NULL)
+        {
+            app_timer_reschedule(prefetch_timer, PREFETCH_DELAY_MS);
+        }
+        else
+        {
+            prefetch_timer = app_timer_register(PREFETCH_DELAY_MS, prefetch_selected, NULL);
+        }
     }
 }
 
@@ -512,7 +770,7 @@ static int16_t rows_height(void)
     int16_t total = 0;
     for (uint8_t i = 0; i < notification_store_row_count(); i++)
     {
-        total += row_height(notification_store_row(i));
+        total += row_height_at(i);
     }
     return total;
 }
@@ -534,7 +792,7 @@ static int16_t row_at(const int16_t position)
     const uint8_t count = notification_store_row_count();
     for (uint8_t i = 0; i < count; i++)
     {
-        top += row_height(notification_store_row(i));
+        top += row_height_at(i);
         if (position < top)
         {
             return i;
@@ -740,6 +998,8 @@ static void sync_list_selection(void)
     {
         return;
     }
+    // The rows changed underneath a running open/close: stop it where the list now is.
+    fold_finish(false);
     menu_layer_reload_data(menu_layer);
     if (notification_store_row_count() > 0)
     {
@@ -750,9 +1010,14 @@ static void sync_list_selection(void)
             list_selected_bucket = item->bucket_id;
         }
         list_selected_row = index;
-        setting_selection = true;
-        menu_layer_set_selected_index(menu_layer, MenuIndex(0, index), MenuRowAlignCenter, false);
-        setting_selection = false;
+        // Only move when the selection actually moved, and then without re-centring: an update arriving while
+        // you scroll must not make the list jump.
+        if (menu_layer_get_selected_index(menu_layer).row != index)
+        {
+            setting_selection = true;
+            menu_layer_set_selected_index(menu_layer, MenuIndex(0, index), MenuRowAlignNone, false);
+            setting_selection = false;
+        }
     }
 }
 
@@ -1395,6 +1660,12 @@ static void window_unload(Window* window)
     }
     quiet_start = false;
     touch_service_unsubscribe();
+    fold_finish(false);
+    if (prefetch_timer != NULL)
+    {
+        app_timer_cancel(prefetch_timer);
+        prefetch_timer = NULL;
+    }
     stop_list_fling();
     touch_gesture_reset(&list_touch);
     detail_window_close(false);
