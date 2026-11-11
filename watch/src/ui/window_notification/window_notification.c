@@ -30,8 +30,6 @@ static Window* list_window;
 static MenuLayer* menu_layer;
 static Layer* empty_layer;
 static Layer* splash_layer;
-// Paints the selection under the list (see "selection highlight").
-static Layer* highlight_layer;
 
 static uint8_t list_selected_bucket;
 
@@ -173,10 +171,6 @@ static void update_layer_visibility(void)
     const bool show_splash = waiting_for_launch_target || (popup_session && !detail_window_is_open());
     layer_set_hidden(splash_layer, !show_splash);
     layer_set_hidden(menu_layer_get_layer(menu_layer), show_splash);
-    if (highlight_layer != NULL)
-    {
-        layer_set_hidden(highlight_layer, show_splash);
-    }
     layer_set_hidden(empty_layer, show_splash || notification_store_count() != 0);
     layer_mark_dirty(empty_layer);
 }
@@ -584,12 +578,39 @@ static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect 
         graphics_fill_rect(ctx, GRect(from, y, to - from, 1), 0, GCornerNone);
     }
 #else
-    // The selection highlight (drawn under the list, see highlight_layer) starts after this line, so the line
-    // is never inside it.
+    // The selection highlight starts after this line (see trim_highlight_strip), so it's never inside it.
     (void)cell_layer;
     (void)content_left;
     graphics_context_set_fill_color(ctx, theme_secondary());
     graphics_fill_rect(ctx, GRect(STACK_LINE_EDGE, top, STACK_LINE_WIDTH, bottom - top), 0, GCornerNone);
+#endif
+}
+
+/**
+ * When the selected row is inside an opened stack, the highlight starts after the stack's line. PebbleOS slides
+ * its highlight between rows by redrawing every row it touches as highlighted, clipped to it, including the few
+ * pixels it overshoots into the next row. Trimming every highlighted row the same way keeps the moving bar one
+ * shape, so it never peeks out beside the line.
+ */
+static void trim_highlight_strip(GContext* ctx, const Layer* cell_layer)
+{
+#if !PBL_ROUND
+    if (!menu_cell_layer_is_highlighted(cell_layer))
+    {
+        return;
+    }
+    const ListRow* selected = notification_store_row(menu_layer_get_selected_index(menu_layer).row);
+    if (selected == NULL || !selected->in_stack)
+    {
+        return;
+    }
+    const GRect bounds = layer_get_bounds(cell_layer);
+    graphics_context_set_fill_color(ctx, theme_bg());
+    graphics_fill_rect(ctx, GRect(0, 0, STACK_LINE_EDGE + STACK_LINE_WIDTH + STACK_LINE_HIGHLIGHT_GAP, bounds.size.h),
+                       0, GCornerNone);
+#else
+    (void)ctx;
+    (void)cell_layer;
 #endif
 }
 
@@ -601,6 +622,7 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     {
         return;
     }
+    trim_highlight_strip(ctx, cell_layer);
     // A row that is opening or closing is drawn at full size, sliding out from under the row above it.
     GRect bounds = layer_get_bounds(cell_layer);
     const int16_t full = full_row_height(row);
@@ -796,8 +818,6 @@ static void select_click(MenuLayer* layer, MenuIndex* index, void* context)
     activate_row(index->row);
 }
 
-static void highlight_follow_selection(bool animated);
-
 // Fetching a message's full text while the list is still moving makes scrolling stutter, so wait until the
 // selection rests for a moment.
 #define PREFETCH_DELAY_MS 350
@@ -820,10 +840,8 @@ static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex o
     (void)context;
     if (setting_selection)
     {
-        highlight_follow_selection(false);
         return;
     }
-    highlight_follow_selection(true);
     idle_handler_notify_user_interacted();
     list_selection_moved = true;
     list_selected_row = new_index.row;
@@ -1657,10 +1675,10 @@ static void apply_list_colors(void)
     {
         return;
     }
-    // The list paints no backgrounds: the window colour and the highlight layer under it show through.
+    menu_layer_set_normal_colors(menu_layer, theme_bg(), theme_fg());
     // Black and white watches highlight with the text colour: black in light mode, white in dark mode.
-    menu_layer_set_normal_colors(menu_layer, GColorClear, theme_fg());
-    menu_layer_set_highlight_colors(menu_layer, GColorClear, PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()));
+    menu_layer_set_highlight_colors(menu_layer, PBL_IF_COLOR_ELSE(DEFAULT_LIST_HIGHLIGHT, theme_fg()),
+                                    PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()));
     if (list_window != NULL)
     {
         window_set_background_color(list_window, theme_bg());
@@ -1711,174 +1729,6 @@ static const StoreListener store_listener = {
 
 // ------------------------------------------------------------------------------------------------ window
 
-// ------------------------------------------------------------------------------------------------ selection highlight
-// The list draws no highlight of its own: this layer, under the list, paints it. That way it can leave out the
-// strip with an opened stack's line (instead of covering it up afterwards, which showed while it moved) and
-// move with our own, gentler bounce.
-
-#define HIGHLIGHT_MOVE_MS 170
-
-static GRect highlight_from;
-static GRect highlight_drawn;
-static bool highlight_drawn_valid;
-static Animation* highlight_animation;
-// Eased progress of the move in thousandths (past FOLD_FULL briefly for the bounce).
-static int32_t highlight_progress = FOLD_FULL;
-
-static GColor highlight_color(void)
-{
-    return PBL_IF_COLOR_ELSE(DEFAULT_LIST_HIGHLIGHT, theme_fg());
-}
-
-/** Where the selected row's highlight belongs, in list coordinates. */
-static GRect highlight_target(void)
-{
-    const int16_t count = notification_store_row_count();
-    if (menu_layer == NULL || count == 0)
-    {
-        return GRectZero;
-    }
-    int16_t selected = menu_layer_get_selected_index(menu_layer).row;
-    if (selected >= count)
-    {
-        selected = count - 1;
-    }
-    int16_t top = list_top_padding();
-    for (int16_t i = 0; i < selected; i++)
-    {
-        top += row_height_at(i);
-    }
-    const int16_t width = layer_get_bounds(menu_layer_get_layer(menu_layer)).size.w;
-    int16_t left = 0;
-#if !PBL_ROUND
-    const ListRow* row = notification_store_row(selected);
-    if (row != NULL && row->in_stack)
-    {
-        left = STACK_LINE_EDGE + STACK_LINE_WIDTH + STACK_LINE_HIGHLIGHT_GAP;
-    }
-#endif
-    return GRect(left, top, width - left, row_height_at(selected));
-}
-
-static int16_t lerp(const int16_t from, const int16_t to, const int32_t amount)
-{
-    return from + (int32_t)(to - from) * amount / FOLD_FULL;
-}
-
-/** Back easing with a small overshoot: a quick, light bounce. */
-static int32_t ease_highlight(const int32_t t)
-{
-    const int64_t u = t - FOLD_FULL;
-    return FOLD_FULL + (int32_t)(2000 * u * u * u / 1000000000LL + 1000 * u * u / 1000000LL);
-}
-
-static void highlight_update_proc(Layer* layer, GContext* ctx)
-{
-    (void)layer;
-    if (menu_layer == NULL || layer_get_hidden(menu_layer_get_layer(menu_layer)))
-    {
-        highlight_drawn_valid = false;
-        return;
-    }
-    const GRect target = highlight_target();
-    if (target.size.h == 0)
-    {
-        highlight_drawn_valid = false;
-        return;
-    }
-    GRect rect = target;
-    if (highlight_animation != NULL)
-    {
-        rect = GRect(lerp(highlight_from.origin.x, target.origin.x, highlight_progress),
-                     lerp(highlight_from.origin.y, target.origin.y, highlight_progress),
-                     lerp(highlight_from.size.w, target.size.w, highlight_progress),
-                     lerp(highlight_from.size.h, target.size.h, highlight_progress));
-    }
-    highlight_drawn = rect;
-    highlight_drawn_valid = true;
-    rect.origin.y -= list_offset();
-    graphics_context_set_fill_color(ctx, highlight_color());
-    graphics_fill_rect(ctx, rect, 0, GCornerNone);
-}
-
-static void highlight_animation_update(Animation* animation, const AnimationProgress progress)
-{
-    (void)animation;
-    highlight_progress = ease_highlight((int32_t)progress * FOLD_FULL / ANIMATION_NORMALIZED_MAX);
-    if (highlight_layer != NULL)
-    {
-        layer_mark_dirty(highlight_layer);
-    }
-}
-
-static void highlight_animation_stopped(Animation* animation, const bool finished, void* context)
-{
-    (void)finished;
-    (void)context;
-    if (animation == highlight_animation)
-    {
-        highlight_animation = NULL;
-        highlight_progress = FOLD_FULL;
-        if (highlight_layer != NULL)
-        {
-            layer_mark_dirty(highlight_layer);
-        }
-    }
-}
-
-static void highlight_stop(void)
-{
-    Animation* running = highlight_animation;
-    highlight_animation = NULL;
-    highlight_progress = FOLD_FULL;
-    if (running != NULL)
-    {
-        animation_unschedule(running);
-    }
-}
-
-static void highlight_follow_selection(const bool animated)
-{
-    if (highlight_layer == NULL)
-    {
-        return;
-    }
-    // Start from wherever the highlight is on screen right now, even mid-move.
-    const GRect from = highlight_drawn;
-    const bool had_from = highlight_drawn_valid;
-    highlight_stop();
-    if (animated && had_from)
-    {
-        highlight_from = from;
-        highlight_progress = 0;
-        static const AnimationImplementation implementation = {.update = highlight_animation_update};
-        highlight_animation = animation_create();
-        if (highlight_animation != NULL)
-        {
-            animation_set_implementation(highlight_animation, &implementation);
-            animation_set_duration(highlight_animation, HIGHLIGHT_MOVE_MS);
-            animation_set_curve(highlight_animation, AnimationCurveLinear);
-            animation_set_handlers(highlight_animation,
-                                   (AnimationHandlers){.stopped = highlight_animation_stopped}, NULL);
-            if (!animation_schedule(highlight_animation))
-            {
-                highlight_animation = NULL;
-                highlight_progress = FOLD_FULL;
-            }
-        }
-    }
-    layer_mark_dirty(highlight_layer);
-}
-
-/** The list's own background stays empty, so the window colour and the highlight layer under it show. */
-static void draw_list_background(GContext* ctx, const Layer* bg_layer, const bool highlight, void* context)
-{
-    (void)ctx;
-    (void)bg_layer;
-    (void)highlight;
-    (void)context;
-}
-
 static void window_load(Window* window)
 {
     Layer* root = window_get_root_layer(window);
@@ -1891,12 +1741,7 @@ static void window_load(Window* window)
         .draw_row = draw_row,
         .select_click = select_click,
         .selection_changed = selection_changed,
-        .draw_background = draw_list_background,
     });
-    highlight_layer = layer_create(bounds);
-    layer_set_update_proc(highlight_layer, highlight_update_proc);
-    layer_add_child(root, highlight_layer);
-
     apply_list_colors();
     menu_layer_set_click_config_onto_window(menu_layer, window);
     layer_add_child(root, menu_layer_get_layer(menu_layer));
@@ -1950,11 +1795,7 @@ static void window_unload(Window* window)
     notification_image_clear();
     window_notification_action_list_deinit();
 
-    highlight_stop();
     menu_layer_destroy(menu_layer);
-    layer_destroy(highlight_layer);
-    highlight_layer = NULL;
-    highlight_drawn_valid = false;
     layer_destroy(empty_layer);
     layer_destroy(splash_layer);
     menu_layer = NULL;
