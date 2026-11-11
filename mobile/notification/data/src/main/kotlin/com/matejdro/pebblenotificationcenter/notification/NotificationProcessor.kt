@@ -580,7 +580,7 @@ class NotificationProcessor(
       // the app's own test notifications) would otherwise stay on the watch with no phone notification behind it,
       // so its actions could never work.
       val leftovers = watchSyncer.syncedNotificationKeys()
-         .filterNot { it in activeKeys || it in notificationIdsByKeys }
+         .filterNot { it in activeKeys || notificationIdsByKeys.containsKey(it) }
       for (key in leftovers) {
          logcat { "Removing $key from the watch: no longer on the phone" }
          watchSyncer.clearNotification(key)
