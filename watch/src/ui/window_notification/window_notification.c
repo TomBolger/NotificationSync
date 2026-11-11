@@ -491,7 +491,69 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect 
 }
 
 static void draw_item_row(GContext* ctx, const Layer* cell_layer, GRect bounds, const NotificationItem* item,
-                          const ListRow* row);
+                          const ListRow* row, int16_t row_index);
+
+#define STACK_LINE_EDGE 5
+#define STACK_LINE_WIDTH 2
+#define STACK_LINE_GAP 4
+
+#if PBL_ROUND
+static int32_t isqrt(const int32_t value)
+{
+    if (value <= 0)
+    {
+        return 0;
+    }
+    int32_t root = 0;
+    int32_t bit = 1 << 14;
+    int32_t rest = value;
+    while (bit > rest)
+    {
+        bit >>= 2;
+    }
+    while (bit != 0)
+    {
+        if (rest >= root + bit)
+        {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        }
+        else
+        {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+#endif
+
+/**
+ * A line down the left of an opened stack ties its notifications together without indenting them more. It
+ * stops a little short of the rows above and below the stack; on round watches it follows the edge of the
+ * screen as an arc.
+ */
+static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect bounds, const int16_t row_index)
+{
+    const ListRow* above = notification_store_row(row_index - 1);
+    const ListRow* below = notification_store_row(row_index + 1);
+    const int16_t top = bounds.origin.y + (above != NULL && above->in_stack ? 0 : STACK_LINE_GAP);
+    const int16_t bottom = bounds.origin.y + bounds.size.h - (below != NULL && below->in_stack ? 0 : STACK_LINE_GAP);
+    const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
+    graphics_context_set_fill_color(ctx, highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()) : theme_secondary());
+#if PBL_ROUND
+    const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    const int16_t screen_y = layer_convert_point_to_screen(cell_layer, GPointZero).y;
+    for (int16_t y = top; y < bottom; y++)
+    {
+        const int32_t dy = screen_y + y - PBL_DISPLAY_HEIGHT / 2;
+        const int16_t edge = radius - isqrt(radius * radius - dy * dy);
+        graphics_fill_rect(ctx, GRect(edge + STACK_LINE_EDGE, y, STACK_LINE_WIDTH, 1), 0, GCornerNone);
+    }
+#else
+    graphics_fill_rect(ctx, GRect(STACK_LINE_EDGE, top, STACK_LINE_WIDTH, bottom - top), 0, GCornerNone);
+#endif
+}
 
 static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, void* context)
 {
@@ -515,12 +577,12 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
         draw_header_row(ctx, cell_layer, bounds, row);
         return;
     }
-    draw_item_row(ctx, cell_layer, bounds, item, row);
+    draw_item_row(ctx, cell_layer, bounds, item, row, index->row);
 }
 
 // PebbleOS source: src/fw/apps/system/notifications.c (prv_draw_notification_cell_rect)
 static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const NotificationItem* item,
-                          const ListRow* row)
+                          const ListRow* row, const int16_t row_index)
 {
 #if PBL_ROUND
     // Keep the icon and text clear of the curved edge: rows above and below the centre start further in.
@@ -552,11 +614,7 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
 
     if (row->in_stack)
     {
-        // A line down the left of an opened stack ties its notifications together without indenting them more.
-        const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
-        graphics_context_set_fill_color(ctx, highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg())
-                                                         : theme_secondary());
-        graphics_fill_rect(ctx, GRect(inset - 7, bounds.origin.y, 2, bounds.size.h), 0, GCornerNone);
+        draw_stack_line(ctx, cell_layer, bounds, row_index);
     }
 
     GDrawCommandImage* icon = card_icon_for_id(item->icon_id);
