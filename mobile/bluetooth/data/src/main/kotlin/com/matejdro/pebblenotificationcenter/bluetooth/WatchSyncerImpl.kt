@@ -13,8 +13,10 @@ import com.matejdro.pebble.bluetooth.common.util.writeUByte
 import com.matejdro.pebble.bluetooth.common.util.writeUInt
 import com.matejdro.pebble.bluetooth.common.util.writeUShort
 import com.matejdro.pebblenotificationcenter.bluetooth.images.NotificationImageStore
-import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
+import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_SECTION_CONVERSATION
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_SECTION_SILENT
 import com.matejdro.pebblenotificationcenter.notification.model.any
 import com.matejdro.pebblenotificationcenter.rules.GlobalPreferenceKeys
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
@@ -102,6 +104,9 @@ class WatchSyncerImpl(
       val image = notificationImageStore.prepare(notificationData)
       buffer.writeUByte((image?.aspect ?: 0).toUByte())
       buffer.writeUByte((image?.tag ?: 0).toUByte())
+      // Where the phone shows it (section, Android 16 category) and which app stack it belongs to.
+      buffer.writeUByte(((notificationData.shadeSection and 0x03) or (notificationData.shadeCategory shl 2)).toUByte())
+      buffer.writeUByte(notificationData.groupKey?.let { (it.hashCode() and 0xFF).coerceAtLeast(1) }?.toUByte() ?: 0u)
 
       buffer.write(
          utf8Encoder.encodeSizeLimited(
@@ -138,7 +143,7 @@ class WatchSyncerImpl(
       val id = bucketSyncRepository.updateBucketDynamic(
          notificationData.key,
          buffer.readByteArray(),
-         sortKey = -epochSecond,
+         sortKey = sortKey(notificationData, epochSecond),
          flags = flags
       )
 
@@ -149,6 +154,26 @@ class WatchSyncerImpl(
       logcat { "Synced" }
 
       return id
+   }
+
+   /**
+    * Newest first. With sections on, ordered by section first (Conversations, Notifications, Silent and its
+    * categories) like the phone's shade, so the watch receives and lists them top to bottom in that order.
+    */
+   private suspend fun sortKey(notification: ParsedNotification, epochSecond: Long): Long {
+      if (!preferenceStore.data.first()[GlobalPreferenceKeys.watchGroupSections]) {
+         return -epochSecond
+      }
+      val sectionRank = when (notification.shadeSection) {
+         SHADE_SECTION_CONVERSATION -> 0L
+         SHADE_SECTION_SILENT -> 2L
+         else -> 1L
+      }
+      return sectionRank * SECTION_SORT_STEP + notification.shadeCategory * CATEGORY_SORT_STEP - epochSecond
+   }
+
+   override fun invalidateEncodings() {
+      mirrorGeneration++
    }
 
    @Suppress("MagicNumber") // Protocol constants
@@ -230,6 +255,8 @@ class WatchSyncerImpl(
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchSenderBold]) 1 else 0)
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchMessageBold]) 1 else 0)
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchDarkMode]) 1 else 0)
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchGroupSections]) 1 else 0)
+            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchStackApps]) 1 else 0)
 
             bucketSyncRepository.updateBucket(
                1u,
@@ -423,3 +450,6 @@ private fun ParsedNotification.pebbleOsColorId(): Int {
       else -> 0
    }
 }
+
+private const val SECTION_SORT_STEP = 100_000_000_000L
+private const val CATEGORY_SORT_STEP = 10_000_000_000L

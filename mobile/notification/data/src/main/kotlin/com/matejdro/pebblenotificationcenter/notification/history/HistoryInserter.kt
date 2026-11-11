@@ -67,6 +67,7 @@ class HistoryInserterImpl(
          HideReason.MEDIA_NOTIFICATION -> context.getString(R.string.reason_media)
          HideReason.PHONE_UNLOCKED -> context.getString(R.string.reason_phone_unlocked)
          HideReason.APP_PAUSED -> context.getString(R.string.reason_app_paused)
+         HideReason.CATEGORY_OFF -> context.getString(R.string.reason_category_off)
       }
    }
 }

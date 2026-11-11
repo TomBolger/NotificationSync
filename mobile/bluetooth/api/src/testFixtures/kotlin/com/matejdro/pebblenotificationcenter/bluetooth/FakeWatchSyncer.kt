@@ -27,6 +27,10 @@ class FakeWatchSyncer : WatchSyncer {
 
    override var mirrorGeneration: Int = 0
 
+   override fun invalidateEncodings() {
+      mirrorGeneration++
+   }
+
    override suspend fun clearAllNotifications() {
       mirrorGeneration++
       clearAllCalled = true

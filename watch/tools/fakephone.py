@@ -31,15 +31,18 @@ from libpebble2.services.appmessage import AppMessageService, ByteArray, Uint8, 
 from libpebble2.services.install import AppInstaller
 
 APP_UUID = uuidlib.UUID("1c5f3908-e3ea-419b-ae55-7f167ea8fafa")
-PROTOCOL_VERSION = 12
+PROTOCOL_VERSION = 13
 
 QMP_KEYS = {"back": "left", "select": "right", "up": "up", "down": "down"}
 
 
 class Notification:
     def __init__(self, bucket_id, app, title, body, icon=0, color=0, timestamp=None, actions=None,
-                 unread=True, image=None):
+                 unread=True, image=None, section=0, category=0, stack=0):
         self.bucket_id = bucket_id
+        self.section = 2 if category else section
+        self.category = category
+        self.stack = stack
         self.app = app
         self.title = title
         self.body = body
@@ -61,6 +64,8 @@ class Notification:
     def bucket_bytes(self, limit=220):
         tag = (id(self.image) & 0xFF) or 1 if self.image is not None else 0
         data = struct.pack(">IBBBB", int(self.timestamp), self.icon, self.color, self.image_aspect(), tag)
+        # Protocol 13: section (0 alerting, 1 conversation, 2 silent) | category << 2, then stack id.
+        data += bytes([(self.section & 3) | (self.category << 2), self.stack])
         data += self.app.encode()[:24] + b"\0"
         data += self.title.encode()[:40] + b"\0"
         remaining = limit - len(data)
@@ -80,7 +85,7 @@ class FakePhone:
         self.pebble = None
         self.appmessage = None
         self.notifications = {}
-        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10) + bytes([1, 1, 1, 0])
+        self.settings = bytes([0x00]) + struct.pack(">HH", 0, 10) + bytes([1, 1, 1, 0, 0, 0])
         self.settings_version = 1
         self.version = 1
         self.watch_version = None
@@ -244,8 +249,24 @@ class FakePhone:
         if sync:
             self.sync()
 
+    def set_grouping(self, sections, stacks, sync=True):
+        """Settings bytes 9-10: group into sections, stack app notifications."""
+        self.settings = self.settings[:9] + bytes([1 if sections else 0, 1 if stacks else 0])
+        self.version += 1
+        self.settings_version = self.version
+        if sync:
+            self.sync()
+
+    def grouped(self):
+        return len(self.settings) > 9 and self.settings[9] == 1
+
     def active_buckets(self):
-        ordered = sorted(self.notifications.values(), key=lambda n: (-n.timestamp, n.bucket_id))[:14]
+        rank = {1: 0, 0: 1, 2: 2}
+        if self.grouped():
+            key = lambda n: (rank[n.section], n.category, -n.timestamp, n.bucket_id)
+        else:
+            key = lambda n: (-n.timestamp, n.bucket_id)
+        ordered = sorted(self.notifications.values(), key=key)[:14]
         return [(1, 0)] + [(n.bucket_id, n.flags()) for n in ordered]
 
     def _bucket_payloads(self, since_version):

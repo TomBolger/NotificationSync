@@ -38,10 +38,45 @@ typedef struct
     uint8_t image_aspect;
     /** Changes when the photo does, so a rewritten notification with a new photo fetches it again. */
     uint8_t image_tag;
+    /** Where the phone shows it: one of the GROUP_* values below. */
+    uint8_t group;
+    /** Same non-zero value for notifications the phone stacks together (same app group), 0 for none. */
+    uint8_t stack_id;
     char app_name[STORE_APP_NAME_SIZE];
     char title[STORE_TITLE_SIZE];
     char summary[STORE_SUMMARY_SIZE];
 } NotificationItem;
+
+// Sections and categories of the phone's notification shade, in the order they are listed.
+#define GROUP_CONVERSATIONS 0
+#define GROUP_NOTIFICATIONS 1
+#define GROUP_SILENT 2
+#define GROUP_SUGGESTED 3
+#define GROUP_PROMOTIONS 4
+#define GROUP_NEWS 5
+#define GROUP_SOCIAL 6
+#define GROUP_COUNT 7
+
+typedef enum
+{
+    /** A notification (item = its display index). */
+    ROW_ITEM,
+    /** Small header of a section or category (group), with a caret. */
+    ROW_HEADER,
+    /** An app's stack: collapsed it is one full row for its newest notification (item); expanded, a small header. */
+    ROW_STACK,
+} ListRowKind;
+
+typedef struct
+{
+    uint8_t kind;
+    uint8_t group;
+    uint8_t item;
+    uint8_t count;
+    bool expanded;
+    /** Item rows inside an expanded stack are drawn slightly indented. */
+    bool in_stack;
+} ListRow;
 
 typedef struct
 {
@@ -76,6 +111,18 @@ void notification_store_on_details_unavailable(uint8_t bucket_id);
 bool notification_store_is_live(void);
 void notification_store_set_settings_listener(void (*listener)(void));
 
+/** Group into the phone's sections (with headers) and/or stack an app's notifications. */
+void notification_store_set_grouping(bool sections, bool stacks);
+/** Rows of the list: headers, stacks and notifications, as currently opened and closed. */
+uint8_t notification_store_row_count(void);
+const ListRow* notification_store_row(uint8_t row);
+/** The row showing this notification (or the closed header or stack that holds it), -1 if none. */
+int16_t notification_store_row_of_bucket(uint8_t bucket_id);
+/** Open or close the header or stack at this row (remembered for sections and categories). */
+void notification_store_toggle_row(uint8_t row);
+const char* notification_store_group_name(uint8_t group);
+
+/** All notifications in list order (closed headers and stacks included), for paging through cards. */
 uint8_t notification_store_count(void);
 const NotificationItem* notification_store_item(uint8_t index);
 const NotificationItem* notification_store_item_by_bucket(uint8_t bucket_id);

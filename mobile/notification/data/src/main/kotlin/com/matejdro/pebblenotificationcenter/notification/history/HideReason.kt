@@ -8,4 +8,5 @@ enum class HideReason {
    MEDIA_NOTIFICATION,
    PHONE_UNLOCKED,
    APP_PAUSED,
+   CATEGORY_OFF,
 }

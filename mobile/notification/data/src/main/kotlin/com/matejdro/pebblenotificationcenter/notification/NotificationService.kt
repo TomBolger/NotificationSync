@@ -324,6 +324,11 @@ class NotificationService : NotificationListenerService() {
     * At most one reconcile is waiting at a time, so a notification that updates every second (navigation,
     * downloads) cannot flood the watch with full resyncs. It runs in order with posts and removals.
     */
+   /** Re-check every notification shortly (for example after a setting changed how they are sent). */
+   fun requestReconcile() {
+      scheduleReconcile()
+   }
+
    @Synchronized
    private fun scheduleReconcile() {
       if (scheduledReconcile?.isActive == true) {

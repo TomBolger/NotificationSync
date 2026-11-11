@@ -78,10 +78,49 @@ static bool launched_by_phone(void)
     return launch_reason() == APP_LAUNCH_PHONE;
 }
 
+// Row last selected; used when the selection is on a header (which has no notification of its own).
+static int16_t list_selected_row;
+// The user moved the selection (or opened something) since the list appeared.
+static bool list_selection_moved;
+// Selection set by the app (not by the user): don't treat it as the user's choice.
+static bool setting_selection;
+
+/** Row to select: the selected notification's row (or the closed header/stack holding it). */
 static int16_t selected_index(void)
 {
-    const int16_t index = notification_store_index_of(list_selected_bucket);
-    return index >= 0 ? index : 0;
+    const int16_t row = notification_store_row_of_bucket(list_selected_bucket);
+    if (row >= 0)
+    {
+        return row;
+    }
+    const int16_t rows = notification_store_row_count();
+    if (rows == 0)
+    {
+        return 0;
+    }
+    if (!list_selection_moved)
+    {
+        // Nothing chosen yet: start on the first notification rather than on a section header.
+        for (int16_t i = 0; i < rows; i++)
+        {
+            const ListRow* row = notification_store_row(i);
+            if (row->kind != ROW_HEADER && !(row->kind == ROW_STACK && row->expanded))
+            {
+                return i;
+            }
+        }
+    }
+    return list_selected_row < rows ? list_selected_row : rows - 1;
+}
+
+/** The notification a row stands for (a collapsed stack stands for its newest), NULL for headers. */
+static const NotificationItem* row_item(const ListRow* row)
+{
+    if (row == NULL || row->kind == ROW_HEADER || (row->kind == ROW_STACK && row->expanded))
+    {
+        return NULL;
+    }
+    return notification_store_item(row->item);
 }
 
 GColor window_notification_ui_get_primary_color()
@@ -124,7 +163,7 @@ static void flush_deferred_vibration(void)
 
 static void update_layer_visibility(void)
 {
-    if (list_window == NULL)
+    if (list_window == NULL || menu_layer == NULL || empty_layer == NULL || splash_layer == NULL)
     {
         return;
     }
@@ -187,32 +226,117 @@ static void update_app_glance(void)
 
 // ------------------------------------------------------------------------------------------------ list window
 
+#define LIST_HEADER_HEIGHT PBL_IF_ROUND_ELSE(26, 22)
+
+static int16_t row_height(const ListRow* row)
+{
+    if (row != NULL && (row->kind == ROW_HEADER || (row->kind == ROW_STACK && row->expanded)))
+    {
+        return LIST_HEADER_HEIGHT;
+    }
+    return LIST_CELL_HEIGHT;
+}
+
 static uint16_t get_num_rows(MenuLayer* layer, uint16_t section, void* context)
 {
     (void)layer;
     (void)section;
     (void)context;
-    return notification_store_count();
+    return notification_store_row_count();
 }
 
 static int16_t get_cell_height(MenuLayer* layer, MenuIndex* index, void* context)
 {
     (void)layer;
-    (void)index;
     (void)context;
-    return LIST_CELL_HEIGHT;
+    return row_height(notification_store_row(index->row));
 }
 
-// PebbleOS source: src/fw/apps/system/notifications.c (prv_draw_notification_cell_rect)
+/** A small triangle: pointing down when open, right when closed. */
+static void draw_caret(GContext* ctx, const GPoint center, const bool open)
+{
+    GPoint points[3];
+    if (open)
+    {
+        points[0] = GPoint(center.x - 4, center.y - 2);
+        points[1] = GPoint(center.x + 4, center.y - 2);
+        points[2] = GPoint(center.x, center.y + 3);
+    }
+    else
+    {
+        points[0] = GPoint(center.x - 2, center.y - 4);
+        points[1] = GPoint(center.x - 2, center.y + 4);
+        points[2] = GPoint(center.x + 3, center.y);
+    }
+    const GPathInfo info = {.num_points = 3, .points = points};
+    GPath* path = gpath_create(&info);
+    if (path != NULL)
+    {
+        gpath_draw_filled(ctx, path);
+        gpath_destroy(path);
+    }
+}
+
+/** Section, category or opened stack: a small caption with a caret, and the count when closed. */
+static void draw_header_row(GContext* ctx, const Layer* cell_layer, const ListRow* row)
+{
+    const GRect bounds = layer_get_bounds(cell_layer);
+    const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
+    const GColor color = highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()) : theme_secondary();
+    graphics_context_set_text_color(ctx, color);
+    graphics_context_set_fill_color(ctx, color);
+
+    char text[48];
+    const char* name = row->kind == ROW_STACK
+        ? notification_store_item(row->item)->app_name
+        : notification_store_group_name(row->group);
+    if (row->expanded && row->kind == ROW_HEADER)
+    {
+        snprintf(text, sizeof(text), "%s", name);
+    }
+    else
+    {
+        snprintf(text, sizeof(text), "%s  %d", name, row->count);
+    }
+
+    const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+    // Categories sit a little further in than their Silent section; opened stacks further still.
+    const int16_t indent = row->kind == ROW_STACK ? 16 : row->group >= GROUP_SUGGESTED ? 10 : 0;
+#if PBL_ROUND
+    const GSize size = graphics_text_layout_get_content_size(text, font, GRect(0, 0, bounds.size.w - 60, 20),
+                                                             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
+    const int16_t left = (bounds.size.w - size.w - 14) / 2 + indent / 2;
+#else
+    const int16_t left = 8 + indent;
+#endif
+    const int16_t text_top = (bounds.size.h - 18) / 2;
+    draw_caret(ctx, GPoint(left + 4, bounds.size.h / 2), row->expanded);
+    graphics_draw_text(ctx, text, font, GRect(left + 14, text_top, bounds.size.w - left - 20, 18),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+}
+
+static void draw_item_row(GContext* ctx, const Layer* cell_layer, const NotificationItem* item, const ListRow* row);
+
 static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, void* context)
 {
     (void)context;
-    const NotificationItem* item = notification_store_item(index->row);
-    if (item == NULL)
+    const ListRow* row = notification_store_row(index->row);
+    if (row == NULL)
     {
         return;
     }
+    const NotificationItem* item = row_item(row);
+    if (item == NULL)
+    {
+        draw_header_row(ctx, cell_layer, row);
+        return;
+    }
+    draw_item_row(ctx, cell_layer, item, row);
+}
 
+// PebbleOS source: src/fw/apps/system/notifications.c (prv_draw_notification_cell_rect)
+static void draw_item_row(GContext* ctx, const Layer* cell_layer, const NotificationItem* item, const ListRow* row)
+{
     const GRect bounds = layer_get_bounds(cell_layer);
 #if PBL_ROUND
     // Keep the icon and text clear of the curved edge: rows above and below the centre start further in.
@@ -235,7 +359,7 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
         }
     }
 #else
-    const int16_t inset = 5;
+    const int16_t inset = row->in_stack ? 12 : 5;
 #endif
 
     GDrawCommandImage* icon = card_icon_for_id(item->icon_id);
@@ -270,7 +394,9 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     // A little breathing room between the icon and the text.
     const int16_t icon_gap = 5;
     const int16_t text_left = inset + (icon_size.w > 25 ? icon_size.w : 25) + icon_gap;
-    const GRect text_box = grect_inset(bounds, GEdgeInsets(0, PBL_IF_ROUND_ELSE(inset, 5), 0, text_left));
+    // A closed stack keeps room on the right for its count.
+    const int16_t right_room = PBL_IF_ROUND_ELSE(inset, 5) + (row->kind == ROW_STACK ? 22 : 0);
+    const GRect text_box = grect_inset(bounds, GEdgeInsets(0, right_room, 0, text_left));
     const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     const GFont subtitle_font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     const int16_t title_height = 24;
@@ -285,6 +411,53 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
                            GRect(text_box.origin.x, top + title_height, text_box.size.w, subtitle_height + 4),
                            GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
     }
+
+    if (row->kind == ROW_STACK)
+    {
+        // A closed stack: how many notifications it holds, with a caret to open it.
+        char count[6];
+        snprintf(count, sizeof(count), "%d", row->count);
+        const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+        const int16_t right = bounds.size.w - PBL_IF_ROUND_ELSE(inset, 5);
+        const int16_t middle = bounds.size.h / 2;
+        graphics_draw_text(ctx, count, font, GRect(right - 26, middle - 10, 16, 18), GTextOverflowModeFill,
+                           GTextAlignmentRight, NULL);
+        const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
+        graphics_context_set_fill_color(ctx, highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()) : theme_fg());
+        draw_caret(ctx, GPoint(right - 4, middle), false);
+    }
+}
+
+static void toggle_row(const uint8_t row)
+{
+    list_selection_moved = true;
+    list_selected_row = row;
+    list_selected_bucket = 0;
+    notification_store_toggle_row(row);
+    menu_layer_reload_data(menu_layer);
+    menu_layer_set_selected_index(menu_layer, MenuIndex(0, row), MenuRowAlignNone, false);
+}
+
+static void activate_row(const uint8_t index)
+{
+    const ListRow* row = notification_store_row(index);
+    if (row == NULL)
+    {
+        return;
+    }
+    if (row->kind != ROW_ITEM)
+    {
+        // Headers and stacks open or close, like on the phone.
+        toggle_row(index);
+        return;
+    }
+    const NotificationItem* item = notification_store_item(row->item);
+    if (item != NULL)
+    {
+        list_selected_row = index;
+        list_selected_bucket = item->bucket_id;
+        open_detail(item->bucket_id, true);
+    }
 }
 
 static void select_click(MenuLayer* layer, MenuIndex* index, void* context)
@@ -292,12 +465,7 @@ static void select_click(MenuLayer* layer, MenuIndex* index, void* context)
     (void)layer;
     (void)context;
     idle_handler_notify_user_interacted();
-    const NotificationItem* item = notification_store_item(index->row);
-    if (item != NULL)
-    {
-        list_selected_bucket = item->bucket_id;
-        open_detail(item->bucket_id, true);
-    }
+    activate_row(index->row);
 }
 
 static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex old_index, void* context)
@@ -305,11 +473,17 @@ static void selection_changed(MenuLayer* layer, MenuIndex new_index, MenuIndex o
     (void)layer;
     (void)old_index;
     (void)context;
+    if (setting_selection)
+    {
+        return;
+    }
     idle_handler_notify_user_interacted();
-    const NotificationItem* item = notification_store_item(new_index.row);
+    list_selection_moved = true;
+    list_selected_row = new_index.row;
+    const NotificationItem* item = row_item(notification_store_row(new_index.row));
+    list_selected_bucket = item != NULL ? item->bucket_id : 0;
     if (item != NULL)
     {
-        list_selected_bucket = item->bucket_id;
         notification_store_want_details(item->bucket_id, false);
     }
 }
@@ -333,10 +507,40 @@ static int16_t list_content_height(void)
 }
 
 /** Round menus pad the content so the first and last rows can sit in the middle of the screen. */
+static int16_t rows_height(void)
+{
+    int16_t total = 0;
+    for (uint8_t i = 0; i < notification_store_row_count(); i++)
+    {
+        total += row_height(notification_store_row(i));
+    }
+    return total;
+}
+
 static int16_t list_top_padding(void)
 {
-    const int16_t padding = (list_content_height() - notification_store_count() * LIST_CELL_HEIGHT) / 2;
+    const int16_t padding = (list_content_height() - rows_height()) / 2;
     return padding > 0 ? padding : 0;
+}
+
+/** The row at this distance from the top of the first row, -1 above it, the last row below the end. */
+static int16_t row_at(const int16_t position)
+{
+    if (position < 0)
+    {
+        return -1;
+    }
+    int16_t top = 0;
+    const uint8_t count = notification_store_row_count();
+    for (uint8_t i = 0; i < count; i++)
+    {
+        top += row_height(notification_store_row(i));
+        if (position < top)
+        {
+            return i;
+        }
+    }
+    return count > 0 ? count - 1 : -1;
 }
 
 static int16_t list_max_offset(void)
@@ -358,15 +562,11 @@ static void set_list_offset(const int16_t value)
 /** After the list comes to rest, highlight the row in the middle of the screen (without scrolling). */
 static void select_row_at_center(void)
 {
-    if (menu_layer == NULL || notification_store_count() == 0)
+    if (menu_layer == NULL || notification_store_row_count() == 0)
     {
         return;
     }
-    int16_t row = (list_offset() + PBL_DISPLAY_HEIGHT / 2 - list_top_padding()) / LIST_CELL_HEIGHT;
-    if (row >= notification_store_count())
-    {
-        row = notification_store_count() - 1;
-    }
+    int16_t row = row_at(list_offset() + PBL_DISPLAY_HEIGHT / 2 - list_top_padding());
     if (row < 0)
     {
         row = 0;
@@ -491,19 +691,17 @@ static void list_tap(const GPoint point, void* context)
 {
     (void)context;
     const int16_t position = list_offset() + point.y - list_top_padding();
-    if (position < 0)
+    if (position < 0 || position >= rows_height())
     {
         return;
     }
-    const int16_t row = position / LIST_CELL_HEIGHT;
-    const NotificationItem* item = notification_store_item(row);
-    if (item == NULL)
+    const int16_t row = row_at(position);
+    if (row < 0)
     {
         return;
     }
     menu_layer_set_selected_index(menu_layer, MenuIndex(0, row), MenuRowAlignNone, false);
-    list_selected_bucket = item->bucket_id;
-    open_detail(item->bucket_id, true);
+    activate_row(row);
 }
 
 static void list_swipe_back(void* context)
@@ -543,11 +741,18 @@ static void sync_list_selection(void)
         return;
     }
     menu_layer_reload_data(menu_layer);
-    if (notification_store_count() > 0)
+    if (notification_store_row_count() > 0)
     {
         const int16_t index = selected_index();
-        list_selected_bucket = notification_store_item(index)->bucket_id;
+        const NotificationItem* item = row_item(notification_store_row(index));
+        if (item != NULL)
+        {
+            list_selected_bucket = item->bucket_id;
+        }
+        list_selected_row = index;
+        setting_selection = true;
         menu_layer_set_selected_index(menu_layer, MenuIndex(0, index), MenuRowAlignCenter, false);
+        setting_selection = false;
     }
 }
 
@@ -1073,6 +1278,8 @@ static void on_details_changed(const uint8_t bucket_id)
 #define SETTINGS_SENDER_WEIGHT_INDEX 6
 #define SETTINGS_MESSAGE_WEIGHT_INDEX 7
 #define SETTINGS_THEME_INDEX 8
+#define SETTINGS_SECTIONS_INDEX 9
+#define SETTINGS_STACKS_INDEX 10
 
 static void apply_list_colors(void)
 {
@@ -1097,12 +1304,14 @@ static void apply_list_colors(void)
 
 static void load_text_size(void)
 {
-    uint8_t config[SETTINGS_THEME_INDEX + 1];
+    uint8_t config[SETTINGS_STACKS_INDEX + 1];
     memset(config, 0, sizeof(config));
     config[SETTINGS_TEXT_SIZE_INDEX] = CARD_TEXT_SIZE_DEFAULT;
     config[SETTINGS_SENDER_WEIGHT_INDEX] = 1;
     config[SETTINGS_MESSAGE_WEIGHT_INDEX] = 1;
     config[SETTINGS_THEME_INDEX] = 0;
+    config[SETTINGS_SECTIONS_INDEX] = 0;
+    config[SETTINGS_STACKS_INDEX] = 0;
     const uint8_t size = bucket_sync_get_bucket_size(1);
     if (size > SETTINGS_TEXT_SIZE_INDEX)
     {
@@ -1111,7 +1320,10 @@ static void load_text_size(void)
     card_set_text_style(config[SETTINGS_TEXT_SIZE_INDEX], config[SETTINGS_SENDER_WEIGHT_INDEX] != 0,
                         config[SETTINGS_MESSAGE_WEIGHT_INDEX] != 0);
     theme_set_dark(config[SETTINGS_THEME_INDEX] == 1);
+    notification_store_set_grouping(config[SETTINGS_SECTIONS_INDEX] != 0, config[SETTINGS_STACKS_INDEX] != 0);
     apply_list_colors();
+    sync_list_selection();
+    update_layer_visibility();
     detail_window_on_style_changed();
 }
 

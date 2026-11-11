@@ -16,6 +16,9 @@ interface WatchSyncer {
     */
    val mirrorGeneration: Int get() = 0
 
+   /** Everything sent so far must be encoded again (a setting changed how notifications are sent). */
+   fun invalidateEncodings() {}
+
    suspend fun clearAllNotifications()
    suspend fun clearNotification(key: String)
 

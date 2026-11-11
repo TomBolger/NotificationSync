@@ -17,6 +17,14 @@ import com.matejdro.pebblenotificationcenter.notification.R
 import com.matejdro.pebblenotificationcenter.notification.api.AppNameProvider
 import com.matejdro.pebblenotificationcenter.notification.model.NativeAction
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_NEWS
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_NONE
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_PROMOTIONS
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_SOCIAL
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_SUGGESTED
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_SECTION_ALERTING
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_SECTION_CONVERSATION
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_SECTION_SILENT
 import com.matejdro.pebblenotificationcenter.notification.utils.parseVibrationPattern
 import dev.zacsweers.metro.Inject
 import java.time.Instant
@@ -43,6 +51,14 @@ class NotificationParser(
       }
 
       val (channelId, isSilent) = processChannel(notification, channel, ranking)
+      // Android 16 sorts some notifications into categories by moving them to these reserved channels.
+      val category = when (channelId) {
+         "android.app.recs" -> SHADE_CATEGORY_SUGGESTED
+         "android.app.promotions" -> SHADE_CATEGORY_PROMOTIONS
+         "android.app.news" -> SHADE_CATEGORY_NEWS
+         "android.app.social" -> SHADE_CATEGORY_SOCIAL
+         else -> SHADE_CATEGORY_NONE
+      }
 
       val timestampMillis = if (NotificationCompat.getShowWhen(notification)) {
          notification.`when`
@@ -74,7 +90,13 @@ class NotificationParser(
          isFilteredByDoNotDisturb = ranking?.matchesInterruptionFilter() == false,
          onlyAlertOnce = notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0,
          groupAlertSuppressed = notification.isGroupAlertSuppressed(),
-         groupKey = notification.group,
+         groupKey = sbn.groupKey.takeIf { sbn.isGroup },
+         shadeSection = when {
+            isSilent || category != SHADE_CATEGORY_NONE -> SHADE_SECTION_SILENT
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && ranking?.isConversation == true -> SHADE_SECTION_CONVERSATION
+            else -> SHADE_SECTION_ALERTING
+         },
+         shadeCategory = category,
          isSuspended = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && ranking?.isSuspended == true,
          nativeActions = notification.parseActions(),
          channel = channelId,

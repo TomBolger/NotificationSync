@@ -236,6 +236,48 @@ private fun DefaultSettingsContent(
                onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchDarkMode, it) },
             )
             GroupDivider()
+            SwitchRow(
+               title = "Group like the phone",
+               description = "Sections with small headers you can open and close: Conversations, Notifications and Silent. Silent starts closed.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchGroupSections],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchGroupSections, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = "Stack each app's notifications",
+               description = "Several notifications from one app fold into one row, like on the phone. Select it to open the stack.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchStackApps],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchStackApps, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = "Show Suggested",
+               description = "Android 16 sorts some quiet notifications into Suggested. Off keeps them off the watch.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchShowSuggested],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchShowSuggested, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = "Show Promotions",
+               description = "Android 16 sorts some quiet notifications into Promotions. Off keeps them off the watch.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchShowPromotions],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchShowPromotions, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = "Show News",
+               description = "Android 16 sorts some quiet notifications into News. Off keeps them off the watch.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchShowNews],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchShowNews, it) },
+            )
+            GroupDivider()
+            SwitchRow(
+               title = "Show Social",
+               description = "Android 16 sorts some quiet notifications into Social. Off keeps them off the watch.",
+               checked = globalPreferences[GlobalPreferenceKeys.watchShowSocial],
+               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchShowSocial, it) },
+            )
+            GroupDivider()
             NumberRow(
                title = stringResource(R.string.notification_timeout),
                description = stringResource(R.string.notification_timeout_description),

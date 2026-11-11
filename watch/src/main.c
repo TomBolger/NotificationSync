@@ -8,7 +8,7 @@
 #include "ui/window_notification/window_notification.h"
 #include "ui/window_notification/idle_handler.h"
 
-const uint16_t PROTOCOL_VERSION = 12;
+const uint16_t PROTOCOL_VERSION = 13;
 
 int main(void)
 {

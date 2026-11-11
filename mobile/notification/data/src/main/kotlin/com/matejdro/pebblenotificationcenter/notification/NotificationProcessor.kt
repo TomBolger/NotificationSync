@@ -17,6 +17,10 @@ import com.matejdro.pebblenotificationcenter.notification.model.Action
 import com.matejdro.pebblenotificationcenter.notification.model.ParsedNotification
 import com.matejdro.pebblenotificationcenter.notification.model.PauseStatus
 import com.matejdro.pebblenotificationcenter.notification.model.ProcessedNotification
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_NEWS
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_PROMOTIONS
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_SOCIAL
+import com.matejdro.pebblenotificationcenter.notification.model.SHADE_CATEGORY_SUGGESTED
 import com.matejdro.pebblenotificationcenter.notification.model.any
 import com.matejdro.pebblenotificationcenter.notification.utils.parseVibrationPattern
 import com.matejdro.pebblenotificationcenter.rules.GlobalPreferenceKeys
@@ -29,7 +33,10 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dispatch.core.DefaultCoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import logcat.logcat
 import java.util.concurrent.ConcurrentHashMap
@@ -83,6 +90,18 @@ class NotificationProcessor(
    private val nextVibration: AtomicReference<PendingVibration?> = AtomicReference(null)
 
    init {
+      defaultScope.launch {
+         // Grouping and category choices change how every notification is sent (or whether it is): send them all
+         // again, in order with everything else.
+         globalPreferenceStore.data
+            .map { preferences -> WATCH_LAYOUT_KEYS.map { preferences[it] } }
+            .distinctUntilChanged()
+            .drop(1)
+            .collect {
+               watchSyncer.invalidateEncodings()
+               NotificationService.instance?.requestReconcile()
+            }
+      }
       defaultScope.launch {
          watchSyncer.stockNotificationActions.collect { action ->
             try {
@@ -146,7 +165,7 @@ class NotificationProcessor(
          }
       }
 
-      val hideReason = shouldHide(notification, settings)
+      val hideReason = shouldHide(notification, settings) ?: categoryHideReason(notification)
       if (hideReason != null) {
          insertHistoryOnce(notification.key, suppressVibration) {
             historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
@@ -244,6 +263,9 @@ class NotificationProcessor(
          isSuspended == replaced.isSuspended &&
          isOngoing == replaced.isOngoing &&
          channel == replaced.channel &&
+         shadeSection == replaced.shadeSection &&
+         shadeCategory == replaced.shadeCategory &&
+         groupKey == replaced.groupKey &&
          (largeImage == null) == (replaced.largeImage == null) &&
          nativeActions.map { it.text to it.remoteInputResultKey } ==
          replaced.nativeActions.map { it.text to it.remoteInputResultKey }
@@ -266,6 +288,22 @@ class NotificationProcessor(
          nativeActions = if (usePreviousDetails && nativeActions.isEmpty()) previous.nativeActions else nativeActions,
          iconDrawable = iconDrawable ?: previous.iconDrawable,
       )
+   }
+
+   /** Android 16 categories the user turned off for the watch. */
+   private suspend fun categoryHideReason(notification: ParsedNotification): HideReason? {
+      val key = when (notification.shadeCategory) {
+         SHADE_CATEGORY_SUGGESTED -> GlobalPreferenceKeys.watchShowSuggested
+         SHADE_CATEGORY_PROMOTIONS -> GlobalPreferenceKeys.watchShowPromotions
+         SHADE_CATEGORY_NEWS -> GlobalPreferenceKeys.watchShowNews
+         SHADE_CATEGORY_SOCIAL -> GlobalPreferenceKeys.watchShowSocial
+         else -> return null
+      }
+      if (notification.forceVibrate || globalPreferenceStore.data.first()[key]) {
+         return null
+      }
+      logcat { "Hiding: category turned off" }
+      return HideReason.CATEGORY_OFF
    }
 
    private fun shouldHide(
@@ -630,3 +668,12 @@ class NotificationProcessor(
 private const val DIAGNOSTIC_COARSE_NOTIFICATION_ACTIONS_ONLY = false
 private const val MAX_HISTORY_LOGGED_KEYS = 500
 private const val PENDING_VIBRATION_MAX_AGE_MILLIS = 60_000L
+
+private val WATCH_LAYOUT_KEYS = listOf(
+   GlobalPreferenceKeys.watchGroupSections,
+   GlobalPreferenceKeys.watchStackApps,
+   GlobalPreferenceKeys.watchShowSuggested,
+   GlobalPreferenceKeys.watchShowPromotions,
+   GlobalPreferenceKeys.watchShowNews,
+   GlobalPreferenceKeys.watchShowSocial,
+)

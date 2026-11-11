@@ -17,6 +17,23 @@ static const uint32_t STORAGE_SEEN_FLAG_MIN = 3000;
 static NotificationItem items[STORE_MAX_ITEMS];
 static uint8_t item_count = 0;
 
+// List order: order[display index] = index into items (which stay in the phone's bucket order).
+static uint8_t order[STORE_MAX_ITEMS];
+
+#define MAX_ROWS (STORE_MAX_ITEMS * 2 + GROUP_COUNT)
+static ListRow rows[MAX_ROWS];
+static uint8_t row_count = 0;
+
+static bool group_sections = false;
+static bool group_stacks = false;
+
+// Closed sections and categories (bit per GROUP_*), remembered between launches. Silent starts closed.
+#define STORAGE_COLLAPSED_GROUPS 3500
+static uint8_t collapsed_groups = 1 << GROUP_SILENT;
+// Stacks the user opened this session.
+#define MAX_OPEN_STACKS 8
+static uint8_t open_stacks[MAX_OPEN_STACKS];
+
 static NotificationDetails details_cache[DETAILS_CACHE_SLOTS];
 static uint32_t details_use_counter = 0;
 static uint8_t pinned_bucket = 0;
@@ -54,6 +71,7 @@ static void (*settings_listener)(void) = NULL;
 #define SUMMARY_COMPLETE_FLAG 0x08
 
 static NotificationDetails* find_details(uint8_t bucket_id);
+static void rebuild_layout(void);
 
 bool notification_store_is_partial(const uint8_t bucket_id)
 {
@@ -95,7 +113,7 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
 
     uint8_t data[256];
     const uint8_t size = bucket_sync_get_bucket_size(metadata.id);
-    if (size < 8 || !bucket_sync_load_bucket_limited(metadata.id, data, sizeof(data) - 1))
+    if (size < 10 || !bucket_sync_load_bucket_limited(metadata.id, data, sizeof(data) - 1))
     {
         return;
     }
@@ -105,8 +123,20 @@ static void parse_item(const BucketMetadata metadata, NotificationItem* item)
     item->color_id = data[5];
     item->image_aspect = data[6];
     item->image_tag = data[7];
+    // Bits 0-1: 0 alerting, 1 conversation, 2 silent. Bits 2-4: 1 suggested, 2 promotions, 3 news, 4 social.
+    const uint8_t section = data[8] & 0x03;
+    const uint8_t category = (data[8] >> 2) & 0x07;
+    if (category >= 1 && category <= 4)
+    {
+        item->group = GROUP_SUGGESTED + category - 1;
+    }
+    else
+    {
+        item->group = section == 1 ? GROUP_CONVERSATIONS : section == 2 ? GROUP_SILENT : GROUP_NOTIFICATIONS;
+    }
+    item->stack_id = data[9];
 
-    size_t position = 8;
+    size_t position = 10;
     const size_t app_name_length = bounded_strlen(data, position, size);
     if (position + app_name_length >= size)
     {
@@ -211,6 +241,261 @@ static void rebuild_items(void)
             shown_ids[shown_count++] = id;
         }
         item_count++;
+    }
+    rebuild_layout();
+}
+
+// ------------------------------------------------------------------------------------------------ grouping
+
+static uint8_t display_group(const NotificationItem* item)
+{
+    return group_sections ? item->group : GROUP_NOTIFICATIONS;
+}
+
+static uint8_t stack_size(const uint8_t raw, const uint8_t group)
+{
+    if (!group_stacks || items[raw].stack_id == 0)
+    {
+        return 1;
+    }
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < item_count; i++)
+    {
+        if (items[i].stack_id == items[raw].stack_id && display_group(&items[i]) == group)
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+static bool is_stack_open(const uint8_t stack_id)
+{
+    for (uint8_t i = 0; i < MAX_OPEN_STACKS; i++)
+    {
+        if (open_stacks[i] == stack_id)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void set_stack_open(const uint8_t stack_id, const bool open)
+{
+    for (uint8_t i = 0; i < MAX_OPEN_STACKS; i++)
+    {
+        if (open_stacks[i] == stack_id)
+        {
+            if (!open)
+            {
+                open_stacks[i] = 0;
+            }
+            return;
+        }
+    }
+    if (!open)
+    {
+        return;
+    }
+    for (uint8_t i = 0; i < MAX_OPEN_STACKS; i++)
+    {
+        if (open_stacks[i] == 0)
+        {
+            open_stacks[i] = stack_id;
+            return;
+        }
+    }
+    open_stacks[0] = stack_id;
+}
+
+static bool group_open(const uint8_t group)
+{
+    if ((collapsed_groups & (1 << group)) != 0)
+    {
+        return false;
+    }
+    // Categories live inside Silent.
+    return group < GROUP_SUGGESTED || (collapsed_groups & (1 << GROUP_SILENT)) == 0;
+}
+
+static void add_row(const ListRowKind kind, const uint8_t group, const uint8_t item, const uint8_t count,
+                    const bool expanded, const bool in_stack)
+{
+    if (row_count < MAX_ROWS)
+    {
+        rows[row_count++] = (ListRow){
+            .kind = kind, .group = group, .item = item, .count = count, .expanded = expanded, .in_stack = in_stack,
+        };
+    }
+}
+
+static uint8_t count_in_group(const uint8_t group, const bool with_categories)
+{
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < item_count; i++)
+    {
+        const uint8_t g = display_group(&items[i]);
+        if (g == group || (with_categories && group == GROUP_SILENT && g >= GROUP_SUGGESTED))
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+/**
+ * Lays the notifications out like the phone's shade: sections (Conversations, Notifications, Silent with its
+ * categories) in that order, each in the phone's own order, with an app's stacked notifications kept together
+ * at the place of its newest one. Builds both the card order and the list rows.
+ */
+static void rebuild_layout(void)
+{
+    bool placed[STORE_MAX_ITEMS] = {false};
+    uint8_t placed_count = 0;
+    row_count = 0;
+
+    for (uint8_t group = 0; group < GROUP_COUNT; group++)
+    {
+        const uint8_t total = count_in_group(group, true);
+        if (total == 0)
+        {
+            continue;
+        }
+        const bool open = !group_sections || group_open(group);
+        if (group_sections)
+        {
+            const bool parent_open = group < GROUP_SUGGESTED || group_open(GROUP_SILENT);
+            if (parent_open)
+            {
+                add_row(ROW_HEADER, group, 0, group == GROUP_SILENT ? total : count_in_group(group, false),
+                        open, false);
+            }
+        }
+
+        for (uint8_t raw = 0; raw < item_count; raw++)
+        {
+            if (placed[raw] || display_group(&items[raw]) != group)
+            {
+                continue;
+            }
+            const uint8_t members = stack_size(raw, group);
+            const uint8_t stack_id = items[raw].stack_id;
+            const bool stack_open = members > 1 && is_stack_open(stack_id);
+            if (members > 1 && open)
+            {
+                add_row(ROW_STACK, group, placed_count, members, stack_open, false);
+            }
+            for (uint8_t member = raw; member < item_count; member++)
+            {
+                const bool same = member == raw ||
+                    (members > 1 && items[member].stack_id == stack_id && display_group(&items[member]) == group);
+                if (!same || placed[member])
+                {
+                    continue;
+                }
+                placed[member] = true;
+                if (open && (members == 1 || stack_open))
+                {
+                    add_row(ROW_ITEM, group, placed_count, 1, true, members > 1);
+                }
+                order[placed_count++] = member;
+            }
+        }
+    }
+}
+
+void notification_store_set_grouping(const bool sections, const bool stacks)
+{
+    if (sections == group_sections && stacks == group_stacks)
+    {
+        return;
+    }
+    group_sections = sections;
+    group_stacks = stacks;
+    rebuild_layout();
+}
+
+uint8_t notification_store_row_count(void)
+{
+    return row_count;
+}
+
+const ListRow* notification_store_row(const uint8_t row)
+{
+    return row < row_count ? &rows[row] : NULL;
+}
+
+int16_t notification_store_row_of_bucket(const uint8_t bucket_id)
+{
+    const int16_t index = notification_store_index_of(bucket_id);
+    if (index < 0)
+    {
+        return -1;
+    }
+    const NotificationItem* item = notification_store_item(index);
+    int16_t container = -1;
+    for (uint8_t i = 0; i < row_count; i++)
+    {
+        const ListRow* row = &rows[i];
+        if (row->kind == ROW_ITEM && row->item == index)
+        {
+            return i;
+        }
+        if (row->kind == ROW_STACK && !row->expanded && index >= row->item && index < row->item + row->count)
+        {
+            return i;
+        }
+        if (row->kind == ROW_HEADER &&
+            (row->group == display_group(item) || (row->group == GROUP_SILENT && display_group(item) >= GROUP_SUGGESTED)))
+        {
+            container = i;
+        }
+    }
+    return container;
+}
+
+void notification_store_toggle_row(const uint8_t index)
+{
+    const ListRow* row = notification_store_row(index);
+    if (row == NULL)
+    {
+        return;
+    }
+    if (row->kind == ROW_HEADER)
+    {
+        collapsed_groups ^= 1 << row->group;
+        persist_write_data(STORAGE_COLLAPSED_GROUPS, &collapsed_groups, sizeof(collapsed_groups));
+    }
+    else if (row->kind == ROW_STACK)
+    {
+        set_stack_open(items[order[row->item]].stack_id, !row->expanded);
+    }
+    else
+    {
+        return;
+    }
+    rebuild_layout();
+}
+
+const char* notification_store_group_name(const uint8_t group)
+{
+    switch (group)
+    {
+    case GROUP_CONVERSATIONS:
+        return "Conversations";
+    case GROUP_SILENT:
+        return "Silent";
+    case GROUP_SUGGESTED:
+        return "Suggested";
+    case GROUP_PROMOTIONS:
+        return "Promotions";
+    case GROUP_NEWS:
+        return "News";
+    case GROUP_SOCIAL:
+        return "Social";
+    default:
+        return "Notifications";
     }
 }
 
@@ -408,10 +693,10 @@ uint8_t notification_store_count(void)
 
 const NotificationItem* notification_store_item(const uint8_t index)
 {
-    return index < item_count ? &items[index] : NULL;
+    return index < item_count ? &items[order[index]] : NULL;
 }
 
-int16_t notification_store_index_of(const uint8_t bucket_id)
+static int16_t raw_index_of(const uint8_t bucket_id)
 {
     for (uint8_t i = 0; i < item_count; i++)
     {
@@ -423,15 +708,27 @@ int16_t notification_store_index_of(const uint8_t bucket_id)
     return -1;
 }
 
+int16_t notification_store_index_of(const uint8_t bucket_id)
+{
+    for (uint8_t i = 0; i < item_count; i++)
+    {
+        if (items[order[i]].bucket_id == bucket_id)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
 const NotificationItem* notification_store_item_by_bucket(const uint8_t bucket_id)
 {
-    const int16_t index = notification_store_index_of(bucket_id);
+    const int16_t index = raw_index_of(bucket_id);
     return index >= 0 ? &items[index] : NULL;
 }
 
 void notification_store_mark_seen(const uint8_t bucket_id)
 {
-    const int16_t index = notification_store_index_of(bucket_id);
+    const int16_t index = raw_index_of(bucket_id);
     if (index < 0 || !items[index].unread)
     {
         return;
@@ -531,6 +828,10 @@ static void on_bucket_list_changed(void)
 
 void notification_store_init(void)
 {
+    if (persist_exists(STORAGE_COLLAPSED_GROUPS))
+    {
+        persist_read_data(STORAGE_COLLAPSED_GROUPS, &collapsed_groups, sizeof(collapsed_groups));
+    }
     bucket_sync_set_bucket_list_change_callback(on_bucket_list_changed);
     bucket_sync_set_bucket_data_change_callback(on_bucket_data_changed, NULL);
     bucket_sync_register_bucket_deleted_callback(on_bucket_deleted);

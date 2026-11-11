@@ -27,7 +27,12 @@ data class ParsedNotification(
     * member).
     */
    val groupAlertSuppressed: Boolean = false,
+   /** Android's own group key (app + group, including Android's automatic groups) when the phone stacks it. */
    val groupKey: String? = null,
+   /** Section of the phone's shade: [SHADE_SECTION_ALERTING], [SHADE_SECTION_CONVERSATION], [SHADE_SECTION_SILENT]. */
+   val shadeSection: Int = SHADE_SECTION_ALERTING,
+   /** Android 16 notification category (Suggested, Promotions, News, Social), [SHADE_CATEGORY_NONE] otherwise. */
+   val shadeCategory: Int = SHADE_CATEGORY_NONE,
    /**
     * When true, the app is paused (Digital Wellbeing, Focus mode) and the phone hides its notifications.
     */
@@ -88,3 +93,13 @@ data class NativeAction(
          " cannedTexts=$cannedTexts, allowFreeFormInput=$allowFreeFormInput)"
    }
 }
+
+const val SHADE_SECTION_ALERTING = 0
+const val SHADE_SECTION_CONVERSATION = 1
+const val SHADE_SECTION_SILENT = 2
+
+const val SHADE_CATEGORY_NONE = 0
+const val SHADE_CATEGORY_SUGGESTED = 1
+const val SHADE_CATEGORY_PROMOTIONS = 2
+const val SHADE_CATEGORY_NEWS = 3
+const val SHADE_CATEGORY_SOCIAL = 4

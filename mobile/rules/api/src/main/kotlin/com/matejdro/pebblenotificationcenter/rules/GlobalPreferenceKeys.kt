@@ -42,6 +42,18 @@ object GlobalPreferenceKeys {
    /** White text on black on the watch, like PebbleOS dark mode. */
    val watchDarkMode = BooleanPreferenceKeyWithDefault("watch_dark_mode", false)
 
+   /** Watch list in the phone's sections (Conversations, Notifications, Silent) with headers. */
+   val watchGroupSections = BooleanPreferenceKeyWithDefault("watch_group_sections", true)
+
+   /** Notifications the phone stacks together (same app group) fold into one row on the watch. */
+   val watchStackApps = BooleanPreferenceKeyWithDefault("watch_stack_apps", true)
+
+   /** Android 16 categories on the watch: off leaves that category off the watch. */
+   val watchShowSuggested = BooleanPreferenceKeyWithDefault("watch_show_suggested", true)
+   val watchShowPromotions = BooleanPreferenceKeyWithDefault("watch_show_promotions", true)
+   val watchShowNews = BooleanPreferenceKeyWithDefault("watch_show_news", true)
+   val watchShowSocial = BooleanPreferenceKeyWithDefault("watch_show_social", true)
+
    /**
     * When off, the watchapp never buzzes or opens by itself: it is only a mirror of the shade, e.g. alongside
     * PebbleOS's own notifications from the Pebble app.
