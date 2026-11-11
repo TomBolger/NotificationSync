@@ -496,6 +496,8 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, GRect bounds, 
 #define STACK_LINE_EDGE 5
 #define STACK_LINE_WIDTH 2
 #define STACK_LINE_GAP 4
+// Space between the line and where the selection highlight starts.
+#define STACK_LINE_HIGHLIGHT_GAP 2
 
 #if PBL_ROUND
 static int32_t isqrt(const int32_t value)
@@ -540,36 +542,51 @@ static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect 
     const ListRow* below = notification_store_row(row_index + 1);
     const int16_t top = bounds.origin.y + (above != NULL && above->in_stack ? 0 : STACK_LINE_GAP);
     const int16_t bottom = bounds.origin.y + bounds.size.h - (below != NULL && below->in_stack ? 0 : STACK_LINE_GAP);
+#if PBL_ROUND
     // Same grey whether or not the row is selected (black and white watches have no grey: there the selected row
     // is black, so the line has to flip to stay visible).
 #if PBL_COLOR
-    (void)cell_layer;
     graphics_context_set_fill_color(ctx, theme_secondary());
 #else
     graphics_context_set_fill_color(ctx, menu_cell_layer_is_highlighted(cell_layer) ? theme_bg() : theme_fg());
 #endif
-#if PBL_ROUND
-    // Each step joins the previous one, so the arc stays an even, unbroken stroke where it bends sideways. It
-    // ends where it would run into the row's icon and text.
+    // A ring concentric with the screen, so it stays the same distance from the edge all the way round. Each pixel
+    // row fills the span between the ring's outer and inner circle, which keeps the stroke even where it turns
+    // sideways. It ends where it would run into the row's icon and text.
     const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    const int32_t outer = radius - STACK_LINE_EDGE;
+    const int32_t inner = outer - STACK_LINE_WIDTH;
     const int16_t screen_y = layer_convert_point_to_screen(cell_layer, GPointZero).y;
-    const int16_t limit = content_left - STACK_LINE_GAP - STACK_LINE_WIDTH;
-    int16_t previous = -1;
+    const int16_t limit = content_left - STACK_LINE_GAP;
     for (int16_t y = top; y < bottom; y++)
     {
         const int32_t dy = screen_y + y - PBL_DISPLAY_HEIGHT / 2;
-        const int16_t x = radius - isqrt(radius * radius - dy * dy) + STACK_LINE_EDGE;
-        if (x > limit)
+        if (dy * dy >= outer * outer)
         {
-            previous = -1;
             continue;
         }
-        const int16_t from = previous < 0 ? x : (previous < x ? previous : x);
-        const int16_t to = previous < 0 ? x : (previous > x ? previous : x);
-        graphics_fill_rect(ctx, GRect(from, y, to - from + STACK_LINE_WIDTH, y + 1 < bottom ? 2 : 1), 0, GCornerNone);
-        previous = x;
+        const int16_t from = radius - isqrt(outer * outer - dy * dy);
+        int16_t to = dy * dy < inner * inner ? radius - isqrt(inner * inner - dy * dy) : radius;
+        if (to <= from)
+        {
+            to = from + 1;
+        }
+        if (to > limit)
+        {
+            continue;
+        }
+        graphics_fill_rect(ctx, GRect(from, y, to - from, 1), 0, GCornerNone);
     }
 #else
+    // The selection highlight stops between the line and the icon: the strip holding the line stays unselected.
+    if (menu_cell_layer_is_highlighted(cell_layer))
+    {
+        graphics_context_set_fill_color(ctx, theme_bg());
+        graphics_fill_rect(ctx, GRect(0, bounds.origin.y, STACK_LINE_EDGE + STACK_LINE_WIDTH + STACK_LINE_HIGHLIGHT_GAP,
+                                      bounds.size.h), 0, GCornerNone);
+    }
+    (void)content_left;
+    graphics_context_set_fill_color(ctx, theme_secondary());
     graphics_fill_rect(ctx, GRect(STACK_LINE_EDGE, top, STACK_LINE_WIDTH, bottom - top), 0, GCornerNone);
 #endif
 }
