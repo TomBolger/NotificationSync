@@ -516,7 +516,7 @@ class NotificationProcessorTest {
    }
 
    @Test
-   fun `It should not send notifications to the watch when phone is unlocked and skip setting is enabled`() = runTest {
+   fun `Mirror notifications quietly when phone is unlocked and skip setting is enabled`() = runTest {
       globalPreferences.edit {
          it[GlobalPreferenceKeys.skipNotificationsWhenPhoneUnlocked] = true
       }
@@ -534,10 +534,11 @@ class NotificationProcessorTest {
 
       processor.onNotificationPosted(notification)
 
-      watchSyncer.syncedNotifications.shouldBeEmpty()
+      // Still mirrored (so the watch can show it and act on it), but no buzz and no popup.
+      watchSyncer.syncedNotifications.shouldHaveSize(1)
       openController.watchappOpened shouldBe false
-      processor.getAllActiveNotifications().shouldBeEmpty()
-      historyInserter.insertedEntries.shouldHaveSize(1).first().hideReason shouldBe HideReason.PHONE_UNLOCKED
+      processor.getAllActiveNotifications().shouldHaveSize(1)
+      historyInserter.insertedEntries.shouldHaveSize(1).first().muteReason shouldBe MuteReason.PHONE_UNLOCKED
    }
 
    @Test

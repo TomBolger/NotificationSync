@@ -17,14 +17,26 @@ import si.inova.kotlinova.core.outcome.Outcome
 @Inject
 class RuleResolver(private val rulesRepository: RulesRepository) {
    suspend fun resolveRules(notification: ParsedNotification): ResolvedRules {
-      val rules = rulesRepository.getAll().firstSuccessOrThrow()
+      return resolveRules(notification, snapshot())
+   }
 
-      val matchingRules = rules.mapNotNull { rule ->
-         val preferences = rulesRepository.getRulePreferences(rule.id).first()
+   /**
+    * All rules with their preferences, read once. Resolving a whole shade against one snapshot avoids reading
+    * every rule's preferences again for every notification, which made each reconcile take a second or more.
+    */
+   suspend fun snapshot(): RuleSnapshot {
+      return RuleSnapshot(
+         rulesRepository.getAll().firstSuccessOrThrow().map { rule ->
+            Triple(rule.id, rule.name, rulesRepository.getRulePreferences(rule.id).first())
+         }
+      )
+   }
 
-         val nameIfNotDefault = rule.name.takeIf { rule.id != RULE_ID_DEFAULT_SETTINGS }
+   fun resolveRules(notification: ParsedNotification, snapshot: RuleSnapshot): ResolvedRules {
+      val matchingRules = snapshot.rules.mapNotNull { (id, name, preferences) ->
+         val nameIfNotDefault = name.takeIf { id != RULE_ID_DEFAULT_SETTINGS }
 
-         (nameIfNotDefault to preferences).takeIf { rule.id == RULE_ID_DEFAULT_SETTINGS || preferences.matches(notification) }
+         (nameIfNotDefault to preferences).takeIf { id == RULE_ID_DEFAULT_SETTINGS || preferences.matches(notification) }
       }
 
       return ResolvedRules(
@@ -65,6 +77,8 @@ class RuleResolver(private val rulesRepository: RulesRepository) {
 }
 
 private const val DIAGNOSTIC_DISABLE_NOTIFICATION_GRANULARITY = false
+
+class RuleSnapshot(val rules: List<Triple<Int, String, Preferences>>)
 
 data class ResolvedRules(
    val involvedRules: List<String>,

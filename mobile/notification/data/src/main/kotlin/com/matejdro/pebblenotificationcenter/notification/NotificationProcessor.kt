@@ -55,6 +55,9 @@ class NotificationProcessor(
    private val notificationIdsByKeys = ConcurrentHashMap<String, Int>()
    private val appliedSettings = ConcurrentHashMap<String, Pair<Preferences, Int>>()
 
+   // Notifications left off the watch (with the rules they were judged by), so reconciles can skip them cheaply.
+   private val hiddenNotifications = ConcurrentHashMap<String, Pair<ParsedNotification, Preferences>>()
+
    // Resyncs re-post every active notification (with suppressVibration). Those are not new notifications and
    // must not be written to history again, otherwise history fills with duplicates and the per-app counts on the
    // Notifications tab keep changing, which makes the app list jump around.
@@ -105,10 +108,18 @@ class NotificationProcessor(
       }
    }
 
-   suspend fun onNotificationPosted(parsedNotification: ParsedNotification, suppressVibration: Boolean = false) {
+   suspend fun onNotificationPosted(
+      parsedNotification: ParsedNotification,
+      suppressVibration: Boolean = false,
+      rules: RuleSnapshot? = null,
+   ) {
       val previousNotification = notificationIdsByKeys[parsedNotification.key]?.let { notifications[it] }
       val notification = parsedNotification.withRicherFieldsFrom(previousNotification?.systemData)
-      val resolvedRules = ruleResolver.resolveRules(notification)
+      val resolvedRules = if (rules != null) {
+         ruleResolver.resolveRules(notification, rules)
+      } else {
+         ruleResolver.resolveRules(notification)
+      }
       // Read once, before syncing: a wipe that happens meanwhile must make the next reconcile send this again.
       val mirrorGeneration = watchSyncer.mirrorGeneration
       if (suppressVibration && previousNotification != null &&
@@ -118,11 +129,21 @@ class NotificationProcessor(
          // A reconcile found this notification exactly as the watch already has it: nothing to send.
          return
       }
+      if (suppressVibration && previousNotification == null &&
+         hiddenNotifications[notification.key]?.let { (hidden, preferences) ->
+            preferences == resolvedRules.preferences && hidden.isSameContentAs(notification, preferences)
+         } == true
+      ) {
+         // A reconcile found a hidden notification (ongoing, summary, hidden app...) unchanged: still hidden.
+         return
+      }
       val affectedRules = resolvedRules.involvedRules
       val settings = resolvedRules.preferences
       logcat { "Notification ${notification.key} rules: $affectedRules" }
-      for (setting in settings.asMap()) {
-         logcat { "   ${setting.key} = ${setting.value}" }
+      if (!suppressVibration) {
+         for (setting in settings.asMap()) {
+            logcat { "   ${setting.key} = ${setting.value}" }
+         }
       }
 
       val hideReason = shouldHide(notification, settings)
@@ -131,16 +152,10 @@ class NotificationProcessor(
             historyInserter.insertHistoryEntry(notification, affectedRules, hideReason, null)
          }
          onNotificationDismissed(notification.key)
+         hiddenNotifications[notification.key] = notification to settings
          return
       }
 
-      if (shouldSkipBecausePhoneUnlocked()) {
-         logcat { "Hiding: phone is unlocked" }
-         insertHistoryOnce(notification.key, suppressVibration) {
-            historyInserter.insertHistoryEntry(notification, affectedRules, HideReason.PHONE_UNLOCKED, null)
-         }
-         return
-      }
 
       val isUpdate = previousNotification != null
       val pauseStatusBeforeInsert = pauseController.computePauseStatus(notification)
@@ -190,6 +205,7 @@ class NotificationProcessor(
       }
       notifications[bucketId] = processedNotification
       notificationIdsByKeys[notification.key] = bucketId
+      hiddenNotifications.remove(notification.key)
       appliedSettings[notification.key] = settings to mirrorGeneration
       if (vibrationPattern != null && !usingStockPebbleOsNotifications() &&
          globalPreferenceStore.data.first()[GlobalPreferenceKeys.popUpOnWatch]
@@ -324,6 +340,13 @@ class NotificationProcessor(
       if (notification.forceVibrate) {
          logcat { "Force notification: always vibrate" }
          return null to pattern
+      }
+
+      if (!suppressVibration && shouldSkipBecausePhoneUnlocked()) {
+         // The user is looking at the phone: mirror it, but don't buzz the watch. (Leaving it out of the mirror
+         // made the watch list notifications whose details and actions the phone then refused.)
+         logcat { "Not vibrating: phone is unlocked" }
+         return MuteReason.PHONE_UNLOCKED to null
       }
 
       if (suppressVibration) {
@@ -481,6 +504,10 @@ class NotificationProcessor(
 
    suspend fun onNotificationDismissed(key: String) {
       appliedSettings.remove(key)
+      if (hiddenNotifications.remove(key) != null && notificationIdsByKeys[key] == null) {
+         // Already judged hidden in this session, so it is not on the watch: nothing to delete there.
+         return
+      }
       val notificationId = notificationIdsByKeys.remove(key)
       if (notificationId != null) {
          val processedNotification = notifications.remove(notificationId)
@@ -510,8 +537,9 @@ class NotificationProcessor(
          onNotificationDismissed(key)
       }
 
+      val rules = ruleResolver.snapshot()
       for (notification in activeNotifications) {
-         onNotificationPosted(notification, suppressVibration = true)
+         onNotificationPosted(notification, suppressVibration = true, rules = rules)
       }
    }
 
@@ -519,6 +547,7 @@ class NotificationProcessor(
       notifications.clear()
       notificationIdsByKeys.clear()
       appliedSettings.clear()
+      hiddenNotifications.clear()
 
       watchSyncer.clearAllNotifications()
    }

@@ -54,6 +54,7 @@ class HistoryInserterImpl(
          MuteReason.DO_NOT_DISTURB -> context.getString(R.string.reason_dnd)
          MuteReason.IDENTICAL_TEXT -> context.getString(R.string.reason_identical)
          MuteReason.ALERT_ONCE -> context.getString(R.string.reason_alert_once)
+         MuteReason.PHONE_UNLOCKED -> context.getString(R.string.reason_phone_unlocked)
       }
    }
 

@@ -9,4 +9,5 @@ enum class MuteReason {
    DO_NOT_DISTURB,
    IDENTICAL_TEXT,
    ALERT_ONCE,
+   PHONE_UNLOCKED,
 }
