@@ -18,6 +18,7 @@ void app_timer_cancel(AppTimer* value) { (void)value; }
 int persist_read_data(uint32_t key, void* dst, size_t size) { (void)key; memset(dst,0,size); return -1; }
 int persist_write_data(uint32_t key, const void* src, size_t size) { (void)key; (void)src; return size; }
 int persist_delete(uint32_t key) { (void)key; return 0; }
+bool persist_exists(uint32_t key) { (void)key; return false; }
 bool send_notification_opened(uint8_t bucket, bool prefetch) { (void)bucket; (void)prefetch; return true; }
 bool send_mark_read(uint8_t bucket, void (*cb)(bool)) { (void)bucket; read_callback=cb; return true; }
 void bluetooth_register_sending_finish(void (*cb)(bool)) { (void)cb; }

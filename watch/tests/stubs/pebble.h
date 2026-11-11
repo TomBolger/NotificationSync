@@ -16,3 +16,4 @@ void app_timer_cancel(AppTimer*);
 int persist_read_data(uint32_t, void*, size_t);
 int persist_write_data(uint32_t, const void*, size_t);
 int persist_delete(uint32_t);
+bool persist_exists(uint32_t);
