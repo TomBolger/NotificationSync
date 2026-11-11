@@ -27,6 +27,8 @@ bool bucket_sync_load_bucket_limited(uint8_t id,uint8_t*dst,uint8_t max) { (void
 void bucket_sync_set_bucket_list_change_callback(void(*cb)(void)) { (void)cb; }
 void bucket_sync_set_bucket_data_change_callback(void(*cb)(BucketMetadata,void*),void*context) { (void)cb;(void)context; }
 void bucket_sync_register_bucket_deleted_callback(void(*cb)(uint8_t)) { (void)cb; }
+bool bucket_sync_is_bucket_awaited(uint8_t id) { (void)id; return false; }
+void bucket_sync_set_progress_callback(void(*cb)(void)) { (void)cb; }
 
 static void reset_fixture(void)
 {
