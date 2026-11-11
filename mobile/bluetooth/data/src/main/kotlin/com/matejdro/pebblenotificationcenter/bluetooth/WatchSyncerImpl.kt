@@ -205,6 +205,8 @@ class WatchSyncerImpl(
    override var mirrorGeneration: Int = 0
       private set
 
+   override suspend fun syncedNotificationKeys(): Set<String> = bucketSyncRepository.getDynamicUpstreamIds().toSet()
+
    override suspend fun clearAllNotifications() {
       mirrorGeneration++
       summaryCompleteByKey.clear()

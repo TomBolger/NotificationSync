@@ -234,6 +234,13 @@ class BucketsyncRepositoryImpl(
       }
    }
 
+   override suspend fun getDynamicUpstreamIds(): List<String> = withIO {
+      queries.getUpstreamIdsInRange(
+         minInclusive = dynamicBucketPool.first.toLong(),
+         maxInclusive = dynamicBucketPool.last.toLong()
+      ).executeAsList().filterNotNull()
+   }
+
    override suspend fun clearAllDynamic() = withIO<Unit> {
       queries.transaction {
          val nextVersion = queries.getLatestVersion().executeAsOneOrNull().let { it?.MAX ?: 0 } + 1

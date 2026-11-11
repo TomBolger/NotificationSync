@@ -56,6 +56,9 @@ getLatestVersion:
 getMaxSequenceId:
     SELECT MAX(id) FROM dbBucket;
 
+getUpstreamIdsInRange:
+    SELECT upstreamId FROM dbBucket WHERE upstreamId IS NOT NULL AND id >= :minInclusive AND id <= :maxInclusive;
+
 getBucketWithUpstreamId:
     SELECT id FROM dbBucket WHERE upstreamId = :id LIMIT 1;
 

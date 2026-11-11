@@ -73,6 +73,11 @@ interface BucketSyncRepository {
    suspend fun deleteGroup(group: String, except: List<String> = emptyList())
 
    /**
+    * Upstream ids of every bucket in the dynamic pool that currently holds data.
+    */
+   suspend fun getDynamicUpstreamIds(): List<String> = emptyList()
+
+   /**
     * Delete all buckets from the dynamic pool
     */
    suspend fun clearAllDynamic()

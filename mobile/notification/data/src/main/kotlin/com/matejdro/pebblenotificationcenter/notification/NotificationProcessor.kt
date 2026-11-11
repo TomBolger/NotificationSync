@@ -575,6 +575,17 @@ class NotificationProcessor(
          onNotificationDismissed(key)
       }
 
+      // The watch mirror is saved, but which notification each entry belongs to is only remembered in memory
+      // since the app started. Anything removed while the app wasn't running (an update or restart also removes
+      // the app's own test notifications) would otherwise stay on the watch with no phone notification behind it,
+      // so its actions could never work.
+      val leftovers = watchSyncer.syncedNotificationKeys()
+         .filterNot { it in activeKeys || it in notificationIdsByKeys }
+      for (key in leftovers) {
+         logcat { "Removing $key from the watch: no longer on the phone" }
+         watchSyncer.clearNotification(key)
+      }
+
       val rules = ruleResolver.snapshot()
       for (notification in activeNotifications) {
          onNotificationPosted(notification, suppressVibration = true, rules = rules)

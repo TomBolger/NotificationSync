@@ -19,6 +19,9 @@ interface WatchSyncer {
    /** Everything sent so far must be encoded again (a setting changed how notifications are sent). */
    fun invalidateEncodings() {}
 
+   /** Keys of every notification the watch mirror currently holds, including ones synced before a restart. */
+   suspend fun syncedNotificationKeys(): Set<String> = emptySet()
+
    suspend fun clearAllNotifications()
    suspend fun clearNotification(key: String)
 

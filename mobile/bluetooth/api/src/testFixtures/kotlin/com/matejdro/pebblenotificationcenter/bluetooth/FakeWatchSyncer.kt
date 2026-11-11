@@ -18,6 +18,11 @@ class FakeWatchSyncer : WatchSyncer {
    var onClearAllNotifications: suspend () -> Unit = {}
    private val bucketIdsByKey = HashMap<String, Int>()
 
+   /** Entries the watch mirror kept from before the app restarted. */
+   val leftoverKeys = mutableSetOf<String>()
+
+   override suspend fun syncedNotificationKeys(): Set<String> = bucketIdsByKey.keys + leftoverKeys
+
    override suspend fun init() {
    }
 
@@ -41,6 +46,7 @@ class FakeWatchSyncer : WatchSyncer {
    override suspend fun clearNotification(key: String) {
       clearedNotifications.add(key)
       bucketIdsByKey.remove(key)
+      leftoverKeys.remove(key)
    }
 
    override suspend fun syncNotification(

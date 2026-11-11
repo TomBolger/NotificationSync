@@ -173,6 +173,24 @@ class NotificationProcessorTest {
    }
 
    @Test
+   fun `Resync after a restart removes watch entries whose phone notification is gone`() = runTest {
+      val live = ParsedNotification(
+         "key-live",
+         "com.app",
+         "Title",
+         "sTitle",
+         "Body",
+         Instant.ofEpochSecond(1_767_554_305)
+      )
+      watchSyncer.leftoverKeys += listOf("key-gone", "key-live")
+
+      processor.onActiveNotificationsResynced(listOf(live))
+
+      watchSyncer.clearedNotifications.shouldContainExactly("key-gone")
+      watchSyncer.clearAllCalled shouldBe false
+   }
+
+   @Test
    fun `Active notification resync should only delete known missing notifications`() = runTest {
       val notificationA = ParsedNotification(
          "key-a",
