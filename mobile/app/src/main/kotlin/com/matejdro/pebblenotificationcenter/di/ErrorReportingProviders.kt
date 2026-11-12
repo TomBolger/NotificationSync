@@ -20,6 +20,13 @@ interface ErrorReportingProviders {
    fun provideErrorReporter(tinyLogLoggingThread: TinyLogLoggingThread, context: Context): ErrorReporter {
       return object : ErrorReporter {
          override fun report(throwable: Throwable) {
+            if (isWatchLinkProblem(throwable)) {
+               // The watch went away mid-send (you left the watch app, walked out of range...). That's normal and
+               // the app recovers on its own, so it goes to the log instead of a crash notification.
+               tinyLogLoggingThread.log(1, "ErrorReporter", Level.WARN, null, throwable)
+               return
+            }
+
             if (throwable !is CauseException) {
                report(UnknownCauseException("Got reported non-cause exception", throwable))
                return
@@ -39,3 +46,11 @@ interface ErrorReportingProviders {
       }
    }
 }
+
+private fun isWatchLinkProblem(throwable: Throwable): Boolean {
+   return generateSequence(throwable) { it.cause }
+      .take(MAX_CAUSE_DEPTH)
+      .any { it.javaClass.simpleName == "UnrecoverableWatchTransferException" }
+}
+
+private const val MAX_CAUSE_DEPTH = 10
