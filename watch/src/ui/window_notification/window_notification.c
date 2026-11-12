@@ -498,6 +498,8 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, GRect bounds, 
 #define STACK_LINE_GAP 4
 // Space between the line and where the selection highlight starts.
 #define STACK_LINE_HIGHLIGHT_GAP 2
+// Round watches: never trim the highlight further in than this, so text is never cut into.
+#define STACK_TRIM_MAX 60
 
 #if PBL_ROUND
 static int32_t isqrt(const int32_t value)
@@ -594,7 +596,6 @@ static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect 
  */
 static void trim_highlight_strip(GContext* ctx, const Layer* cell_layer)
 {
-#if !PBL_ROUND
     if (!menu_cell_layer_is_highlighted(cell_layer))
     {
         return;
@@ -606,11 +607,40 @@ static void trim_highlight_strip(GContext* ctx, const Layer* cell_layer)
     }
     const GRect bounds = layer_get_bounds(cell_layer);
     graphics_context_set_fill_color(ctx, theme_bg());
+#if PBL_ROUND
+    // Follow the arc: on each pixel row the highlight starts just inside the arc's inner edge.
+    const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    const int32_t inner = radius - STACK_LINE_EDGE - STACK_LINE_WIDTH;
+    const int16_t screen_y = layer_convert_point_to_screen(cell_layer, GPointZero).y;
+    int16_t run_start = 0;
+    int16_t run_x = -1;
+    for (int16_t y = 0; y <= bounds.size.h; y++)
+    {
+        int16_t x = -1;
+        if (y < bounds.size.h)
+        {
+            const int32_t dy = screen_y + y - PBL_DISPLAY_HEIGHT / 2;
+            x = (dy * dy < inner * inner ? radius - isqrt(inner * inner - dy * dy) : radius) +
+                STACK_LINE_HIGHLIGHT_GAP;
+            if (x > STACK_TRIM_MAX)
+            {
+                x = STACK_TRIM_MAX;
+            }
+        }
+        // Rows with the same edge are filled as one rectangle.
+        if (x != run_x)
+        {
+            if (run_x > 0)
+            {
+                graphics_fill_rect(ctx, GRect(0, run_start, run_x, y - run_start), 0, GCornerNone);
+            }
+            run_start = y;
+            run_x = x;
+        }
+    }
+#else
     graphics_fill_rect(ctx, GRect(0, 0, STACK_LINE_EDGE + STACK_LINE_WIDTH + STACK_LINE_HIGHLIGHT_GAP, bounds.size.h),
                        0, GCornerNone);
-#else
-    (void)ctx;
-    (void)cell_layer;
 #endif
 }
 

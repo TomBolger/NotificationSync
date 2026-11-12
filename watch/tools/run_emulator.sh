@@ -12,6 +12,7 @@ case $P in
   diorite) M="-machine pebble-silk-bb -cpu cortex-m4 -drive if=mtd,format=raw,file=$SPI";;
   emery) M="-machine pebble-emery -cpu cortex-m33 -drive if=mtd,format=raw,file=$SPI";;
   gabbro) M="-machine pebble-gabbro -cpu cortex-m33 -drive if=mtd,format=raw,file=$SPI";;
+  chalk) M="-machine pebble-s4-bb -cpu cortex-m4 -drive if=none,id=spi-flash,file=$SPI,format=raw";;
   flint) M="-machine pebble-flint -cpu cortex-m4 -drive if=mtd,format=raw,file=$SPI";;
 esac
 rm -f $D/qmp.sock
