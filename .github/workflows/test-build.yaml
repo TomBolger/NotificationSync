@@ -89,6 +89,8 @@ jobs:
           mkdir -p rel
           cp "$(find mobile/app/build/outputs/apk/debug -name '*.apk' | head -1)" rel/NotificationSync.apk
           cp watch/build/watch.pbw rel/NotificationSync.pbw
+          # Re-running a release replaces it (e.g. a quick fix right after publishing).
+          gh release delete "$TAG" --yes --cleanup-tag || true
           gh release create "$TAG" rel/* --target "$GITHUB_SHA" --latest \
             --title "Notification Sync ${TAG#v}" --notes-file ".github/release-notes/${TAG}.md"
       - name: Publish downloads
