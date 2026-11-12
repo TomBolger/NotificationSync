@@ -41,6 +41,11 @@ class NotificationParser(
       showMessagingStyleChronologically: Boolean = false,
    ): ParsedNotification? {
       val notification = sbn.notification
+      if (sbn.packageName == context.packageName && !notification.isOwnTestNotification()) {
+         // Our own status and error notifications never go to the watch: mirroring them made a loop where a
+         // failed send (another watch app in front) posted an error, which popped this app open again.
+         return null
+      }
       val title = notification.extras.getString(NotificationConstants.KEY_TEST_APP_NAME)
          ?.takeIf { sbn.packageName == context.packageName }
          ?: appNameProvider.getAppName(sbn.packageName)
@@ -294,3 +299,13 @@ private fun parseVibrationPattern(notification: Notification): List<Short>? {
 
 private const val MAX_TITLE_LENGTH = 20
 private val CONTROL_CHARACTERS = Regex("\\p{Cf}|\\p{M}")
+
+private val OWN_TEST_CHANNELS = setOf("TESTS", "TEST_ALERTS", "TEST_SILENT")
+
+/** Test notifications from Tools and the vibration pattern test are the only ones of ours meant for the watch. */
+private fun Notification.isOwnTestNotification(): Boolean {
+   val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) channelId else null
+   return channel in OWN_TEST_CHANNELS ||
+      extras.containsKey(NotificationConstants.KEY_TEST_APP_NAME) ||
+      extras.getBoolean(NotificationConstants.KEY_FORCE_VIBRATE)
+}
