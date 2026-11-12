@@ -59,6 +59,12 @@ class NotificationProcessor(
    private val androidVersion: Int,
 ) : NotificationRepository {
    private val notifications = ConcurrentHashMap<Int, ProcessedNotification>()
+
+   // When each notification last popped the watch app open, and which of those have since been removed. An app
+   // that removes and re-posts the same notification every few seconds would otherwise keep pulling you out of
+   // whatever you're doing on the watch. (Updating a notification in place, as chat apps do, isn't affected.)
+   private val lastPopUpByKey = ConcurrentHashMap<String, Long>()
+   private val removedSincePopUp = ConcurrentHashMap.newKeySet<String>()
    private val notificationIdsByKeys = ConcurrentHashMap<String, Int>()
    private val appliedSettings = ConcurrentHashMap<String, Pair<Preferences, Int>>()
 
@@ -231,8 +237,20 @@ class NotificationProcessor(
       ) {
          logcat { "Vibrating with ${vibrationPattern.contentToString()}" }
          nextVibration.set(PendingVibration(vibrationPattern, bucketId, System.currentTimeMillis()))
-         openController.setNextWatchappOpenNotificationBucket(bucketId)
-         openController.openWatchapp()
+         val now = System.currentTimeMillis()
+         val lastPopUp = lastPopUpByKey[notification.key]
+         val reposted = removedSincePopUp.remove(notification.key)
+         if (reposted && lastPopUp != null && now - lastPopUp < REPEAT_POP_UP_COOLDOWN_MILLIS) {
+            logcat { "${notification.key} was removed and re-posted ${now - lastPopUp}ms after popping up; not opening again" }
+         } else {
+            lastPopUpByKey[notification.key] = now
+            if (lastPopUpByKey.size > MAX_POP_UP_KEYS) {
+               lastPopUpByKey.entries.removeIf { now - it.value >= REPEAT_POP_UP_COOLDOWN_MILLIS }
+               removedSincePopUp.retainAll(lastPopUpByKey.keys)
+            }
+            openController.setNextWatchappOpenNotificationBucket(bucketId)
+            openController.openWatchapp()
+         }
       }
 
       insertHistoryOnce(notification.key, suppressVibration) {
@@ -542,6 +560,9 @@ class NotificationProcessor(
 
    suspend fun onNotificationDismissed(key: String) {
       appliedSettings.remove(key)
+      if (lastPopUpByKey.containsKey(key)) {
+         removedSincePopUp.add(key)
+      }
       if (hiddenNotifications.remove(key) != null && notificationIdsByKeys[key] == null) {
          // Already judged hidden in this session, so it is not on the watch: nothing to delete there.
          return
@@ -688,3 +709,6 @@ private val WATCH_LAYOUT_KEYS = listOf(
    GlobalPreferenceKeys.watchShowNews,
    GlobalPreferenceKeys.watchShowSocial,
 )
+
+private const val REPEAT_POP_UP_COOLDOWN_MILLIS = 60_000L
+private const val MAX_POP_UP_KEYS = 200

@@ -41,6 +41,12 @@ class NotificationParser(
       showMessagingStyleChronologically: Boolean = false,
    ): ParsedNotification? {
       val notification = sbn.notification
+      if (sbn.packageName in PEBBLE_APP_PACKAGES) {
+         // The Pebble app's own notifications are about the watch itself (it posts one briefly whenever a watch
+         // app starts). Mirroring them popped this app over the app you just opened, which posted another, in a
+         // loop.
+         return null
+      }
       if (sbn.packageName == context.packageName && !notification.isOwnTestNotification()) {
          // Our own status and error notifications never go to the watch: mirroring them made a loop where a
          // failed send (another watch app in front) posted an error, which popped this app open again.
@@ -301,6 +307,14 @@ private const val MAX_TITLE_LENGTH = 20
 private val CONTROL_CHARACTERS = Regex("\\p{Cf}|\\p{M}")
 
 private val OWN_TEST_CHANNELS = setOf("TESTS", "TEST_ALERTS", "TEST_SILENT")
+
+/** Phone apps that run the Pebble watch connection (Core Devices, Rebble/Cobble and the original Pebble apps). */
+private val PEBBLE_APP_PACKAGES = setOf(
+   "coredevices.coreapp",
+   "io.rebble.cobble",
+   "com.getpebble.android.basalt",
+   "com.getpebble.android",
+)
 
 /** Test notifications from Tools and the vibration pattern test are the only ones of ours meant for the watch. */
 private fun Notification.isOwnTestNotification(): Boolean {

@@ -392,6 +392,33 @@ class NotificationProcessorTest {
    }
 
    @Test
+   fun `A notification removed and re-posted right after popping up doesn't pop up again`() = runTest {
+      rulesRepository.updateRulePreferences(RULE_ID_DEFAULT_SETTINGS, RuleOption.muteSilentNotifications setTo false)
+      val notification = ParsedNotification("key", "com.app", "Title", "sTitle", "Body", Instant.ofEpochSecond(1_767_554_305))
+
+      processor.onNotificationPosted(notification)
+      openController.watchappOpened shouldBe true
+
+      openController.watchappOpened = false
+      processor.onNotificationDismissed("key")
+      processor.onNotificationPosted(notification.copy(body = "Body again"))
+
+      openController.watchappOpened shouldBe false
+   }
+
+   @Test
+   fun `A notification updated in place still pops up for each new message`() = runTest {
+      rulesRepository.updateRulePreferences(RULE_ID_DEFAULT_SETTINGS, RuleOption.muteSilentNotifications setTo false)
+      val notification = ParsedNotification("key", "com.app", "Title", "sTitle", "Body", Instant.ofEpochSecond(1_767_554_305))
+
+      processor.onNotificationPosted(notification)
+      openController.watchappOpened = false
+      processor.onNotificationPosted(notification.copy(body = "Second message"))
+
+      openController.watchappOpened shouldBe true
+   }
+
+   @Test
    fun `It should vibrate for the silent notifications if that filter is disabled`() = runTest {
       rulesRepository.updateRulePreferences(
          RULE_ID_DEFAULT_SETTINGS,
