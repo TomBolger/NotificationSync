@@ -7,6 +7,9 @@ static AppTimer* action_retry_timer = NULL;
 #include <pebble.h>
 
 #include "window_notification.h"
+#include "detail_window.h"
+#include "notification_store.h"
+#include "round_actions.h"
 #include "commons/connection/bluetooth.h"
 #include "connection/packets.h"
 
@@ -54,7 +57,12 @@ static Action* get_actions(void)
 
 static void close_current_menu(const bool animated)
 {
-    (void)animated;
+    if (inline_action_layer != NULL && PBL_IF_ROUND_ELSE(true, false))
+    {
+        // Round: the bubble swings back up into the banner first; on_round_actions_closed finishes up.
+        round_actions_close(animated);
+        return;
+    }
 
     if (inline_action_layer != NULL)
     {
@@ -105,6 +113,7 @@ static void on_sending_finished(const bool success)
             {
                 selected_action_index = 0;
                 layer_mark_dirty(inline_action_layer);
+                round_actions_selection_changed(false);
                 return;
             }
 
@@ -166,7 +175,8 @@ static void action_selected(ActionMenu* menu, const ActionMenuItem* item, void* 
 
 static bool should_use_menu_layer_actions(void)
 {
-    return PBL_PLATFORM_TYPE_CURRENT == PlatformTypeBasalt;
+    // Round draws its own menu (round_actions.c) instead of the system one with its coloured ring.
+    return PBL_PLATFORM_TYPE_CURRENT == PlatformTypeBasalt || PBL_IF_ROUND_ELSE(true, false);
 }
 
 static void select_action_data(const MenuActionData data)
@@ -249,6 +259,68 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
     }
 }
 
+#if PBL_ROUND
+static uint16_t round_count(void)
+{
+    return get_num_actions();
+}
+
+static const char* round_text(const uint16_t index)
+{
+    return index < get_num_actions() ? get_actions()[index].text : "";
+}
+
+static uint16_t round_selected(void)
+{
+    return selected_action_index;
+}
+
+static void on_round_actions_closed(void)
+{
+    inline_action_layer = NULL;
+    window_notification_data.menu_displayed = false;
+    window_notification_ui_on_menu_closed();
+}
+
+static void round_tapped(const uint16_t index)
+{
+    if (index >= get_num_actions() || action_send_in_progress)
+    {
+        return;
+    }
+    selected_action_index = index;
+    round_actions_selection_changed(true);
+    window_notification_action_select();
+}
+
+static void round_move(const int8_t rows)
+{
+    for (int8_t i = 0; i < rows; i++)
+    {
+        window_notification_action_list_move_down();
+    }
+    for (int8_t i = 0; i > rows; i--)
+    {
+        window_notification_action_list_move_up();
+    }
+}
+
+static void round_back(void)
+{
+    window_notification_action_list_hide();
+}
+
+static const RoundActionsCallbacks round_callbacks = {
+    .count = round_count,
+    .text = round_text,
+    .selected = round_selected,
+    .closed = on_round_actions_closed,
+    .tapped = round_tapped,
+    .move = round_move,
+    .back = round_back,
+};
+#endif
+
 static bool show_inline_actions(void)
 {
     Window* window = window_stack_get_top_window();
@@ -256,6 +328,22 @@ static bool show_inline_actions(void)
     {
         return false;
     }
+
+#if PBL_ROUND
+    selected_action_index = 0;
+    const NotificationItem* item =
+        notification_store_item_by_bucket(window_notification_data.currently_selected_bucket);
+    inline_action_layer = round_actions_open(window, window_notification_ui_get_primary_color(),
+                                             item != NULL ? item->icon_id : 0, detail_window_banner_bottom(),
+                                             &round_callbacks);
+    if (inline_action_layer == NULL)
+    {
+        return false;
+    }
+    window_notification_data.menu_displayed = true;
+    action_send_in_progress = false;
+    return true;
+#endif
 
     Layer* window_layer = window_get_root_layer(window);
     if (window_layer == NULL)
@@ -324,6 +412,11 @@ void window_notification_action_list_show()
     {
         if (inline_action_layer != NULL)
         {
+            // Round: reopens if it was on its way out.
+            if (PBL_IF_ROUND_ELSE(true, false))
+            {
+                show_inline_actions();
+            }
             layer_mark_dirty(inline_action_layer);
             return;
         }
@@ -395,9 +488,20 @@ void window_notification_action_list_hide()
     close_current_menu(true);
 }
 
+void window_notification_action_list_hide_now()
+{
+    close_current_menu(false);
+}
+
+static bool inline_accepts_input(void)
+{
+    return inline_action_layer != NULL && !action_send_in_progress &&
+        PBL_IF_ROUND_ELSE(round_actions_accepts_input(), true);
+}
+
 void window_notification_action_list_move_up()
 {
-    if (inline_action_layer == NULL || action_send_in_progress)
+    if (!inline_accepts_input())
     {
         return;
     }
@@ -406,6 +510,7 @@ void window_notification_action_list_move_up()
     {
         selected_action_index--;
         layer_mark_dirty(inline_action_layer);
+        round_actions_selection_changed(true);
     }
     else
     {
@@ -415,7 +520,7 @@ void window_notification_action_list_move_up()
 
 void window_notification_action_list_move_down()
 {
-    if (inline_action_layer == NULL || action_send_in_progress)
+    if (!inline_accepts_input())
     {
         return;
     }
@@ -424,6 +529,7 @@ void window_notification_action_list_move_down()
     {
         selected_action_index++;
         layer_mark_dirty(inline_action_layer);
+        round_actions_selection_changed(true);
     }
     else
     {
@@ -433,7 +539,7 @@ void window_notification_action_list_move_down()
 
 void window_notification_action_select()
 {
-    if (inline_action_layer == NULL || action_send_in_progress || selected_action_index >= get_num_actions())
+    if (!inline_accepts_input() || selected_action_index >= get_num_actions())
     {
         return;
     }
@@ -628,4 +734,15 @@ void window_notification_action_list_receive_submenu(const uint8_t* data, const 
         window_notification_data.currently_displayed_menu_id = menu_id;
         window_notification_action_list_show();
     }
+}
+
+bool window_notification_action_list_handle_touch(const TouchEvent* event)
+{
+    return inline_action_layer != NULL && PBL_IF_ROUND_ELSE(round_actions_handle_touch(event), false);
+}
+
+uint8_t window_notification_action_list_pending_dismiss(void)
+{
+    // Dismiss is always action 0 of the main menu (see the phone's NotificationProcessor).
+    return action_send_in_progress && sent_menu_id == 0 && sent_action_id == 0 ? sent_notification_id : 0;
 }

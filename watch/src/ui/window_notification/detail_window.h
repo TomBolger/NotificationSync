@@ -36,6 +36,12 @@ void detail_window_open_actions(void);
 
 bool detail_window_is_animating(void);
 
+/** Screen y of the lower edge of the current card's banner (negative when scrolled out of sight). */
+int16_t detail_window_banner_bottom(void);
+
+/** Whether the dismissed ("poof") animation is playing. */
+bool detail_window_is_dismissing(void);
+
 /** Text size or another layout setting changed: re-measure every card. */
 void detail_window_on_style_changed(void);
 

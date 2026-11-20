@@ -12,7 +12,6 @@
 #define ICON_VERTICAL_OFFSET -1
 // A few pixels more than stock between the banner and the sender, so the compact layout breathes a little.
 #define HEADER_TOP_GAP 7
-#define CARD_ICON_UPPER_PADDING (((CARD_BANNER_HEIGHT - CARD_ICON_HEIGHT) / 2) + ICON_VERTICAL_OFFSET)
 
 static const uint32_t icon_resource_ids[] = {
     RESOURCE_ID_PEBBLEOS_NOTIFICATION_GENERIC,
@@ -160,8 +159,82 @@ GDrawCommandImage* card_icon_for_id(uint8_t icon_id)
     return icons[icon_id];
 }
 
+// One reusable copy of an icon whose points get rewritten for each scaled draw.
+static GDrawCommandImage* scaled_icon;
+static uint8_t scaled_icon_id = 0xff;
+
+void card_draw_icon_scaled(GContext* ctx, uint8_t icon_id, const GPoint center, const int16_t scale_permille)
+{
+    if (scale_permille <= 0)
+    {
+        return;
+    }
+    GDrawCommandImage* icon = card_icon_for_id(icon_id);
+    if (icon == NULL)
+    {
+        return;
+    }
+    const GSize size = gdraw_command_image_get_bounds_size(icon);
+    if (scale_permille >= 1000)
+    {
+        gdraw_command_image_draw(ctx, icon, GPoint(center.x - size.w / 2, center.y - size.h / 2));
+        return;
+    }
+
+    if (scaled_icon == NULL || scaled_icon_id != icon_id)
+    {
+        if (scaled_icon != NULL)
+        {
+            gdraw_command_image_destroy(scaled_icon);
+        }
+        scaled_icon = gdraw_command_image_clone(icon);
+        scaled_icon_id = icon_id;
+        if (scaled_icon == NULL)
+        {
+            return;
+        }
+    }
+
+    GDrawCommandList* source = gdraw_command_image_get_command_list(icon);
+    GDrawCommandList* target = gdraw_command_image_get_command_list(scaled_icon);
+    const uint32_t count = gdraw_command_list_get_num_commands(source);
+    const int32_t s = scale_permille;
+    for (uint32_t c = 0; c < count; c++)
+    {
+        GDrawCommand* from = gdraw_command_list_get_command(source, c);
+        GDrawCommand* to = gdraw_command_list_get_command(target, c);
+        // Precise paths count in eighths of a pixel.
+        const int32_t unit = gdraw_command_get_type(from) == GDrawCommandTypePrecisePath ? 8 : 1;
+        const int32_t cx = size.w * unit / 2;
+        const int32_t cy = size.h * unit / 2;
+        const uint16_t points = gdraw_command_get_num_points(from);
+        for (uint16_t i = 0; i < points; i++)
+        {
+            const GPoint point = gdraw_command_get_point(from, i);
+            gdraw_command_set_point(to, i, GPoint(cx + (point.x - cx) * s / 1000, cy + (point.y - cy) * s / 1000));
+        }
+        if (gdraw_command_get_type(from) == GDrawCommandTypeCircle)
+        {
+            gdraw_command_set_radius(to, gdraw_command_get_radius(from) * s / 1000);
+        }
+        const uint8_t stroke = gdraw_command_get_stroke_width(from);
+        if (stroke > 0)
+        {
+            const uint8_t scaled = stroke * s / 1000;
+            gdraw_command_set_stroke_width(to, scaled > 0 ? scaled : 1);
+        }
+    }
+    gdraw_command_image_draw(ctx, scaled_icon, GPoint(center.x - size.w / 2, center.y - size.h / 2));
+}
+
 void card_unload_icons(void)
 {
+    if (scaled_icon != NULL)
+    {
+        gdraw_command_image_destroy(scaled_icon);
+        scaled_icon = NULL;
+        scaled_icon_id = 0xff;
+    }
     for (uint8_t i = 0; i < ARRAY_LENGTH(icons); i++)
     {
         if (icons[i] != NULL)
@@ -339,6 +412,7 @@ void card_measure(const NotificationItem* item, const char* body, const int16_t 
     metrics->total_height = height > PBL_DISPLAY_HEIGHT ? height : PBL_DISPLAY_HEIGHT;
 }
 
+#if !PBL_ROUND
 static void draw_icon(GContext* ctx, const uint8_t icon_id, const GRect frame)
 {
     GDrawCommandImage* icon = card_icon_for_id(icon_id);
@@ -349,10 +423,97 @@ static void draw_icon(GContext* ctx, const uint8_t icon_id, const GRect frame)
         gdraw_command_image_draw(ctx, icon, icon_rect.origin);
     }
 }
+#endif
+
+#if PBL_ROUND
+static int32_t isqrt32(const int32_t value)
+{
+    if (value <= 0)
+    {
+        return 0;
+    }
+    int32_t root = 0;
+    int32_t bit = 1 << 30;
+    int32_t rest = value;
+    while (bit > rest)
+    {
+        bit >>= 2;
+    }
+    while (bit != 0)
+    {
+        if (rest >= root + bit)
+        {
+            rest -= root + bit;
+            root = (root >> 1) + bit;
+        }
+        else
+        {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
+void card_round_shape(const int16_t permille, const int16_t origin_y, CardRoundShape* shape)
+{
+    const int32_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
+    const int32_t t = permille < 0 ? 0 : (permille > 1000 ? 1000 : permille);
+    // The dot's lower edge glides to the banner's; its radius grows slowly at first (t^2), so it stays round
+    // while it rises and only flattens into the wide banner curve near the end.
+    const int32_t dot_bottom = CARD_PEEK_DOT_CENTER + CARD_PEEK_DOT_RADIUS;
+    const int32_t bottom = dot_bottom + (top_height - 1 - dot_bottom) * t / 1000;
+    const int32_t radius = CARD_PEEK_DOT_RADIUS + (CARD_ROUND_BANNER_RADIUS - CARD_PEEK_DOT_RADIUS) * t * t / 1000000;
+    shape->radius = (int16_t)radius;
+    shape->center = GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + bottom - radius));
+    // The icon starts as nothing at the dot's centre and reaches its normal size and spot halfway through.
+    const int32_t icon_center_final = STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING + CARD_ICON_HEIGHT / 2;
+    const int32_t icon_center = CARD_PEEK_DOT_CENTER + (icon_center_final - CARD_PEEK_DOT_CENTER) * t / 1000;
+    shape->icon_center = GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + icon_center));
+    const int32_t scale = t * 2;
+    shape->icon_scale = (int16_t)(scale > 1000 ? 1000 : scale);
+}
+
+void card_fill_circle_rows(GContext* ctx, const GPoint center, const int16_t radius, const int16_t from_y,
+                           const int16_t to_y)
+{
+    const int16_t screen_height = PBL_DISPLAY_HEIGHT;
+    for (int16_t y = from_y; y < to_y; y++)
+    {
+        if (y < 0 || y >= screen_height)
+        {
+            continue;
+        }
+        const int32_t dy = y - center.y;
+        const int32_t half = isqrt32((int32_t)radius * radius - dy * dy);
+        if (half > 0)
+        {
+            graphics_fill_rect(ctx, GRect(center.x - half, y, 2 * half, 1), 0, GCornerNone);
+        }
+    }
+}
+
+static void card_draw_round_banner(GContext* ctx, const NotificationItem* item, const int16_t width,
+                                   const int16_t origin_y, const int16_t permille)
+{
+    (void)width;
+    const int16_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
+    CardRoundShape shape;
+    card_round_shape(permille, origin_y, &shape);
+    // PebbleOS round banner: a big circle (radius 140) hanging above the card. Drawn row by row so it never
+    // spills outside the card's own banner.
+    card_fill_circle_rows(ctx, shape.center, shape.radius, origin_y, origin_y + top_height);
+
+    if (origin_y + top_height > 0 && shape.icon_scale > 0)
+    {
+        card_draw_icon_scaled(ctx, item != NULL ? item->icon_id : 0, shape.icon_center, shape.icon_scale);
+    }
+}
+#endif
 
 void card_draw(GContext* ctx, const NotificationItem* item, const char* body, const CardMetrics* metrics,
                const int16_t width, const int16_t origin_y, const int16_t counter_index,
-               const int16_t counter_total)
+               const int16_t counter_total, const int16_t banner_permille)
 {
     const int16_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
     const int16_t screen_height = PBL_DISPLAY_HEIGHT;
@@ -366,37 +527,20 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
 
     graphics_context_set_fill_color(ctx, card_color_for_id(item != NULL ? item->color_id : 0));
 #if PBL_ROUND
-    // PebbleOS round banner: a big circle (radius 140) hanging above the card, so its lower edge is a gentle curve.
-    // Drawn row by row so it never spills outside the card's own banner.
-    {
-        const int32_t radius = 140;
-        const int32_t center_y = origin_y + top_height - radius - 1;
-        for (int16_t y = origin_y; y < origin_y + top_height; y++)
-        {
-            if (y < 0 || y >= screen_height)
-            {
-                continue;
-            }
-            const int32_t dy = y - center_y;
-            const int32_t span_sq = radius * radius - dy * dy;
-            if (span_sq <= 0)
-            {
-                continue;
-            }
-            int32_t half = 0;
-            while ((half + 1) * (half + 1) <= span_sq)
-            {
-                half++;
-            }
-            graphics_fill_rect(ctx, GRect(width / 2 - half, y, 2 * half, 1), 0, GCornerNone);
-        }
-    }
+    card_draw_round_banner(ctx, item, width, origin_y, banner_permille);
 #else
+    (void)banner_permille;
     graphics_fill_rect(ctx, GRect(0, origin_y, width, top_height), 0, GCornerNone);
+    if (origin_y + top_height > 0)
+    {
+        draw_icon(ctx, item != NULL ? item->icon_id : 0,
+                  GRect((width - CARD_ICON_WIDTH) / 2, origin_y + STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING,
+                        CARD_ICON_WIDTH, CARD_ICON_HEIGHT));
+    }
 #endif
 
     // Clock and counter belong to the status bar of the card at the top; a peeking card only shows its icon.
-    if (origin_y <= 0 && origin_y + top_height > 0)
+    if (banner_permille >= 1000 && origin_y <= 0 && origin_y + top_height > 0)
     {
         char time_text[16];
         clock_copy_time_string(time_text, sizeof(time_text));
@@ -413,13 +557,6 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
                                GRect(width - 54, origin_y, 50, STATUS_BAR_LAYER_HEIGHT),
                                GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
         }
-    }
-
-    if (origin_y + top_height > 0)
-    {
-        draw_icon(ctx, item != NULL ? item->icon_id : 0,
-                  GRect((width - CARD_ICON_WIDTH) / 2, origin_y + STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING,
-                        CARD_ICON_WIDTH, CARD_ICON_HEIGHT));
     }
 
     const int16_t text_width = width - (CARD_MARGIN * 2);

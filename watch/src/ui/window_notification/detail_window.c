@@ -60,6 +60,7 @@ static int16_t anim_start_offset;
 static GDrawCommandSequence* dismiss_sequence;
 static uint32_t dismiss_elapsed;
 static uint8_t dismiss_bucket;
+static uint8_t last_poofed_bucket;  // never poof the same card twice
 
 static bool actions_wanted;
 static AppTimer* actions_timer;
@@ -294,7 +295,7 @@ static void draw_card_arrow(GContext* ctx, const uint8_t bucket, const int16_t c
     }
 }
 
-static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
+static void draw_card_banner(GContext* ctx, const uint8_t bucket, const int16_t y, const int16_t banner)
 {
     const NotificationItem* item = notification_store_item_by_bucket(bucket);
     if (item == NULL)
@@ -302,8 +303,27 @@ static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
         return;
     }
     card_draw(ctx, item, notification_store_body(bucket), metrics_for(bucket), PBL_DISPLAY_WIDTH, y,
-              notification_store_index_of(bucket), notification_store_count());
+              notification_store_index_of(bucket), notification_store_count(), banner);
 }
+
+static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
+{
+    draw_card_banner(ctx, bucket, y, CARD_BANNER_FULL);
+}
+
+#if PBL_ROUND
+/** How far a swap has got, 0..1000, from the animation's own value (eased like the motion itself). */
+static int16_t swap_progress(void)
+{
+    const int32_t range = (int32_t)anim_to - (int32_t)anim_from;
+    if (range == 0)
+    {
+        return CARD_BANNER_FULL;
+    }
+    int32_t p = ((int32_t)anim_value - anim_from) * 1000 / range;
+    return (int16_t)(p < 0 ? 0 : (p > 1000 ? 1000 : p));
+}
+#endif
 
 static void card_layer_update(Layer* layer, GContext* ctx)
 {
@@ -340,7 +360,9 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         const int16_t other_height = card_height(anim_other_bucket);
         const int16_t other_y = -other_height - anim_start_offset + anim_value;
         const int16_t current_y = -anim_start_offset + anim_value;
-        draw_card(ctx, current_bucket, current_y);
+        // Round: the card going back down shrinks its banner into the peek dot, the reverse of arriving.
+        draw_card_banner(ctx, current_bucket, current_y,
+                         PBL_IF_ROUND_ELSE(CARD_BANNER_FULL - swap_progress(), CARD_BANNER_FULL));
         draw_card_arrow(ctx, current_bucket, current_y);
         draw_card(ctx, anim_other_bucket, other_y);
         draw_card_arrow(ctx, anim_other_bucket, other_y);
@@ -355,7 +377,10 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         notification_store_item_by_bucket(anim_other_bucket) : (current_is_partial() ? NULL : neighbor(1));
     if (next != NULL && current_y + height < bounds.size.h)
     {
-        draw_card(ctx, next->bucket_id, current_y + height);
+        // Round: the next card waits as a small dot, which grows into its banner as the card slides up.
+        draw_card_banner(ctx, next->bucket_id, current_y + height,
+                         PBL_IF_ROUND_ELSE(anim_kind == AnimSwapDown ? swap_progress() : CARD_BANNER_DOT,
+                                           CARD_BANNER_FULL));
         if (anim_kind == AnimSwapDown)
         {
             // The incoming card brings its own arrow with it.
@@ -407,6 +432,7 @@ static void complete_dismiss(void)
     }
     const uint8_t bucket = dismiss_bucket;
     dismiss_bucket = 0;
+    last_poofed_bucket = bucket;
     // Drops the notification from the store; detail_window_on_list_changed then moves to a neighbour.
     notification_store_hide(bucket);
 }
@@ -1243,9 +1269,14 @@ static const TouchGestureHandlers touch_handlers = {
 
 bool detail_window_handle_touch(const TouchEvent* event)
 {
-    if (window == NULL || window_stack_get_top_window() != window || window_notification_data.menu_displayed)
+    if (window == NULL || window_stack_get_top_window() != window)
     {
         return false;
+    }
+    if (window_notification_data.menu_displayed)
+    {
+        // Round's own action menu takes touch here; the system one handles its own.
+        return window_notification_action_list_handle_touch(event);
     }
     touch_gesture_feed(&touch, event, &touch_handlers, NULL);
     return true;
@@ -1273,7 +1304,7 @@ static void window_unload(Window* w)
 {
     // A dismiss whose animation is cut short by leaving the window still has to happen.
     const uint8_t interrupted_dismiss = anim_kind == AnimDismiss ? dismiss_bucket : 0;
-    window_notification_action_list_hide();
+    window_notification_action_list_hide_now();
     cancel_actions_wait();
     hold_cancel();
 
@@ -1379,6 +1410,21 @@ bool detail_window_is_animating(void)
     return animation != NULL;
 }
 
+int16_t detail_window_banner_bottom(void)
+{
+    if (window == NULL || current_bucket == 0)
+    {
+        return -1;
+    }
+    finish_animation();
+    return (int16_t)(-offset + STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT - 1);
+}
+
+bool detail_window_is_dismissing(void)
+{
+    return window != NULL && anim_kind == AnimDismiss;
+}
+
 void detail_window_show_bucket(const uint8_t bucket_id)
 {
     if (window == NULL || bucket_id == current_bucket)
@@ -1421,16 +1467,11 @@ void detail_window_show_bucket(const uint8_t bucket_id)
     }
 }
 
-void detail_window_play_dismissed(const uint8_t bucket_id)
+static void start_dismiss_animation(const uint8_t bucket_id)
 {
-    if (window == NULL || bucket_id != current_bucket)
-    {
-        notification_store_hide(bucket_id);
-        return;
-    }
-
     finish_animation();
-    window_notification_action_list_hide();
+    // The poof replaces the menu at once; no closing motion on top of it.
+    window_notification_action_list_hide_now();
     dismiss_sequence = gdraw_command_sequence_create_with_resource(RESOURCE_ID_PEBBLEOS_RESULT_DISMISSED_LARGE);
     uint32_t duration = DISMISS_FALLBACK_MS;
     if (dismiss_sequence != NULL)
@@ -1450,6 +1491,22 @@ void detail_window_play_dismissed(const uint8_t bucket_id)
     }
 }
 
+void detail_window_play_dismissed(const uint8_t bucket_id)
+{
+    if ((anim_kind == AnimDismiss && dismiss_bucket == bucket_id) ||
+        (bucket_id == last_poofed_bucket && notification_store_index_of(bucket_id) < 0))
+    {
+        // Already playing: the phone removed the card before confirming the dismiss.
+        return;
+    }
+    if (window == NULL || bucket_id != current_bucket)
+    {
+        notification_store_hide(bucket_id);
+        return;
+    }
+    start_dismiss_animation(bucket_id);
+}
+
 void detail_window_on_list_changed(const uint8_t* changed_buckets, const uint8_t changed_count)
 {
     if (window == NULL)
@@ -1458,9 +1515,18 @@ void detail_window_on_list_changed(const uint8_t* changed_buckets, const uint8_t
     }
 
     invalidate_metrics();
-    if (anim_kind == AnimDismiss && notification_store_index_of(dismiss_bucket) >= 0)
+    if (anim_kind == AnimDismiss)
     {
-        // Let the dismiss animation finish; it hides the card itself.
+        // Let the dismiss animation play out even if the phone already removed the card: when it ends it
+        // hides the card, which reports a list change again and lands on whatever replaced it.
+        return;
+    }
+
+    if (current_bucket != 0 && notification_store_index_of(current_bucket) < 0 &&
+        window_notification_action_list_pending_dismiss() == current_bucket && current_bucket != last_poofed_bucket)
+    {
+        // The phone removed the card we just dismissed before its confirmation arrived: poof it now.
+        start_dismiss_animation(current_bucket);
         return;
     }
 
@@ -1534,7 +1600,10 @@ void detail_window_on_style_changed(void)
         return;
     }
     window_set_background_color(window, theme_bg());
-    finish_animation();
+    if (anim_kind != AnimDismiss)
+    {
+        finish_animation();
+    }
     const int16_t max = max_scroll();
     if (offset > max)
     {

@@ -1790,7 +1790,8 @@ bool window_notification_ui_is_popup_session(void)
 
 static void on_list_changed(const uint8_t* changed, const uint8_t changed_count)
 {
-    if (exit_when_gone_bucket != 0 && notification_store_index_of(exit_when_gone_bucket) < 0)
+    if (exit_when_gone_bucket != 0 && notification_store_index_of(exit_when_gone_bucket) < 0 &&
+        !detail_window_is_dismissing())
     {
         exit_when_gone_bucket = 0;
         send_close_me_without_animation();
