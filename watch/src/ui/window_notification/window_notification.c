@@ -513,12 +513,64 @@ static void draw_caret(GContext* ctx, const GPoint center, const bool open)
 }
 
 /** Section, category or opened stack: a small caption with a caret, and the count when closed. */
-#define HEADER_INDENT_STEP 10
+#define HEADER_INDENT_STEP PBL_IF_ROUND_ELSE(14, 10)
+
+static bool row_is_header(const ListRow* row)
+{
+    return row != NULL && (row->kind == ROW_HEADER || (row->kind == ROW_STACK && row->expanded));
+}
+
+static int16_t header_depth(const ListRow* row)
+{
+    return (row->group >= GROUP_SUGGESTED ? 1 : 0) + (row->kind == ROW_STACK ? 1 : 0);
+}
+
 #if PBL_ROUND
-static int16_t round_rim_at_row(const Layer* cell_layer, GRect bounds);
+static int16_t row_height_at(int16_t index);
+static int32_t isqrt(int32_t value);
+
+/** The rim's distance from the left edge for a row at this height on screen (at its end nearer the rim). */
+static int16_t rim_for_screen_row(const int16_t screen_top, const int16_t height)
+{
+    const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    int32_t dy = screen_top + height / 2 - PBL_DISPLAY_HEIGHT / 2;
+    dy += dy > 0 ? height / 2 : -height / 2;
+    const int32_t span_sq = radius * radius - dy * dy;
+    return radius - (span_sq > 0 ? isqrt(span_sq) : 0);
+}
+
+/**
+ * Where a header's caret starts on a round watch. Rows slide sideways along the rim as the list scrolls, so a
+ * fixed indent isn't enough: a header always starts at least one step right of its parent header, wherever
+ * each of them is on screen.
+ */
+static int16_t round_header_left(const int16_t index, const int16_t screen_top)
+{
+    const ListRow* row = notification_store_row(index);
+    int16_t left = rim_for_screen_row(screen_top, row_height_at(index)) + 4;
+    left = left < 12 ? 12 : (left > 60 ? 60 : left);
+    const int16_t depth = header_depth(row);
+    if (depth == 0)
+    {
+        return left;
+    }
+    int16_t y = screen_top;
+    for (int16_t i = index - 1; i >= 0; i--)
+    {
+        y -= row_height_at(i);
+        const ListRow* above = notification_store_row(i);
+        if (row_is_header(above) && header_depth(above) < depth)
+        {
+            const int16_t parent = round_header_left(i, y) + HEADER_INDENT_STEP;
+            return parent > left ? parent : left;
+        }
+    }
+    return left + depth * HEADER_INDENT_STEP;
+}
 #endif
 
-static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const ListRow* row)
+static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const ListRow* row,
+                            const int16_t row_index)
 {
     const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
     const GColor color = highlighted ? PBL_IF_COLOR_ELSE(GColorWhite, theme_bg()) : theme_secondary();
@@ -541,17 +593,12 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect 
     const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
     // Left aligned, one step further in for each level: section, then category (inside Silent), then an opened
     // stack inside either.
-    const int16_t depth = (row->group >= GROUP_SUGGESTED ? 1 : 0) + (row->kind == ROW_STACK ? 1 : 0);
-    const int16_t indent = depth * HEADER_INDENT_STEP;
 #if PBL_ROUND
-    int16_t rim = round_rim_at_row(cell_layer, bounds) + 4;
-    if (rim < 12)
-    {
-        rim = 12;
-    }
-    const int16_t left = (rim > 60 ? 60 : rim) + indent;
+    const int16_t left =
+        round_header_left(row_index, layer_convert_point_to_screen(cell_layer, bounds.origin).y);
 #else
-    const int16_t left = 8 + indent;
+    (void)row_index;
+    const int16_t left = 8 + header_depth(row) * HEADER_INDENT_STEP;
 #endif
     const int16_t text_top = (bounds.size.h - 18) / 2;
     draw_caret(ctx, GPoint(left + 4, bounds.size.h / 2), row->expanded);
@@ -729,7 +776,7 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     const NotificationItem* item = row_item(row);
     if (item == NULL)
     {
-        draw_header_row(ctx, cell_layer, bounds, row);
+        draw_header_row(ctx, cell_layer, bounds, row, index->row);
         return;
     }
     draw_item_row(ctx, cell_layer, bounds, item, row, index->row);
@@ -747,14 +794,17 @@ static int16_t round_rim_at_row(const Layer* cell_layer, const GRect bounds)
     return radius - (span_sq > 0 ? isqrt(span_sq) : 0);
 }
 
-/** Where an opened stack's arc ends on this row, so the row's icon can start clear of it. */
+/**
+ * Where an opened stack's arc ends beside this row's icon (the icon is centred in the row, about 26 px tall), so
+ * the icon can start clear of it.
+ */
 static int16_t stack_arc_clearance(const Layer* cell_layer, const GRect bounds)
 {
     const GPoint on_screen = layer_convert_point_to_screen(cell_layer, bounds.origin);
     const int32_t radius = PBL_DISPLAY_WIDTH / 2;
     const int32_t inner = radius - STACK_LINE_EDGE - STACK_LINE_WIDTH;
     int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
-    dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2;
+    dy += dy > 0 ? 13 : -13;
     const int32_t span_sq = inner * inner - dy * dy;
     return radius - (span_sq > 0 ? isqrt(span_sq) : 0) + STACK_LINE_GAP;
 }
@@ -780,8 +830,15 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
         const int16_t clear = stack_arc_clearance(cell_layer, bounds);
         if (clear > inset)
         {
-            inset = clear > 67 ? 67 : clear;
+            inset = clear;
         }
+    }
+    if (row->in_stack && inset > 80)
+    {
+        // A stack row almost entirely past the top or bottom edge: there's no room for its icon beside the
+        // arc (it would sit on the arc or float mid-screen), and its text is cut off anyway. Just the arc.
+        draw_stack_line(ctx, cell_layer, bounds, row_index, inset);
+        return;
     }
 #else
     const int16_t inset = row->in_stack ? 12 : 5;
