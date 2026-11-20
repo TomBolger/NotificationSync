@@ -4,7 +4,8 @@
 /**
  * Light or dark look, like the Dark Mode setting PebbleOS 4.45 added for its own notifications: dark puts white
  * text on a black background, while the coloured banners and the list highlight keep their colours.
- * The phone app picks it (Watch theme setting); apps cannot read the watch's own setting with the current SDK.
+ * The phone app picks light, dark, or "match watch", which follows the watch's own Dark Mode where the firmware
+ * can report it (see system_dark_mode.h).
  */
 void theme_set_dark(bool dark);
 bool theme_is_dark(void);

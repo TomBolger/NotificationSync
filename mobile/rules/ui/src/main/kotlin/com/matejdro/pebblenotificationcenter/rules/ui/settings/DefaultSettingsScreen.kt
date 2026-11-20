@@ -74,6 +74,9 @@ import com.matejdro.pebblenotificationcenter.navigation.keys.TaskerTaskSetScreen
 import com.matejdro.pebblenotificationcenter.navigation.util.rememberNavigationPopup
 import com.matejdro.pebblenotificationcenter.navigation.util.trigger
 import com.matejdro.pebblenotificationcenter.rules.GlobalPreferenceKeys
+import com.matejdro.pebblenotificationcenter.rules.WATCH_THEME_DARK
+import com.matejdro.pebblenotificationcenter.rules.WATCH_THEME_LIGHT
+import com.matejdro.pebblenotificationcenter.rules.WATCH_THEME_MATCH_WATCH
 import com.matejdro.pebblenotificationcenter.rules.MasterSwitch
 import com.matejdro.pebblenotificationcenter.rules.RULE_ID_DEFAULT_SETTINGS
 import com.matejdro.pebblenotificationcenter.rules.RuleOption
@@ -299,11 +302,9 @@ private fun DefaultSettingsContent(
                onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchMessageBold, it) },
             )
             GroupDivider()
-            SwitchRow(
-               title = "Dark mode",
-               description = "White text on black, to match your watch if you use PebbleOS dark mode.",
-               checked = globalPreferences[GlobalPreferenceKeys.watchDarkMode],
-               onCheckedChange = { updateGlobalPreference(GlobalPreferenceKeys.watchDarkMode, it) },
+            ThemeRow(
+               selected = globalPreferences[GlobalPreferenceKeys.watchTheme],
+               onSelect = { updateGlobalPreference(GlobalPreferenceKeys.watchTheme, it) },
             )
             NumberRow(
                title = "Auto-close",
@@ -643,6 +644,43 @@ private fun TextSizeRow(
                      selected = selected == index,
                      onClick = { onSelect(index) },
                      label = { Text(label, style = style) },
+                  )
+               }
+            }
+         }
+      },
+      colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+   )
+}
+
+@Composable
+private fun ThemeRow(
+   selected: Int,
+   onSelect: (Int) -> Unit,
+) {
+   val options = listOf(
+      WATCH_THEME_MATCH_WATCH to "Match watch",
+      WATCH_THEME_LIGHT to "Light",
+      WATCH_THEME_DARK to "Dark",
+   )
+   ListItem(
+      headlineContent = { Text("Theme") },
+      supportingContent = {
+         Column {
+            Text(
+               "Match watch follows the watch's own Dark Mode, even when it switches on a schedule, so the app " +
+                  "looks like the rest of the watch. It needs PebbleOS 4.45 or newer on a Pebble Time 2, Round 2 " +
+                  "or 2 Duo; other watches stay light."
+            )
+            Row(
+               horizontalArrangement = Arrangement.spacedBy(8.dp),
+               modifier = Modifier.padding(top = 8.dp),
+            ) {
+               options.forEach { (value, label) ->
+                  FilterChip(
+                     selected = selected == value,
+                     onClick = { onSelect(value) },
+                     label = { Text(label) },
                   )
                }
             }

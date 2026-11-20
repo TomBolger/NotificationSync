@@ -502,7 +502,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
-                  0, // Light theme
+                  2, // Theme: match watch (default)
                   1, // Group into sections
                   1, // Stack app notifications
                )
@@ -536,7 +536,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
-                  0, // Light theme
+                  2, // Theme: match watch (default)
                   1, // Group into sections
                   1, // Stack app notifications
                )
@@ -570,7 +570,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
-                  0, // Light theme
+                  2, // Theme: match watch (default)
                   1, // Group into sections
                   1, // Stack app notifications
                )
@@ -604,7 +604,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
-                  0, // Light theme
+                  2, // Theme: match watch (default)
                   1, // Group into sections
                   1, // Stack app notifications
                )
@@ -639,7 +639,7 @@ class WatchSyncerImplTest {
                   1, // Default text size
                   1, // Bold sender
                   1, // Bold message
-                  0, // Light theme
+                  2, // Theme: match watch (default)
                   1, // Group into sections
                   1, // Stack app notifications
                )

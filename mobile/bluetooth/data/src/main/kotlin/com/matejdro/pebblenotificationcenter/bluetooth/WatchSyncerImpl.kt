@@ -256,7 +256,7 @@ class WatchSyncerImpl(
             buffer.writeByte(preferences[GlobalPreferenceKeys.watchTextSize].coerceIn(0, 2))
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchSenderBold]) 1 else 0)
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchMessageBold]) 1 else 0)
-            buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchDarkMode]) 1 else 0)
+            buffer.writeByte(preferences[GlobalPreferenceKeys.watchTheme].coerceIn(0, 2))
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchGroupSections]) 1 else 0)
             buffer.writeByte(if (preferences[GlobalPreferenceKeys.watchStackApps]) 1 else 0)
 

@@ -1,5 +1,6 @@
 #include "window_notification.h"
 #include "../theme.h"
+#include "../system_dark_mode.h"
 
 #include <pebble.h>
 
@@ -1720,6 +1721,50 @@ static void apply_list_colors(void)
     }
 }
 
+// Theme setting from the phone: light, dark, or follow the watch's own Dark Mode (where the watch can tell us).
+#define THEME_LIGHT 0
+#define THEME_DARK 1
+#define THEME_MATCH_WATCH 2
+
+static bool following_watch_theme;
+
+static void restyle(void)
+{
+    apply_list_colors();
+    sync_list_selection();
+    update_layer_visibility();
+    detail_window_on_style_changed();
+}
+
+static void on_watch_dark_mode_changed(const bool is_dark)
+{
+    if (!following_watch_theme || theme_is_dark() == is_dark)
+    {
+        return;
+    }
+    theme_set_dark(is_dark);
+    restyle();
+}
+
+static void apply_theme_setting(const uint8_t setting)
+{
+    const bool follow = setting == THEME_MATCH_WATCH && system_dark_mode_available();
+    if (follow != following_watch_theme)
+    {
+        if (follow)
+        {
+            system_dark_mode_subscribe(on_watch_dark_mode_changed);
+        }
+        else
+        {
+            system_dark_mode_unsubscribe();
+        }
+        following_watch_theme = follow;
+    }
+    // Watches that can't report Dark Mode stay light when set to match.
+    theme_set_dark(follow ? system_dark_mode_peek() : setting == THEME_DARK);
+}
+
 static void load_text_size(void)
 {
     uint8_t config[SETTINGS_STACKS_INDEX + 1];
@@ -1727,7 +1772,7 @@ static void load_text_size(void)
     config[SETTINGS_TEXT_SIZE_INDEX] = CARD_TEXT_SIZE_DEFAULT;
     config[SETTINGS_SENDER_WEIGHT_INDEX] = 1;
     config[SETTINGS_MESSAGE_WEIGHT_INDEX] = 1;
-    config[SETTINGS_THEME_INDEX] = 0;
+    config[SETTINGS_THEME_INDEX] = THEME_MATCH_WATCH;
     config[SETTINGS_SECTIONS_INDEX] = 0;
     config[SETTINGS_STACKS_INDEX] = 0;
     const uint8_t size = bucket_sync_get_bucket_size(1);
@@ -1737,12 +1782,9 @@ static void load_text_size(void)
     }
     card_set_text_style(config[SETTINGS_TEXT_SIZE_INDEX], config[SETTINGS_SENDER_WEIGHT_INDEX] != 0,
                         config[SETTINGS_MESSAGE_WEIGHT_INDEX] != 0);
-    theme_set_dark(config[SETTINGS_THEME_INDEX] == 1);
+    apply_theme_setting(config[SETTINGS_THEME_INDEX]);
     notification_store_set_grouping(config[SETTINGS_SECTIONS_INDEX] != 0, config[SETTINGS_STACKS_INDEX] != 0);
-    apply_list_colors();
-    sync_list_selection();
-    update_layer_visibility();
-    detail_window_on_style_changed();
+    restyle();
 }
 
 static void on_settings_changed(void)
@@ -1799,6 +1841,11 @@ static void window_load(Window* window)
 
 static void window_unload(Window* window)
 {
+    if (following_watch_theme)
+    {
+        system_dark_mode_unsubscribe();
+        following_watch_theme = false;
+    }
     cancel_pending_alert();
     cancel_launch_timeout();
     if (phone_timeout_timer != NULL)

@@ -1,7 +1,7 @@
 {
   "name": "notification-sync",
   "author": "TomBolger",
-  "version": "2.4",
+  "version": "2.5",
   "keywords": [
     "pebble-app"
   ],
@@ -16,6 +16,7 @@
       "basalt",
       "diorite",
       "emery",
+      "flint",
       "gabbro"
     ],
     "watchapp": {

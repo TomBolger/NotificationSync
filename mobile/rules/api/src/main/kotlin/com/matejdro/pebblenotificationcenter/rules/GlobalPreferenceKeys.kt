@@ -40,7 +40,8 @@ object GlobalPreferenceKeys {
    val watchMessageBold = BooleanPreferenceKeyWithDefault("watch_message_bold", true)
 
    /** White text on black on the watch, like PebbleOS dark mode. */
-   val watchDarkMode = BooleanPreferenceKeyWithDefault("watch_dark_mode", false)
+   /** Watch colours: [WATCH_THEME_LIGHT], [WATCH_THEME_DARK] or [WATCH_THEME_MATCH_WATCH] (follow PebbleOS Dark Mode). */
+   val watchTheme = IntPreferenceKeyWithDefault("watch_theme", WATCH_THEME_MATCH_WATCH)
 
    /** Watch list in the phone's sections (Conversations, Notifications, Silent) with headers. */
    val watchGroupSections = BooleanPreferenceKeyWithDefault("watch_group_sections", true)
@@ -62,3 +63,7 @@ object GlobalPreferenceKeys {
 
    val notifyOnReconnect = BooleanPreferenceKeyWithDefault("notify_on_reconnect", true)
 }
+
+const val WATCH_THEME_LIGHT = 0
+const val WATCH_THEME_DARK = 1
+const val WATCH_THEME_MATCH_WATCH = 2
