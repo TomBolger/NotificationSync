@@ -13,21 +13,7 @@
 #define CARD_ICON_HEIGHT 25
 #define CARD_ICON_UPPER_PADDING (((CARD_BANNER_HEIGHT - CARD_ICON_HEIGHT) / 2) - 1)
 
-// Round: the next notification peeks as a small dot in its colour, which grows into the banner as it slides up.
 #define CARD_ROUND_BANNER_RADIUS 140
-#define CARD_PEEK_DOT_RADIUS 7
-#define CARD_PEEK_DOT_CENTER (CARD_BANNER_HEIGHT / 2)
-#define CARD_BANNER_FULL 1000
-#define CARD_BANNER_DOT 0
-
-typedef struct
-{
-    GPoint center;
-    int16_t radius;
-    GPoint icon_center;
-    /** Icon size in thousandths (0 hides it). */
-    int16_t icon_scale;
-} CardRoundShape;
 
 typedef struct
 {
@@ -59,20 +45,16 @@ void card_measure(const NotificationItem* item, const char* body, int16_t width,
 
 /**
  * Draw the card with its top edge at origin_y. counter_total <= 1 hides the "2/5" counter.
- * banner_permille (round only): CARD_BANNER_FULL draws the normal banner, CARD_BANNER_DOT only the peek dot, and
- * anything between morphs from one to the other.
+ * Round: like PebbleOS, the banner follows the card's position, from a half dot peeking at the bottom edge to the
+ * full banner at the top.
  */
 void card_draw(GContext* ctx, const NotificationItem* item, const char* body, const CardMetrics* metrics,
-               int16_t width, int16_t origin_y, int16_t counter_index, int16_t counter_total,
-               int16_t banner_permille);
+               int16_t width, int16_t origin_y, int16_t counter_index, int16_t counter_total);
 
 /** Draws an icon scaled around its centre (1000 = normal size). */
 void card_draw_icon_scaled(GContext* ctx, uint8_t icon_id, GPoint center, int16_t scale_permille);
 
 #if PBL_ROUND
-/** Where the round banner's circle and icon are at a given morph amount, for a card whose top is at origin_y. */
-void card_round_shape(int16_t permille, int16_t origin_y, CardRoundShape* shape);
-
 /** Fills the rows from_y..to_y-1 of a circle (clipped to the screen). */
 void card_fill_circle_rows(GContext* ctx, GPoint center, int16_t radius, int16_t from_y, int16_t to_y);
 #endif

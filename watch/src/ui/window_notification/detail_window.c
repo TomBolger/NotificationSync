@@ -11,7 +11,8 @@
 #define SCROLL_PX 48
 #define REPEATING_SCROLL_PX 24
 #define INITIAL_SCROLL_PX CARD_BANNER_HEIGHT
-#define PEEK_PX CARD_BANNER_HEIGHT
+// Round (PebbleOS swap_layer.c PEEK_PX 0): the next card waits just below the screen, its banner a half dot.
+#define PEEK_PX PBL_IF_ROUND_ELSE(STATUS_BAR_LAYER_HEIGHT, CARD_BANNER_HEIGHT)
 #define FUDGE_PX PEEK_PX
 #define SCROLL_MS 200
 #define SWAP_MS 200
@@ -295,7 +296,7 @@ static void draw_card_arrow(GContext* ctx, const uint8_t bucket, const int16_t c
     }
 }
 
-static void draw_card_banner(GContext* ctx, const uint8_t bucket, const int16_t y, const int16_t banner)
+static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
 {
     const NotificationItem* item = notification_store_item_by_bucket(bucket);
     if (item == NULL)
@@ -303,27 +304,8 @@ static void draw_card_banner(GContext* ctx, const uint8_t bucket, const int16_t 
         return;
     }
     card_draw(ctx, item, notification_store_body(bucket), metrics_for(bucket), PBL_DISPLAY_WIDTH, y,
-              notification_store_index_of(bucket), notification_store_count(), banner);
+              notification_store_index_of(bucket), notification_store_count());
 }
-
-static void draw_card(GContext* ctx, const uint8_t bucket, const int16_t y)
-{
-    draw_card_banner(ctx, bucket, y, CARD_BANNER_FULL);
-}
-
-#if PBL_ROUND
-/** How far a swap has got, 0..1000, from the animation's own value (eased like the motion itself). */
-static int16_t swap_progress(void)
-{
-    const int32_t range = (int32_t)anim_to - (int32_t)anim_from;
-    if (range == 0)
-    {
-        return CARD_BANNER_FULL;
-    }
-    int32_t p = ((int32_t)anim_value - anim_from) * 1000 / range;
-    return (int16_t)(p < 0 ? 0 : (p > 1000 ? 1000 : p));
-}
-#endif
 
 static void card_layer_update(Layer* layer, GContext* ctx)
 {
@@ -360,9 +342,7 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         const int16_t other_height = card_height(anim_other_bucket);
         const int16_t other_y = -other_height - anim_start_offset + anim_value;
         const int16_t current_y = -anim_start_offset + anim_value;
-        // Round: the card going back down shrinks its banner into the peek dot, the reverse of arriving.
-        draw_card_banner(ctx, current_bucket, current_y,
-                         PBL_IF_ROUND_ELSE(CARD_BANNER_FULL - swap_progress(), CARD_BANNER_FULL));
+        draw_card(ctx, current_bucket, current_y);
         draw_card_arrow(ctx, current_bucket, current_y);
         draw_card(ctx, anim_other_bucket, other_y);
         draw_card_arrow(ctx, anim_other_bucket, other_y);
@@ -377,10 +357,7 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         notification_store_item_by_bucket(anim_other_bucket) : (current_is_partial() ? NULL : neighbor(1));
     if (next != NULL && current_y + height < bounds.size.h)
     {
-        // Round: the next card waits as a small dot, which grows into its banner as the card slides up.
-        draw_card_banner(ctx, next->bucket_id, current_y + height,
-                         PBL_IF_ROUND_ELSE(anim_kind == AnimSwapDown ? swap_progress() : CARD_BANNER_DOT,
-                                           CARD_BANNER_FULL));
+        draw_card(ctx, next->bucket_id, current_y + height);
         if (anim_kind == AnimSwapDown)
         {
             // The incoming card brings its own arrow with it.

@@ -455,25 +455,6 @@ static int32_t isqrt32(const int32_t value)
     return root;
 }
 
-void card_round_shape(const int16_t permille, const int16_t origin_y, CardRoundShape* shape)
-{
-    const int32_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
-    const int32_t t = permille < 0 ? 0 : (permille > 1000 ? 1000 : permille);
-    // The dot's lower edge glides to the banner's; its radius grows slowly at first (t^2), so it stays round
-    // while it rises and only flattens into the wide banner curve near the end.
-    const int32_t dot_bottom = CARD_PEEK_DOT_CENTER + CARD_PEEK_DOT_RADIUS;
-    const int32_t bottom = dot_bottom + (top_height - 1 - dot_bottom) * t / 1000;
-    const int32_t radius = CARD_PEEK_DOT_RADIUS + (CARD_ROUND_BANNER_RADIUS - CARD_PEEK_DOT_RADIUS) * t * t / 1000000;
-    shape->radius = (int16_t)radius;
-    shape->center = GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + bottom - radius));
-    // The icon starts as nothing at the dot's centre and reaches its normal size and spot halfway through.
-    const int32_t icon_center_final = STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING + CARD_ICON_HEIGHT / 2;
-    const int32_t icon_center = CARD_PEEK_DOT_CENTER + (icon_center_final - CARD_PEEK_DOT_CENTER) * t / 1000;
-    shape->icon_center = GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + icon_center));
-    const int32_t scale = t * 2;
-    shape->icon_scale = (int16_t)(scale > 1000 ? 1000 : scale);
-}
-
 void card_fill_circle_rows(GContext* ctx, const GPoint center, const int16_t radius, const int16_t from_y,
                            const int16_t to_y)
 {
@@ -493,27 +474,46 @@ void card_fill_circle_rows(GContext* ctx, const GPoint center, const int16_t rad
     }
 }
 
-static void card_draw_round_banner(GContext* ctx, const NotificationItem* item, const int16_t width,
-                                   const int16_t origin_y, const int16_t permille)
-{
-    (void)width;
-    const int16_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
-    CardRoundShape shape;
-    card_round_shape(permille, origin_y, &shape);
-    // PebbleOS round banner: a big circle (radius 140) hanging above the card. Drawn row by row so it never
-    // spills outside the card's own banner.
-    card_fill_circle_rows(ctx, shape.center, shape.radius, origin_y, origin_y + top_height);
+// PebbleOS notification_layout.c prv_draw_banner_round / prv_hide_or_show_banner_icon. Stock keeps the status
+// bar outside the card, so its layout top is our origin_y + STATUS_BAR_LAYER_HEIGHT.
+#define BANNER_PEEK_STATIC_Y (PBL_DISPLAY_HEIGHT - STATUS_BAR_LAYER_HEIGHT)
+#define BOTTOM_BANNER_CIRCLE_RADIUS 8
+#define LAYOUT_TOP_BANNER_ORIGIN_Y \
+    (STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT - (CARD_ROUND_BANNER_RADIUS + STATUS_BAR_LAYER_HEIGHT) - 1)
 
-    if (origin_y + top_height > 0 && shape.icon_scale > 0)
+static int32_t interpolate_linear(const int32_t out_min, const int32_t out_max, const int32_t in_min,
+                                  const int32_t in_max, const int32_t progress)
+{
+    return out_min + (out_max - out_min) * (progress - in_min) / (in_max - in_min);
+}
+
+static void card_draw_round_banner(GContext* ctx, const NotificationItem* item, const int16_t origin_y)
+{
+    // How far the card has come up from its peeking spot (just below the screen, showing a half dot).
+    const int32_t layout_y = origin_y;
+    int32_t movement = BANNER_PEEK_STATIC_Y - layout_y;
+    movement = movement < 0 ? 0 : (movement > BANNER_PEEK_STATIC_Y ? BANNER_PEEK_STATIC_Y : movement);
+    const int32_t radius = interpolate_linear(BOTTOM_BANNER_CIRCLE_RADIUS, CARD_ROUND_BANNER_RADIUS, 0,
+                                              BANNER_PEEK_STATIC_Y, movement);
+    const int32_t center_y = interpolate_linear(0, LAYOUT_TOP_BANNER_ORIGIN_Y, 0, BANNER_PEEK_STATIC_Y, movement);
+    // Stock clips to the layout plus the status bar above it.
+    card_fill_circle_rows(ctx, GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + STATUS_BAR_LAYER_HEIGHT + center_y)),
+                          (int16_t)radius, origin_y, (int16_t)(origin_y + STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT));
+
+    // The icon only shows once the banner has (nearly) arrived.
+    if (layout_y >= -2 && layout_y <= 18)
     {
-        card_draw_icon_scaled(ctx, item != NULL ? item->icon_id : 0, shape.icon_center, shape.icon_scale);
+        card_draw_icon_scaled(ctx, item != NULL ? item->icon_id : 0,
+                              GPoint(PBL_DISPLAY_WIDTH / 2,
+                                     origin_y + STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING + CARD_ICON_HEIGHT / 2),
+                              1000);
     }
 }
 #endif
 
 void card_draw(GContext* ctx, const NotificationItem* item, const char* body, const CardMetrics* metrics,
                const int16_t width, const int16_t origin_y, const int16_t counter_index,
-               const int16_t counter_total, const int16_t banner_permille)
+               const int16_t counter_total)
 {
     const int16_t top_height = STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT;
     const int16_t screen_height = PBL_DISPLAY_HEIGHT;
@@ -527,9 +527,8 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
 
     graphics_context_set_fill_color(ctx, card_color_for_id(item != NULL ? item->color_id : 0));
 #if PBL_ROUND
-    card_draw_round_banner(ctx, item, width, origin_y, banner_permille);
+    card_draw_round_banner(ctx, item, origin_y);
 #else
-    (void)banner_permille;
     graphics_fill_rect(ctx, GRect(0, origin_y, width, top_height), 0, GCornerNone);
     if (origin_y + top_height > 0)
     {
@@ -540,7 +539,7 @@ void card_draw(GContext* ctx, const NotificationItem* item, const char* body, co
 #endif
 
     // Clock and counter belong to the status bar of the card at the top; a peeking card only shows its icon.
-    if (banner_permille >= 1000 && origin_y <= 0 && origin_y + top_height > 0)
+    if (origin_y <= 0 && origin_y + top_height > 0)
     {
         char time_text[16];
         clock_copy_time_string(time_text, sizeof(time_text));
