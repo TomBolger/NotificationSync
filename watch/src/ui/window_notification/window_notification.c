@@ -406,18 +406,76 @@ static void fold_start(const int16_t header, const int16_t count, const bool ope
     }
 }
 
+#if PBL_ROUND
+// Round lists slide like rectangular ones (PebbleOS's centred mode jumps a whole row per press instead) and keep
+// the selection in the middle, except at the ends: there the first and last rows stop one row away from the
+// middle, instead of leaving half the screen empty. Space above the first row is section 0's header; space below
+// the last is one extra, unselectable row.
+static int16_t round_end_space(const int16_t end_row_height)
+{
+    const int16_t space = PBL_DISPLAY_HEIGHT / 2 - end_row_height / 2 - LIST_CELL_HEIGHT;
+    return space > 0 ? space : 0;
+}
+
+static int16_t round_space_above(void)
+{
+    return notification_store_row_count() > 0 ? round_end_space(row_height_at(0)) : 0;
+}
+
+static int16_t round_space_below(void)
+{
+    const uint8_t count = notification_store_row_count();
+    return count > 0 ? round_end_space(row_height_at(count - 1)) : 0;
+}
+
+static int16_t get_header_height(MenuLayer* layer, uint16_t section, void* context)
+{
+    (void)layer;
+    (void)section;
+    (void)context;
+    return round_space_above();
+}
+
+static void draw_header(GContext* ctx, const Layer* cell_layer, uint16_t section, void* context)
+{
+    (void)ctx;
+    (void)cell_layer;
+    (void)section;
+    (void)context;
+}
+
+static void selection_will_change(MenuLayer* layer, MenuIndex* new_index, MenuIndex old_index, void* context)
+{
+    (void)layer;
+    (void)old_index;
+    (void)context;
+    const uint8_t count = notification_store_row_count();
+    if (count > 0 && new_index->row >= count)
+    {
+        new_index->row = count - 1;
+    }
+}
+#endif
+
 static uint16_t get_num_rows(MenuLayer* layer, uint16_t section, void* context)
 {
     (void)layer;
     (void)section;
     (void)context;
-    return notification_store_row_count();
+    const uint8_t count = notification_store_row_count();
+    return count + PBL_IF_ROUND_ELSE(count > 0 ? 1 : 0, 0);
 }
 
 static int16_t get_cell_height(MenuLayer* layer, MenuIndex* index, void* context)
 {
     (void)layer;
     (void)context;
+#if PBL_ROUND
+    if (index->row >= notification_store_row_count())
+    {
+        return round_space_below();
+    }
+#endif
     return row_height_at(index->row);
 }
 
@@ -455,6 +513,11 @@ static void draw_caret(GContext* ctx, const GPoint center, const bool open)
 }
 
 /** Section, category or opened stack: a small caption with a caret, and the count when closed. */
+#define HEADER_INDENT_STEP 10
+#if PBL_ROUND
+static int16_t round_rim_at_row(const Layer* cell_layer, GRect bounds);
+#endif
+
 static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const ListRow* row)
 {
     const bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
@@ -476,12 +539,17 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect 
     }
 
     const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-    // Categories sit a little further in than their Silent section; opened stacks further still.
-    const int16_t indent = row->kind == ROW_STACK ? 16 : row->group >= GROUP_SUGGESTED ? 10 : 0;
+    // Left aligned, one step further in for each level: section, then category (inside Silent), then an opened
+    // stack inside either.
+    const int16_t depth = (row->group >= GROUP_SUGGESTED ? 1 : 0) + (row->kind == ROW_STACK ? 1 : 0);
+    const int16_t indent = depth * HEADER_INDENT_STEP;
 #if PBL_ROUND
-    const GSize size = graphics_text_layout_get_content_size(text, font, GRect(0, 0, bounds.size.w - 60, 20),
-                                                             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
-    const int16_t left = (bounds.size.w - size.w - 14) / 2 + indent / 2;
+    int16_t rim = round_rim_at_row(cell_layer, bounds) + 4;
+    if (rim < 12)
+    {
+        rim = 12;
+    }
+    const int16_t left = (rim > 60 ? 60 : rim) + indent;
 #else
     const int16_t left = 8 + indent;
 #endif
@@ -555,12 +623,12 @@ static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect 
 #endif
     // A ring concentric with the screen, so it stays the same distance from the edge all the way round. Each pixel
     // row fills the span between the ring's outer and inner circle, which keeps the stroke even where it turns
-    // sideways. It ends where it would run into the row's icon and text.
+    // sideways. The row's icon and text are moved in to clear it (stack_arc_clearance), so it's never cut.
+    (void)content_left;
     const int32_t radius = PBL_DISPLAY_WIDTH / 2;
     const int32_t outer = radius - STACK_LINE_EDGE;
     const int32_t inner = outer - STACK_LINE_WIDTH;
     const int16_t screen_y = layer_convert_point_to_screen(cell_layer, GPointZero).y;
-    const int16_t limit = content_left - STACK_LINE_GAP;
     for (int16_t y = top; y < bottom; y++)
     {
         const int32_t dy = screen_y + y - PBL_DISPLAY_HEIGHT / 2;
@@ -573,10 +641,6 @@ static void draw_stack_line(GContext* ctx, const Layer* cell_layer, const GRect 
         if (to <= from)
         {
             to = from + 1;
-        }
-        if (to > limit)
-        {
-            continue;
         }
         graphics_fill_rect(ctx, GRect(from, y, to - from, 1), 0, GCornerNone);
     }
@@ -671,6 +735,31 @@ static void draw_row(GContext* ctx, const Layer* cell_layer, MenuIndex* index, v
     draw_item_row(ctx, cell_layer, bounds, item, row, index->row);
 }
 
+#if PBL_ROUND
+/** Distance from the screen's left edge to its curved rim, at the row's top or bottom (whichever is nearer it). */
+static int16_t round_rim_at_row(const Layer* cell_layer, const GRect bounds)
+{
+    const GPoint on_screen = layer_convert_point_to_screen(cell_layer, bounds.origin);
+    const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
+    dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2;
+    const int32_t span_sq = radius * radius - dy * dy;
+    return radius - (span_sq > 0 ? isqrt(span_sq) : 0);
+}
+
+/** Where an opened stack's arc ends on this row, so the row's icon can start clear of it. */
+static int16_t stack_arc_clearance(const Layer* cell_layer, const GRect bounds)
+{
+    const GPoint on_screen = layer_convert_point_to_screen(cell_layer, bounds.origin);
+    const int32_t radius = PBL_DISPLAY_WIDTH / 2;
+    const int32_t inner = radius - STACK_LINE_EDGE - STACK_LINE_WIDTH;
+    int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
+    dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2;
+    const int32_t span_sq = inner * inner - dy * dy;
+    return radius - (span_sq > 0 ? isqrt(span_sq) : 0) + STACK_LINE_GAP;
+}
+#endif
+
 // PebbleOS source: src/fw/apps/system/notifications.c (prv_draw_notification_cell_rect)
 static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bounds, const NotificationItem* item,
                           const ListRow* row, const int16_t row_index)
@@ -679,17 +768,7 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
     // Keep the icon and text clear of the curved edge: rows above and below the centre start further in.
     int16_t inset = 12;
     {
-        const GPoint on_screen = layer_convert_point_to_screen(cell_layer, bounds.origin);
-        const int32_t radius = PBL_DISPLAY_WIDTH / 2;
-        int32_t dy = on_screen.y + bounds.size.h / 2 - PBL_DISPLAY_HEIGHT / 2;
-        dy += dy > 0 ? bounds.size.h / 2 : -bounds.size.h / 2; // the row's edge nearest the rim
-        const int32_t span_sq = radius * radius - dy * dy;
-        int32_t half = 0;
-        while (span_sq > 0 && (half + 1) * (half + 1) <= span_sq)
-        {
-            half++;
-        }
-        const int16_t edge = radius - half + 4;
+        const int16_t edge = round_rim_at_row(cell_layer, bounds) + 4;
         if (edge > inset)
         {
             inset = edge > 60 ? 60 : edge;
@@ -698,6 +777,11 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
     if (row->in_stack)
     {
         inset += 7;
+        const int16_t clear = stack_arc_clearance(cell_layer, bounds);
+        if (clear > inset)
+        {
+            inset = clear > 67 ? 67 : clear;
+        }
     }
 #else
     const int16_t inset = row->in_stack ? 12 : 5;
@@ -927,8 +1011,7 @@ static int16_t rows_height(void)
 static int16_t list_top_padding(void)
 {
 #if PBL_ROUND
-    const int16_t padding = (list_content_height() - rows_height()) / 2;
-    return padding > 0 ? padding : 0;
+    return round_space_above();
 #else
     // Rectangular lists only pad below the last row.
     return 0;
@@ -1813,7 +1896,16 @@ static void window_load(Window* window)
         .draw_row = draw_row,
         .select_click = select_click,
         .selection_changed = selection_changed,
+#if PBL_ROUND
+        .get_header_height = get_header_height,
+        .draw_header = draw_header,
+        .selection_will_change = selection_will_change,
+#endif
     });
+#if PBL_ROUND
+    menu_layer_set_center_focused(menu_layer, false);
+    menu_layer_pad_bottom_enable(menu_layer, false);
+#endif
     apply_list_colors();
     menu_layer_set_click_config_onto_window(menu_layer, window);
     layer_add_child(root, menu_layer_get_layer(menu_layer));
