@@ -411,6 +411,8 @@ static void fold_start(const int16_t header, const int16_t count, const bool ope
 // the selection in the middle, except at the ends: there the first and last rows stop one row away from the
 // middle, instead of leaving half the screen empty. Space above the first row is section 0's header; space below
 // the last is one extra, unselectable row.
+#define ROUND_MIN_TOP_SPACE 12
+
 static int16_t round_end_space(const int16_t end_row_height)
 {
     const int16_t space = PBL_DISPLAY_HEIGHT / 2 - end_row_height / 2 - LIST_CELL_HEIGHT;
@@ -419,7 +421,13 @@ static int16_t round_end_space(const int16_t end_row_height)
 
 static int16_t round_space_above(void)
 {
-    return notification_store_row_count() > 0 ? round_end_space(row_height_at(0)) : 0;
+    // One row tighter than the bottom: the list starts higher, with less empty screen above it.
+    if (notification_store_row_count() == 0)
+    {
+        return 0;
+    }
+    const int16_t space = round_end_space(row_height_at(0)) - LIST_CELL_HEIGHT;
+    return space > ROUND_MIN_TOP_SPACE ? space : ROUND_MIN_TOP_SPACE;
 }
 
 static int16_t round_space_below(void)
