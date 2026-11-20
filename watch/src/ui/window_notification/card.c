@@ -496,9 +496,10 @@ static void card_draw_round_banner(GContext* ctx, const NotificationItem* item, 
     const int32_t radius = interpolate_linear(BOTTOM_BANNER_CIRCLE_RADIUS, CARD_ROUND_BANNER_RADIUS, 0,
                                               BANNER_PEEK_STATIC_Y, movement);
     const int32_t center_y = interpolate_linear(0, LAYOUT_TOP_BANNER_ORIGIN_Y, 0, BANNER_PEEK_STATIC_Y, movement);
-    // Stock clips to the layout plus the status bar above it.
-    card_fill_circle_rows(ctx, GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + STATUS_BAR_LAYER_HEIGHT + center_y)),
-                          (int16_t)radius, origin_y, (int16_t)(origin_y + STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT));
+    // Stock turns clipping off for round layouts, so the circle stays whole, drawn over the card above it, until it
+    // leaves the screen.
+    const GPoint center = GPoint(PBL_DISPLAY_WIDTH / 2, (int16_t)(origin_y + STATUS_BAR_LAYER_HEIGHT + center_y));
+    card_fill_circle_rows(ctx, center, (int16_t)radius, (int16_t)(center.y - radius), (int16_t)(center.y + radius + 1));
 
     // The icon only shows once the banner has (nearly) arrived.
     if (layout_y >= -2 && layout_y <= 18)

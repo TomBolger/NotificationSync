@@ -342,10 +342,11 @@ static void card_layer_update(Layer* layer, GContext* ctx)
         const int16_t other_height = card_height(anim_other_bucket);
         const int16_t other_y = -other_height - anim_start_offset + anim_value;
         const int16_t current_y = -anim_start_offset + anim_value;
-        draw_card(ctx, current_bucket, current_y);
-        draw_card_arrow(ctx, current_bucket, current_y);
+        // The lower card goes last so its round banner stays whole over the card above (PebbleOS layouts don't clip).
         draw_card(ctx, anim_other_bucket, other_y);
         draw_card_arrow(ctx, anim_other_bucket, other_y);
+        draw_card(ctx, current_bucket, current_y);
+        draw_card_arrow(ctx, current_bucket, current_y);
         return;
     }
 
