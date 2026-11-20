@@ -10,10 +10,13 @@
 #define CENTER_Y (PBL_DISPLAY_HEIGHT / 2)
 #define SCREEN_RADIUS (PBL_DISPLAY_WIDTH / 2)
 
-// Where the banner settles: a bubble hanging off the left edge, like the banner hangs off the top.
-#define BUBBLE_RADIUS 46
-#define BUBBLE_CENTER_X 16
-#define BUBBLE_ICON_INSET 15  // icon centre, from the bubble centre towards the middle of the screen
+// Where the banner settles: the very same shape turned a quarter round, so it hangs off the left edge exactly
+// like it hangs off the top (same big circle, same depth, icon in the same spot relative to it).
+#define BANNER_DEPTH (STATUS_BAR_LAYER_HEIGHT + CARD_BANNER_HEIGHT - 1)
+#define BUBBLE_RADIUS CARD_ROUND_BANNER_RADIUS
+#define BUBBLE_CENTER_X (BANNER_DEPTH - CARD_ROUND_BANNER_RADIUS)
+#define BUBBLE_ICON_INSET \
+    (STATUS_BAR_LAYER_HEIGHT + CARD_ICON_UPPER_PADDING + CARD_ICON_HEIGHT / 2 - BUBBLE_CENTER_X)
 // When the banner is scrolled out of sight, the motion starts from a small circle just above the screen.
 #define HIDDEN_START_RADIUS 14
 #define HIDDEN_START_Y (-HIDDEN_START_RADIUS - 2)
@@ -179,7 +182,7 @@ static void layer_update(Layer* l, GContext* ctx)
 
     draw_rows(ctx, (int16_t)(PBL_DISPLAY_WIDTH * (1000 - e) / 1000));
 
-    // The banner, swinging around the screen centre from the top to the left while it shrinks into the bubble.
+    // The banner, swinging around the screen centre from the top to the left edge.
     const int32_t angle = lerp(start_angle, TRIG_MAX_ANGLE / 2, e);
     const int32_t distance = lerp(start_distance, CENTER_X - BUBBLE_CENTER_X, e);
     int32_t radius = lerp(start_radius, BUBBLE_RADIUS, e);
