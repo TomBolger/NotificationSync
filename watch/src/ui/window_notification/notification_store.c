@@ -757,6 +757,25 @@ int16_t notification_store_index_of(const uint8_t bucket_id)
     return -1;
 }
 
+uint8_t notification_store_newest(const bool unread_only)
+{
+    // The list is grouped by section, so its first row isn't necessarily the newest: go by the time received.
+    const NotificationItem* best = NULL;
+    for (uint8_t i = 0; i < item_count; i++)
+    {
+        const NotificationItem* item = &items[i];
+        if (!item->loaded || (unread_only && !item->unread))
+        {
+            continue;
+        }
+        if (best == NULL || item->receive_time > best->receive_time)
+        {
+            best = item;
+        }
+    }
+    return best != NULL ? best->bucket_id : 0;
+}
+
 const NotificationItem* notification_store_item_by_bucket(const uint8_t bucket_id)
 {
     const int16_t index = raw_index_of(bucket_id);

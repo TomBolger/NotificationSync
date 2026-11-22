@@ -1570,16 +1570,8 @@ static uint8_t pick_launch_target(const bool may_wait)
     }
 
     // Fall back to the newest unread notification, then simply the newest one.
-    for (uint8_t i = 0; i < notification_store_count(); i++)
-    {
-        const NotificationItem* item = notification_store_item(i);
-        if (item->unread && item->loaded)
-        {
-            return item->bucket_id;
-        }
-    }
-    const NotificationItem* top = notification_store_item(0);
-    return top != NULL && top->loaded ? top->bucket_id : 0;
+    const uint8_t newest_unread = notification_store_newest(true);
+    return newest_unread != 0 ? newest_unread : notification_store_newest(false);
 }
 
 static void finish_phone_launch(const bool may_wait)
@@ -1725,15 +1717,15 @@ static void schedule_alert_retry(void)
 static uint8_t newest_changed_unread(void)
 {
     uint8_t best = 0;
-    int16_t best_index = INT16_MAX;
+    time_t best_time = 0;
     for (uint8_t i = 0; i < last_changed_count; i++)
     {
         const int16_t index = notification_store_index_of(last_changed[i]);
         const NotificationItem* item = notification_store_item(index >= 0 ? index : 255);
-        if (item != NULL && item->unread && item->loaded && index < best_index)
+        if (item != NULL && item->unread && item->loaded && (best == 0 || item->receive_time > best_time))
         {
             best = item->bucket_id;
-            best_index = index;
+            best_time = item->receive_time;
         }
     }
     return best;
@@ -1757,8 +1749,7 @@ void window_notification_ui_play_or_defer_vibration(const uint32_t* durations, c
     uint8_t target = newest_changed_unread();
     if (target == 0)
     {
-        const NotificationItem* top = notification_store_item(0);
-        target = top != NULL && top->unread ? top->bucket_id : 0;
+        target = notification_store_newest(true);
     }
     if (target == 0)
     {

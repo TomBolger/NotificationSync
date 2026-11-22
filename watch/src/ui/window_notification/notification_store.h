@@ -127,6 +127,9 @@ const char* notification_store_group_name(uint8_t group);
 /** All notifications in list order (closed headers and stacks included), for paging through cards. */
 uint8_t notification_store_count(void);
 const NotificationItem* notification_store_item(uint8_t index);
+/** The most recently received (loaded) notification, optionally only among unread ones; 0 if none. */
+uint8_t notification_store_newest(bool unread_only);
+
 const NotificationItem* notification_store_item_by_bucket(uint8_t bucket_id);
 int16_t notification_store_index_of(uint8_t bucket_id);
 

@@ -1528,7 +1528,15 @@ void detail_window_on_list_changed(const uint8_t* changed_buckets, const uint8_t
     const uint8_t previous_bucket = current_bucket;
     if (notification_store_index_of(previous_bucket) < 0)
     {
-        // The card on screen went away (dismissed on the phone or here). Show whatever slid into its place.
+        // The card on screen went away (dismissed or replied to, here or on the phone). Go to the newest unread
+        // notification; with nothing unread, show whatever slid into its place.
+        const uint8_t newest_unread = notification_store_newest(true);
+        if (newest_unread != 0)
+        {
+            settle_on(newest_unread, 0);
+            refresh_decorations();
+            return;
+        }
         int16_t replacement = last_known_index;
         if (replacement >= notification_store_count())
         {
