@@ -1,4 +1,4 @@
-From 4dd526aa18e972bc61319fa1f5c9ea702bac286c Mon Sep 17 00:00:00 2001
+From db76433e5e89fec76f11fdd700a83a16078b257c Mon Sep 17 00:00:00 2001
 From: TomBolger <49487944+TomBolger@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 19:00:31 +0000
 Subject: [PATCH 5/5] apps/settings: add a Group by App notification setting

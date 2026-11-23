@@ -1,4 +1,4 @@
-From 99cd607600ba8bd3c0e75ec75cded2b99eb0b464 Mon Sep 17 00:00:00 2001
+From 13bff3ad95526f46a39b1fdbd2eaf3be28e9af72 Mon Sep 17 00:00:00 2001
 From: TomBolger <49487944+TomBolger@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 19:00:31 +0000
 Subject: [PATCH 2/5] comm/ble/ancs: drop notifications removed from iOS while

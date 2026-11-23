@@ -4,12 +4,12 @@ This folder contains changes that make the **stock PebbleOS Notifications app** 
 phone's notification shade, as Notification Sync does today. It holds patches for two upstream
 projects, screenshots from the emulator, and draft PR text.
 
-Firmware branch: **`TomBolger/PebbleOS-NS` → `notifications-mirror-phone`** (its `main` is upstream
-`45501be04`). The same commits are also exported as patches below.
+Firmware branch: **`TomBolger/PebbleOS-NS` → `notifications-mirror-phone`** (a GitHub fork of
+`coredevices/pebbleos`, rebased onto upstream `e8705dfcd`). The same commits are also exported as patches below.
 
 | Project | Upstream | Base commit | Patches |
 | --- | --- | --- | --- |
-| PebbleOS firmware | `coredevices/pebbleos` | `45501be04` | `patches/pebbleos/` (5 commits) |
+| PebbleOS firmware | `coredevices/pebbleos` | `e8705dfcd` | `patches/pebbleos/` (5 commits) |
 | Core phone library | `coredevices/libpebble3` | `f324f3f` | `patches/libpebble3/` (1 commit) |
 
 ## What upstream already has (Nov 2026)
@@ -84,6 +84,10 @@ patched phone app does.
 
 ## Testing done here
 
+- Full host suite: every test that doesn't render to the screen passes. The rendering tests
+  (graphics, health, music, notification window and others) fail here only because the test
+  build was configured without its reference images (`PBL_TEST_IMAGES=OFF`). Run `pbl test` to
+  get a full result.
 - Host unit tests: `test_ancs` (6 new cases), `test_ancs_notifications` (2 new),
   `test_notifications_history` (3 new), plus `test_notif_db`, `test_notification_storage` and
   `test_alerts_preferences`. All pass. The full-suite result is in the session notes.
@@ -114,16 +118,13 @@ iPhone test, and photos or video.
    and one-word names:
 
    ```sh
-   git am pebbleos-native/patches/pebbleos/*.patch            # in a pebbleos checkout at 45501be04
-   git rebase 45501be04 --exec 'git commit --amend --no-edit --reset-author -s'
-   gitlint --commits 45501be04..HEAD
+   git am pebbleos-native/patches/pebbleos/*.patch            # in a pebbleos checkout at e8705dfcd
+   git rebase e8705dfcd --exec 'git commit --amend --no-edit --reset-author -s'
+   gitlint --commits e8705dfcd..HEAD
    ```
 
    The commits keep the `Assisted-by: LLM` trailer that upstream requires, and name no tool.
-4. **Open the PRs from a real GitHub fork.** `PebbleOS-NS` was created empty, not with GitHub's
-   Fork button, so GitHub won't let it open PRs against `coredevices/pebbleos`. Fork
-   `coredevices/pebbleos` and push this branch there (or recreate `PebbleOS-NS` as a fork).
-5. **Send it as two PRs**, since big PRs are closed: (a) iOS mirroring, commits 1–2;
+4. **Send it as two PRs**, since big PRs are closed: (a) iOS mirroring, commits 1–2;
    (b) Group by App, commits 3–5. The libpebble3 change can go in alongside (b).
 
 ## Not covered yet (possible follow-ups)

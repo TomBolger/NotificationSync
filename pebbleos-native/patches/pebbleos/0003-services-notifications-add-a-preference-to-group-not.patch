@@ -1,4 +1,4 @@
-From d53df3e6ed84840e1d4fe61d508e611bf6e418ac Mon Sep 17 00:00:00 2001
+From 3fb1963973f31582aa3df31a985ab4dfa0b178e1 Mon Sep 17 00:00:00 2001
 From: TomBolger <49487944+TomBolger@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 19:00:31 +0000
 Subject: [PATCH 3/5] services/notifications: add a preference to group

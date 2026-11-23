@@ -1,4 +1,4 @@
-From 3ab7723656b3802e6b6a5ae83721c3619508fcf7 Mon Sep 17 00:00:00 2001
+From c14c4ff8857843131cd5d3e8ed40e9f48b2a0b98 Mon Sep 17 00:00:00 2001
 From: TomBolger <49487944+TomBolger@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 19:00:31 +0000
 Subject: [PATCH 4/5] apps/notifications: stack notifications by app
