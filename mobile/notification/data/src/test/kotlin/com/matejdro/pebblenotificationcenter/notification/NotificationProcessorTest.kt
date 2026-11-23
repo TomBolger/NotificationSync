@@ -366,9 +366,6 @@ class NotificationProcessorTest {
       processor.getNotification(1)?.actions shouldBe listOf(
          Action.Dismiss("Dismiss", 0u),
          Action.Snooze("Snooze", 1u),
-         Action.PauseApp("Pause app", 2u),
-         Action.PauseConversation("Pause conversation", 3u),
-         Action.SilenceApp("Silence app", 4u),
       )
    }
 
@@ -1234,11 +1231,6 @@ class NotificationProcessorTest {
 
       processor.getNotification(1).shouldNotBeNull().apply {
          paused.app shouldBe true
-
-         actions
-            .zeroIds()
-            .shouldContain(Action.PauseApp("Unpause app", 0u))
-            .shouldNotContain(Action.PauseApp("Pause app", 0u))
       }
    }
 
@@ -1288,26 +1280,7 @@ class NotificationProcessorTest {
       processor.getNotification(2).shouldNotBeNull().paused.app shouldBe true
       processor.getNotification(3).shouldNotBeNull().paused.app shouldBe false
 
-      processor.getNotification(1)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseApp("Unpause app", 0u))
-         .shouldNotContain(Action.PauseApp("Pause app", 0u))
 
-      processor.getNotification(2)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseApp("Unpause app", 0u))
-         .shouldNotContain(Action.PauseApp("Pause app", 0u))
-
-      processor.getNotification(3)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseApp("Pause app", 0u))
-         .shouldNotContain(Action.PauseApp("Unpause app", 0u))
    }
 
    @Test
@@ -1420,11 +1393,6 @@ class NotificationProcessorTest {
 
       processor.getNotification(1).shouldNotBeNull().apply {
          paused.conversation shouldBe true
-
-         actions
-            .zeroIds()
-            .shouldContain(Action.PauseConversation("Unpause conversation", 0u))
-            .shouldNotContain(Action.PauseConversation("Pause conversation", 0u))
       }
    }
 
@@ -1474,26 +1442,7 @@ class NotificationProcessorTest {
       processor.getNotification(2).shouldNotBeNull().paused.conversation shouldBe true
       processor.getNotification(3).shouldNotBeNull().paused.conversation shouldBe false
 
-      processor.getNotification(1)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseConversation("Unpause conversation", 0u))
-         .shouldNotContain(Action.PauseConversation("Pause conversation", 0u))
 
-      processor.getNotification(2)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseConversation("Unpause conversation", 0u))
-         .shouldNotContain(Action.PauseConversation("Pause conversation", 0u))
-
-      processor.getNotification(3)
-         .shouldNotBeNull()
-         .actions
-         .zeroIds()
-         .shouldContain(Action.PauseConversation("Pause conversation", 0u))
-         .shouldNotContain(Action.PauseConversation("Unpause conversation", 0u))
    }
 
    @Test
@@ -1634,9 +1583,6 @@ class NotificationProcessorTest {
 
       processorWithOldVersion.getNotification(1)?.actions shouldBe listOf(
          Action.Dismiss("Dismiss", 0u),
-         Action.PauseApp("Pause app", 1u),
-         Action.PauseConversation("Pause conversation", 2u),
-         Action.SilenceApp("Silence app", 3u),
       )
    }
 

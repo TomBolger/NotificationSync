@@ -189,7 +189,7 @@ class NotificationProcessor(
       }
       val pauseStatus = pauseController.computePauseStatus(notification)
 
-      val actions = processActions(notification, pauseStatus, settings)
+      val actions = processActions(notification, settings)
 
       val regexReplacedParsedNotification = notification.withRegexesReplaced(settings)
 
@@ -457,7 +457,6 @@ class NotificationProcessor(
    @Suppress("CognitiveComplexMethod") // A bunch of ifs for separate actions. Clearer when left together.
    private fun processActions(
       parsedNotification: ParsedNotification,
-      pauseStatus: PauseStatus,
       settings: Preferences,
    ): List<Action> {
       val ncActions = buildList {
@@ -476,29 +475,7 @@ class NotificationProcessor(
                add(Action.TaskerTask(taskerTask, size.toUByte()))
             }
 
-            add(
-               Action.PauseApp(
-                  title = if (pauseStatus.app) {
-                     context.getString(R.string.unpause_app)
-                  } else {
-                     context.getString(R.string.pause_app)
-                  },
-                  id = size.toUByte()
-               )
-            )
-            add(
-               Action.PauseConversation(
-                  title = if (pauseStatus.conversation) {
-                     context.getString(R.string.unpause_conversation)
-                  } else {
-                     context.getString(R.string.pause_conversation)
-                  },
-                  id = size.toUByte()
-               )
-            )
-            if (settings[RuleOption.masterSwitch] != MasterSwitch.MUTE) {
-               add(Action.SilenceApp(title = context.getString(R.string.silence_app), id = size.toUByte()))
-            }
+            // Pausing and silencing apps is done in the phone app's settings, not from the watch.
          }
       }
 

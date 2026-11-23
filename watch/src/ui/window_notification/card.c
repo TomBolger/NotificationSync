@@ -321,6 +321,29 @@ static GFont gothic(const uint8_t points, const bool bold)
     }
 }
 
+uint8_t card_text_size(void)
+{
+    return text_size;
+}
+
+int16_t card_scaled_points(const uint8_t points)
+{
+    static const uint8_t ladder[] = {14, 18, 24, 28};
+    int16_t index = 0;
+    while (index < 3 && ladder[index] < points)
+    {
+        index++;
+    }
+    index += (int16_t)text_size - CARD_TEXT_SIZE_DEFAULT;
+    index = index < 0 ? 0 : (index > 3 ? 3 : index);
+    return ladder[index];
+}
+
+GFont card_scaled_font(const uint8_t points, const bool bold)
+{
+    return gothic((uint8_t)card_scaled_points(points), bold);
+}
+
 static GFont header_font(void)
 {
     static const uint8_t points[] = {14, 18, 24};

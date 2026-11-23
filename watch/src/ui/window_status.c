@@ -1,6 +1,5 @@
 #include "window_status.h"
 #include "pebble.h"
-#include "window_preferences.h"
 #include "layers/status_bar.h"
 #include "commons/connection/bucket_sync.h"
 #include "connection/packets.h"
@@ -69,15 +68,9 @@ static void button_back_single(ClickRecognizerRef recognizer, void* context)
     window_stack_pop(true);
 }
 
-static void button_back_double(ClickRecognizerRef recognizer, void* context)
-{
-    window_preferences_show();
-}
-
 static void window_status_buttons_config()
 {
     window_single_click_subscribe(BUTTON_ID_BACK, button_back_single);
-    window_multi_click_subscribe(BUTTON_ID_BACK, 2, 2, 150, true, button_back_double);
 }
 
 static void window_status_show(const char* text)

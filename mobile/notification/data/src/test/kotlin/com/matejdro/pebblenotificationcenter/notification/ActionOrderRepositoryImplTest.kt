@@ -21,15 +21,13 @@ class ActionOrderRepositoryImplTest {
 
    @BeforeEach
    fun setUp() {
+      context.resources.putString(R.string.reply, "Reply")
       context.resources.putString(R.string.dismiss, "Dismiss")
-      context.resources.putString(R.string.pause_app, "Pause app")
-      context.resources.putString(R.string.unpause_app, "Unpause app")
-      context.resources.putString(R.string.pause_conversation, "Pause conversation")
-      context.resources.putString(R.string.unpause_conversation, "Unpause conversation")
+      context.resources.putString(R.string.mark_as_read, "Mark as read")
+      context.resources.putString(R.string.open_on_phone, "Open on phone")
       context.resources.putString(R.string.other_actions, "Other actions")
       context.resources.putString(R.string.snooze, "Snooze")
       context.resources.putString(R.string.show_image, "Show image")
-      context.resources.putString(R.string.silence_app, "Silence app")
 
       repo = ActionOrderRepositoryImpl(context, preferenceStore)
    }
@@ -39,31 +37,14 @@ class ActionOrderRepositoryImplTest {
       repo.getList().test {
          runCurrent()
 
-         expectMostRecentItem() shouldBe listOf(
-            "Dismiss",
-            "Show image",
-            "Other actions",
-            "Snooze",
-            "Pause app",
-            "Unpause app",
-            "Silence app",
-            "Pause conversation",
-            "Unpause conversation",
-         )
+         expectMostRecentItem() shouldBe DEFAULT
       }
    }
 
    @Test
    fun `Add missing default actions at the end`() = runTest {
       preferenceStore.edit { prefs ->
-         prefs[GlobalPreferenceKeys.actionOrder] = listOf(
-            "Other actions",
-            "Show image",
-            "Pause app",
-            "Unpause app",
-            "Pause conversation",
-            "Unpause conversation",
-         )
+         prefs[GlobalPreferenceKeys.actionOrder] = listOf("Other actions", "Show image")
       }
 
       repo.getList().test {
@@ -72,13 +53,11 @@ class ActionOrderRepositoryImplTest {
          expectMostRecentItem() shouldBe listOf(
             "Other actions",
             "Show image",
-            "Pause app",
-            "Unpause app",
-            "Pause conversation",
-            "Unpause conversation",
+            "Reply",
             "Dismiss",
+            "Mark as read",
+            "Open on phone",
             "Snooze",
-            "Silence app",
          )
       }
    }
@@ -86,90 +65,70 @@ class ActionOrderRepositoryImplTest {
    @Test
    fun `Do not remove non-default entries after adding default ones`() = runTest {
       preferenceStore.edit { prefs ->
-         prefs[GlobalPreferenceKeys.actionOrder] = listOf(
-            "Reply",
-            "Other actions",
-            "Snooze",
-            "Show image",
-            "Pause app",
-            "Unpause app",
-            "Pause conversation",
-            "Unpause conversation",
-         )
+         prefs[GlobalPreferenceKeys.actionOrder] = listOf("Archive", "Other actions")
       }
 
       repo.getList().test {
          runCurrent()
 
          expectMostRecentItem() shouldBe listOf(
-            "Reply",
+            "Archive",
             "Other actions",
+            "Reply",
+            "Dismiss",
+            "Mark as read",
+            "Open on phone",
             "Snooze",
             "Show image",
-            "Pause app",
-            "Unpause app",
-            "Pause conversation",
-            "Unpause conversation",
-            "Dismiss",
-            "Silence app",
          )
       }
    }
 
    @Test
-   fun `Reorder list items up`() = runTest {
+   fun `Reorder list items`() = runTest {
       repo.getList().test {
          runCurrent()
-         repo.moveOrder("Pause app", 0)
+         repo.moveOrder("Snooze", 0)
          runCurrent()
 
-         expectMostRecentItem() shouldBe listOf(
-            "Pause app",
-            "Dismiss",
-            "Show image",
-            "Other actions",
-            "Snooze",
-            "Unpause app",
-            "Silence app",
-            "Pause conversation",
-            "Unpause conversation",
-         )
-      }
-   }
-
-   @Test
-   fun `Reorder list items down`() = runTest {
-      repo.getList().test {
-         runCurrent()
-         repo.moveOrder("Dismiss", 5)
-         runCurrent()
-
-         expectMostRecentItem() shouldBe listOf(
-            "Show image",
-            "Other actions",
-            "Snooze",
-            "Pause app",
-            "Unpause app",
-            "Dismiss",
-            "Silence app",
-            "Pause conversation",
-            "Unpause conversation",
-         )
+         expectMostRecentItem() shouldBe listOf("Snooze") + (DEFAULT - "Snooze")
       }
    }
 
    @Test
    fun `Sort provided list according to the default order`() = runTest {
       val inputList = listOf(
-         Action.Dismiss("Pause app", 0u),
-         Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Other actions", 2u),
+         Action.Dismiss("Snooze", 0u),
+         Action.Dismiss("Open on phone", 1u),
+         Action.Dismiss("Archive", 2u),
+         Action.Dismiss("Mark as read", 3u),
+         Action.Dismiss("Dismiss", 4u),
+         Action.Dismiss("Reply", 5u),
       )
 
       repo.sort(inputList) shouldBe listOf(
-         Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Other actions", 2u),
-         Action.Dismiss("Pause app", 0u),
+         Action.Dismiss("Reply", 5u),
+         Action.Dismiss("Dismiss", 4u),
+         Action.Dismiss("Mark as read", 3u),
+         Action.Dismiss("Open on phone", 1u),
+         Action.Dismiss("Archive", 2u),
+         Action.Dismiss("Snooze", 0u),
+      )
+   }
+
+   @Test
+   fun `Reply actions go first whatever the app calls them`() = runTest {
+      val reply = Action.Reply("Respond", Any(), "key", emptyList(), true, 2u)
+      val inputList = listOf(
+         Action.Dismiss("Dismiss", 0u),
+         Action.Dismiss("Snooze", 1u),
+         reply,
+      )
+
+      repo.sort(inputList) shouldBe listOf(
+         reply,
+         Action.Dismiss("Dismiss", 0u),
+         Action.Dismiss("Snooze", 1u),
       )
    }
 
@@ -180,61 +139,50 @@ class ActionOrderRepositoryImplTest {
          cancelAndIgnoreRemainingEvents()
       }
 
-      repo.moveOrder("Dismiss", 5)
+      repo.moveOrder("Dismiss", 6)
 
       val inputList = listOf(
-         Action.Dismiss("Pause app", 0u),
+         Action.Dismiss("Snooze", 0u),
          Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Other actions", 2u),
+         Action.Dismiss("Reply", 2u),
       )
 
       repo.sort(inputList) shouldBe listOf(
-         Action.Dismiss("Other actions", 2u),
-         Action.Dismiss("Pause app", 0u),
+         Action.Dismiss("Reply", 2u),
+         Action.Dismiss("Snooze", 0u),
          Action.Dismiss("Dismiss", 1u),
-      )
-   }
-
-   @Test
-   fun `Unknown actions should be sorted according to the 'Other Actions' entry`() = runTest {
-      val inputList = listOf(
-         Action.Dismiss("Pause app", 0u),
-         Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Reply", 3u),
-      )
-
-      repo.sort(inputList) shouldBe listOf(
-         Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Reply", 3u),
-         Action.Dismiss("Pause app", 0u),
       )
    }
 
    @Test
    fun `Unknown actions should be added to the list after the 'Other Actions' entry`() = runTest {
-      val inputList = listOf(
-         Action.Dismiss("Pause app", 0u),
-         Action.Dismiss("Dismiss", 1u),
-         Action.Dismiss("Reply", 3u),
-      )
-
-      repo.sort(inputList)
+      repo.sort(listOf(Action.Dismiss("Archive", 0u)))
 
       repo.getList().test {
          runCurrent()
 
          expectMostRecentItem() shouldBe listOf(
-            "Dismiss",
-            "Show image",
-            "Other actions",
             "Reply",
+            "Dismiss",
+            "Mark as read",
+            "Open on phone",
+            "Other actions",
+            "Archive",
             "Snooze",
-            "Pause app",
-            "Unpause app",
-            "Silence app",
-            "Pause conversation",
-            "Unpause conversation",
+            "Show image",
          )
       }
+   }
+
+   companion object {
+      private val DEFAULT = listOf(
+         "Reply",
+         "Dismiss",
+         "Mark as read",
+         "Open on phone",
+         "Other actions",
+         "Snooze",
+         "Show image",
+      )
    }
 }

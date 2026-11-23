@@ -20,6 +20,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import kotlinx.coroutines.flow.first
 import logcat.logcat
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 @ContributesBinding(WatchappConnectionScope::class)
@@ -157,14 +158,8 @@ class ActionHandlerImpl(
    }
 
    private suspend fun handleSnoozeAction(notification: ProcessedNotification): Boolean {
-      val preferences = ruleResolver.resolveRules(notification.systemData).preferences
-
-      val listItems = preferences[RuleOption.snoozeIntervals].map { snoozeMinutes ->
-         SubmenuItem(
-            resources.getString(R.string.minutes_suffix_short, snoozeMinutes),
-            snoozeMinutes.minutes
-         )
-      }
+      // The same choices as snoozing from the phone's notification shade.
+      val listItems = SNOOZE_CHOICES.map { (label, duration) -> SubmenuItem(resources.getString(label), duration) }
 
       submenuController.showSubmenuOnTheWatch(
          notification.bucketId.toUByte(),
@@ -181,3 +176,10 @@ class ActionHandlerImpl(
       return true
    }
 }
+
+private val SNOOZE_CHOICES = listOf(
+   R.string.snooze_15_minutes to 15.minutes,
+   R.string.snooze_30_minutes to 30.minutes,
+   R.string.snooze_1_hour to 1.hours,
+   R.string.snooze_2_hours to 2.hours,
+)

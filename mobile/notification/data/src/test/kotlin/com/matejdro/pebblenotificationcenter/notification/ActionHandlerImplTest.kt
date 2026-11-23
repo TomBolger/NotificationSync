@@ -28,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import si.inova.kotlinova.core.test.fakes.FakeResources
 import java.time.Instant
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 class ActionHandlerImplTest {
@@ -61,6 +62,10 @@ class ActionHandlerImplTest {
    fun setUp() {
       resources.putString(R.string.voice, "- Voice -")
       resources.putString(R.string.minutes_suffix_short) { "${it.elementAt(0)} min" }
+      resources.putString(R.string.snooze_15_minutes, "15 minutes")
+      resources.putString(R.string.snooze_30_minutes, "30 minutes")
+      resources.putString(R.string.snooze_1_hour, "1 hour")
+      resources.putString(R.string.snooze_2_hours, "2 hours")
    }
 
    @Test
@@ -521,22 +526,10 @@ class ActionHandlerImplTest {
       submenuController.sentMenus.toMap().shouldBe(
          mapOf(
             FakeSubmenuController.MenuItemKey(2u, SubmenuType.SNOOZE) to listOf(
-               SubmenuItem(
-                  "10 min",
-                  10.minutes,
-               ),
-               SubmenuItem(
-                  "30 min",
-                  30.minutes,
-               ),
-               SubmenuItem(
-                  "60 min",
-                  60.minutes,
-               ),
-               SubmenuItem(
-                  "90 min",
-                  90.minutes,
-               ),
+               SubmenuItem("15 minutes", 15.minutes),
+               SubmenuItem("30 minutes", 30.minutes),
+               SubmenuItem("1 hour", 1.hours),
+               SubmenuItem("2 hours", 2.hours),
             )
          )
       )

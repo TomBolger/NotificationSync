@@ -10,6 +10,7 @@ static AppTimer* action_retry_timer = NULL;
 #include "detail_window.h"
 #include "notification_store.h"
 #include "round_actions.h"
+#include "card.h"
 #include "commons/connection/bluetooth.h"
 #include "connection/packets.h"
 
@@ -204,8 +205,8 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
     const GRect bounds = layer_get_bounds(layer);
     const uint16_t num_actions = get_num_actions();
     Action* actions = get_actions();
-    const int16_t header_height = 26;
-    const int16_t row_height = 28;
+    const int16_t header_height = card_scaled_points(18) + 8;
+    const int16_t row_height = card_scaled_points(24) + 4;
     int16_t visible_rows = (bounds.size.h - header_height) / row_height;
     if (visible_rows < 1)
     {
@@ -223,7 +224,7 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
     graphics_context_set_text_color(ctx, theme_fg());
     graphics_draw_text(ctx,
                        "Actions",
-                       fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                       card_scaled_font(18, true),
                        GRect(0, 2, bounds.size.w, header_height),
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter,
@@ -251,7 +252,7 @@ static void inline_action_layer_update(Layer* layer, GContext* ctx)
 
         graphics_draw_text(ctx,
                            actions[action_index].text,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                           card_scaled_font(24, true),
                            GRect(row.origin.x + 6, row.origin.y - 2, row.size.w - 12, row.size.h),
                            GTextOverflowModeTrailingEllipsis,
                            GTextAlignmentLeft,

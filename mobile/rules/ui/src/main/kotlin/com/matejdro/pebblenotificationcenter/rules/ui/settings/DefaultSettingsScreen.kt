@@ -142,12 +142,6 @@ private fun DefaultSettingsContent(
       preference = RuleOption.replyCannedTexts,
       updatePreference = updatePreference,
    )
-   val snoozeDialog = intListDialog(
-      navigator = navigator,
-      title = stringResource(R.string.snooze_intervals),
-      preference = RuleOption.snoozeIntervals,
-      updatePreference = updatePreference,
-   )
    val vibrationDialog = navigator.rememberNavigationPopup(
       navigationKey = { pattern: String, resultKey: ResultKey<String> ->
          VibrationPatternScreenKey(pattern, resultKey)
@@ -381,14 +375,6 @@ private fun DefaultSettingsContent(
                value = summarizeList(preferences[RuleOption.replyCannedTexts]),
                onClick = { replyDialog.trigger(preferences[RuleOption.replyCannedTexts]) },
             )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-               ValueRow(
-                  title = "Snooze times",
-                  description = "Choices offered by Snooze, for a reminder later.",
-                  value = summarizeList(preferences[RuleOption.snoozeIntervals].map { "$it min" }),
-                  onClick = { snoozeDialog.trigger(preferences[RuleOption.snoozeIntervals]) },
-               )
-            }
             ValueRow(
                title = "Tasker tasks",
                description = "Run a Tasker task from a notification's actions, to automate things from your wrist.",

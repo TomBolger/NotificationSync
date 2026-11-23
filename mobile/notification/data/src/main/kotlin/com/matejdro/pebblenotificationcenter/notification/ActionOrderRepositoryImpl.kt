@@ -25,17 +25,16 @@ class ActionOrderRepositoryImpl(
    private val preferenceStore: DataStore<Preferences>,
 ) : ActionOrderRepository {
    private val otherActionsEntry = context.getString(R.string.other_actions)
+   private val replyEntry = context.getString(R.string.reply)
 
    private val defaultOrder = listOf(
+      replyEntry,
       context.getString(R.string.dismiss),
-      context.getString(R.string.show_image),
+      context.getString(R.string.mark_as_read),
+      context.getString(R.string.open_on_phone),
       otherActionsEntry,
       context.getString(R.string.snooze),
-      context.getString(R.string.pause_app),
-      context.getString(R.string.unpause_app),
-      context.getString(R.string.silence_app),
-      context.getString(R.string.pause_conversation),
-      context.getString(R.string.unpause_conversation),
+      context.getString(R.string.show_image),
    )
 
    private var checkedForDefaultItems: Boolean = false
@@ -85,7 +84,10 @@ class ActionOrderRepositoryImpl(
       val orderList = getList().first()
       val unknownIndexOrder = orderList.indexOf(otherActionsEntry) + 1
 
-      val unknownElements = list.map { it.title } - orderList
+      // An app's reply action goes where "Reply" is, whatever the app calls it ("Respond", "Reply all", ...).
+      fun Action.orderKey(): String = if (this is Action.Reply && title !in orderList) replyEntry else title
+
+      val unknownElements = list.map { it.orderKey() } - orderList
       val updatedOrderList = if (unknownElements.isNotEmpty()) {
          preferenceStore.edit { prefs ->
             val existing = prefs[GlobalPreferenceKeys.actionOrder]
@@ -101,7 +103,7 @@ class ActionOrderRepositoryImpl(
       }
 
       return list.sortedWith { first, second ->
-         updatedOrderList.indexOf(first.title).compareTo(updatedOrderList.indexOf(second.title))
+         updatedOrderList.indexOf(first.orderKey()).compareTo(updatedOrderList.indexOf(second.orderKey()))
       }
    }
 }

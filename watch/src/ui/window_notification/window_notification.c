@@ -15,7 +15,8 @@
 #include "commons/connection/bucket_sync.h"
 
 #define DEFAULT_LIST_HIGHLIGHT GColorFolly
-#define LIST_CELL_HEIGHT 46
+// Title line + subtitle line + padding; follows the text size setting (46 at the default size).
+#define LIST_CELL_HEIGHT (card_scaled_points(24) + card_scaled_points(14) + 8)
 #define MAX_DEFERRED_VIBE_SEGMENTS 16
 // If the phone never answers a launch, stop showing the splash and show what we have.
 #define PHONE_LAUNCH_TIMEOUT_MS 6000
@@ -227,7 +228,7 @@ static void update_app_glance(void)
 
 // ------------------------------------------------------------------------------------------------ list window
 
-#define LIST_HEADER_HEIGHT PBL_IF_ROUND_ELSE(26, 22)
+#define LIST_HEADER_HEIGHT (PBL_IF_ROUND_ELSE(12, 8) + card_scaled_points(14))
 
 static int16_t full_row_height(const ListRow* row)
 {
@@ -598,7 +599,7 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect 
         snprintf(text, sizeof(text), "%s  %d", name, row->count);
     }
 
-    const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+    const GFont font = card_scaled_font(14, true);
     // Left aligned, one step further in for each level: section, then category (inside Silent), then an opened
     // stack inside either.
 #if PBL_ROUND
@@ -608,9 +609,10 @@ static void draw_header_row(GContext* ctx, const Layer* cell_layer, const GRect 
     (void)row_index;
     const int16_t left = 8 + header_depth(row) * HEADER_INDENT_STEP;
 #endif
-    const int16_t text_top = (bounds.size.h - 18) / 2;
+    const int16_t font_height = card_scaled_points(14);
+    const int16_t text_top = (bounds.size.h - font_height - 4) / 2;
     draw_caret(ctx, GPoint(left + 4, bounds.size.h / 2), row->expanded);
-    graphics_draw_text(ctx, text, font, GRect(left + 14, text_top, bounds.size.w - left - 20, 18),
+    graphics_draw_text(ctx, text, font, GRect(left + 14, text_top, bounds.size.w - left - 20, font_height + 4),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
 
@@ -892,10 +894,10 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
     // A closed stack keeps room on the right for its count.
     const int16_t right_room = PBL_IF_ROUND_ELSE(inset, 5) + (row->kind == ROW_STACK ? 22 : 0);
     const GRect text_box = grect_inset(bounds, GEdgeInsets(0, right_room, 0, text_left));
-    const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-    const GFont subtitle_font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
-    const int16_t title_height = 24;
-    const int16_t subtitle_height = subtitle != NULL ? 14 : 0;
+    const GFont title_font = card_scaled_font(24, true);
+    const GFont subtitle_font = card_scaled_font(14, false);
+    const int16_t title_height = card_scaled_points(24);
+    const int16_t subtitle_height = subtitle != NULL ? card_scaled_points(14) : 0;
     const int16_t top = text_box.origin.y + (text_box.size.h - (title_height + subtitle_height + 10)) / 2;
 
     graphics_draw_text(ctx, title, title_font, GRect(text_box.origin.x, top, text_box.size.w, title_height + 4),
@@ -912,7 +914,7 @@ static void draw_item_row(GContext* ctx, const Layer* cell_layer, const GRect bo
         // A closed stack: how many notifications it holds, with a caret to open it.
         char count[6];
         snprintf(count, sizeof(count), "%d", row->count);
-        const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+        const GFont font = card_scaled_font(14, true);
         const int16_t right = bounds.size.w - PBL_IF_ROUND_ELSE(inset, 5);
         const int16_t middle = bounds.size.h / 2;
         graphics_draw_text(ctx, count, font, GRect(right - 26, middle - 10, 16, 18), GTextOverflowModeFill,
@@ -1342,8 +1344,8 @@ static void draw_centered_message(GContext* ctx, const GRect bounds, const char*
 {
     const int16_t margin = 10;
     const GRect text_box = GRect(margin, 0, bounds.size.w - margin * 2, bounds.size.h);
-    const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-    const GFont body_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    const GFont title_font = card_scaled_font(24, true);
+    const GFont body_font = card_scaled_font(18, false);
     const int16_t icon_height = with_icon ? 50 : 0;
     const int16_t title_height = graphics_text_layout_get_content_size(title, title_font, text_box,
                                                                        GTextOverflowModeWordWrap,

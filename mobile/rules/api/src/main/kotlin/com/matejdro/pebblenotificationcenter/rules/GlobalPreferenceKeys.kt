@@ -23,7 +23,8 @@ object GlobalPreferenceKeys {
       "defer_new_notifications_while_interacting",
       true
    )
-   val actionOrder = StringListPreferenceKeyWithDefault("action_order", emptyList())
+   // v2: Reply, Dismiss, Mark as read, Open on phone first; pause and silence actions removed.
+   val actionOrder = StringListPreferenceKeyWithDefault("action_order_v2", emptyList())
 
    val autoCloseSeconds = IntPreferenceKeyWithDefault("auto_close", 600)
    val newNotificationInteractionTimeoutSeconds = IntPreferenceKeyWithDefault(

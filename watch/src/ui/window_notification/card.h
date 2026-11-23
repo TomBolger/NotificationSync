@@ -63,6 +63,15 @@ void card_fill_circle_rows(GContext* ctx, GPoint center, int16_t radius, int16_t
 #define CARD_TEXT_SIZE_DEFAULT 1
 #define CARD_TEXT_SIZE_LARGE 2
 
+/** The text size setting (CARD_TEXT_SIZE_*). */
+uint8_t card_text_size(void);
+
+/** Gothic font for text that is `points` at the default size: a step smaller or larger for small/large text. */
+GFont card_scaled_font(uint8_t points, bool bold);
+
+/** The point size card_scaled_font(points) picks (also its nominal line height). */
+int16_t card_scaled_points(uint8_t points);
+
 /** Notification text size and weights, as chosen in the phone app's settings. */
 void card_set_text_style(uint8_t size, bool bold_sender, bool bold_message);
 

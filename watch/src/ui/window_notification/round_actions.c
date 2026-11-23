@@ -21,8 +21,12 @@
 #define HIDDEN_START_RADIUS 14
 #define HIDDEN_START_Y (-HIDDEN_START_RADIUS - 2)
 
-#define ROW_HEIGHT 38
-#define ROW_PILL_HEIGHT 32
+// Rows follow the text size setting (38 tall at the default size).
+#define ROW_HEIGHT (card_scaled_points(24) + 14)
+#define ROW_PILL_HEIGHT (ROW_HEIGHT - 6)
+// The list starts with its first row two rows above the centre; the selection walks down to the centre, the list
+// then scrolls under it, and stops with the last row two rows below the centre, where the selection walks down again.
+#define EDGE_ROWS 2
 #define TEXT_LEFT (BUBBLE_CENTER_X + BUBBLE_RADIUS + 8)
 #define TEXT_RIGHT (PBL_DISPLAY_WIDTH - 10)
 #define ROW_EDGE_GAP 8
@@ -49,7 +53,7 @@ static int32_t motion_to;
 static bool closing;
 
 static Animation* glide;
-static int32_t list_pos;  // scroll position in pixels: selected row index * ROW_HEIGHT once settled
+static int32_t list_pos;  // scroll position in pixels
 static int32_t glide_from;
 static int32_t glide_to;
 
@@ -105,7 +109,7 @@ static void draw_rows(GContext* ctx, const int16_t shift)
     const uint16_t selected = callbacks->selected();
     for (uint16_t i = 0; i < count; i++)
     {
-        const int32_t center_y = CENTER_Y + (int32_t)i * ROW_HEIGHT - list_pos;
+        const int32_t center_y = CENTER_Y + ((int32_t)i - EDGE_ROWS) * ROW_HEIGHT - list_pos;
         if (center_y + ROW_HEIGHT / 2 < 0 || center_y - ROW_HEIGHT / 2 > PBL_DISPLAY_HEIGHT)
         {
             continue;
@@ -117,21 +121,22 @@ static void draw_rows(GContext* ctx, const int16_t shift)
         int32_t right = CENTER_X + half_chord - ROW_EDGE_GAP;
         left = left > TEXT_LEFT ? left : TEXT_LEFT;
         right = right < TEXT_RIGHT ? right : TEXT_RIGHT;
-        if (right - left < 20)
+        if (right - left < 60)
         {
             continue;
         }
 
         const char* text = callbacks->text(i);
-        GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+        int16_t points = card_scaled_points(24);
+        GFont font = card_scaled_font(24, true);
         const GRect measure_box = GRect(0, 0, 400, ROW_PILL_HEIGHT);
-        GSize size = graphics_text_layout_get_content_size(text, font, measure_box, GTextOverflowModeTrailingEllipsis,
-                                                           GTextAlignmentLeft);
-        int16_t text_top_fix = 6;
+        const GSize size = graphics_text_layout_get_content_size(text, font, measure_box,
+                                                                 GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft);
         if (size.w > right - left - 12)
         {
-            font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-            text_top_fix = 3;
+            // Too long: a step smaller.
+            points = card_scaled_points(18);
+            font = card_scaled_font(18, true);
         }
 
         const GRect pill = GRect(left + shift, center_y - ROW_PILL_HEIGHT / 2, right - left, ROW_PILL_HEIGHT);
@@ -145,9 +150,10 @@ static void draw_rows(GContext* ctx, const int16_t shift)
         {
             graphics_context_set_text_color(ctx, theme_fg());
         }
+        // Gothic draws its letters about a quarter of its size below the top of the box.
         graphics_draw_text(ctx, text, font,
-                           GRect(pill.origin.x + 8, pill.origin.y + (ROW_PILL_HEIGHT - 24) / 2 - text_top_fix + 3,
-                                 pill.size.w - 16, ROW_PILL_HEIGHT),
+                           GRect(pill.origin.x + 8, (int16_t)(center_y - points * 7 / 10), pill.size.w - 16,
+                                 points + 8),
                            GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
 }
@@ -299,6 +305,18 @@ static void run_motion(const int32_t to)
     }
 }
 
+/** Scroll position for the selected row (see EDGE_ROWS). */
+static int32_t scroll_for_selection(void)
+{
+    const int32_t row = ROW_HEIGHT;
+    const int32_t count = callbacks->count();
+    int32_t max_scroll = (count - 1 - 2 * EDGE_ROWS) * row;
+    max_scroll = max_scroll > 0 ? max_scroll : 0;
+    int32_t target = ((int32_t)callbacks->selected() - EDGE_ROWS) * row;
+    target = target < 0 ? 0 : target;
+    return target > max_scroll ? max_scroll : target;
+}
+
 static void glide_update(Animation* anim, const AnimationProgress p)
 {
     (void)anim;
@@ -326,7 +344,7 @@ void round_actions_selection_changed(const bool animated)
     {
         return;
     }
-    const int32_t target = (int32_t)callbacks->selected() * ROW_HEIGHT;
+    const int32_t target = scroll_for_selection();
     if (glide != NULL)
     {
         Animation* old = glide;
@@ -410,7 +428,7 @@ Layer* round_actions_open(Window* window, const GColor banner_color, const uint8
 
     progress = 0;
     closing = false;
-    list_pos = (int32_t)callbacks->selected() * ROW_HEIGHT;
+    list_pos = scroll_for_selection();
     drag_rows_applied = 0;
     touch_gesture_reset(&touch);
     layer_set_update_proc(layer, layer_update);
@@ -461,7 +479,7 @@ static void touch_tap(const GPoint point, void* context)
     {
         return;
     }
-    const int32_t from_center = point.y - CENTER_Y + list_pos + ROW_HEIGHT / 2;
+    const int32_t from_center = point.y - CENTER_Y + EDGE_ROWS * ROW_HEIGHT + list_pos + ROW_HEIGHT / 2;
     if (from_center < 0 || point.x < TEXT_LEFT - 10)
     {
         return;

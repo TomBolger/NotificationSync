@@ -126,17 +126,6 @@ internal fun ColumnScope.Settings(
          preferences
       )
 
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-         IntListPreference(
-            navigator,
-            "Snooze intervals",
-            updatePreference,
-            RuleOption.snoozeIntervals,
-            null,
-            preferences
-         )
-      }
-
       TaskerTaskListPreference(navigator, updatePreference, preferences)
 
       PreferenceCategory({ Text(stringResource(R.string.pausing)) })
