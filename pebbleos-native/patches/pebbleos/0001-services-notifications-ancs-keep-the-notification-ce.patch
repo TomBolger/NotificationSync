@@ -1,0 +1,358 @@
+From 4c40a868683786c3438fc8cb6538e7b72a9a6f2b Mon Sep 17 00:00:00 2001
+From: TomBolger <49487944+TomBolger@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 19:00:31 +0000
+Subject: [PATCH 1/5] services/notifications/ancs: keep the notification center
+ when mirroring it
+
+With notification dismissal sync on, the watch is meant to show what is in
+the phone's notification shade. iOS tells of everything in its notification
+center as pre-existing when the watch subscribes, but notifications from
+before a disconnection were dropped, as were those older than two hours, so
+after reconnecting or rebooting the watch only showed what arrived since.
+
+When mirroring, keep recovered notifications whatever their age, alerting
+only for ones missed while disconnected, as before. Add
+ancs_notifications_handle_snapshot() to drop the stored iOS notifications
+whose UID iOS no longer tells of, for the ANCS client to call once it has
+heard the whole notification center. A new notification also replaces a
+stored one with the same UID: UIDs start over when iOS restarts, so that one
+is gone from the phone.
+
+Notifications from other sources, e.g. Android over BlobDB, are left alone.
+
+Assisted-by: LLM
+---
+ .../notifications/ancs/ancs_notifications.h   | 17 ++++
+ .../notifications/ancs/ancs_notifications.c   | 81 +++++++++++++++++--
+ tests/fakes/fake_notification_storage.h       | 44 ++++++++++
+ .../notifications/test_ancs_notifications.c   | 33 ++++++++
+ tests/stubs/default/ancs_notifications.c      |  7 ++
+ 5 files changed, 176 insertions(+), 6 deletions(-)
+
+diff --git a/include/pbl/services/notifications/ancs/ancs_notifications.h b/include/pbl/services/notifications/ancs/ancs_notifications.h
+index b50cb487b..84061a4f8 100644
+--- a/include/pbl/services/notifications/ancs/ancs_notifications.h
++++ b/include/pbl/services/notifications/ancs/ancs_notifications.h
+@@ -92,4 +92,21 @@ void ancs_notifications_handle_access_denied(void);
+  */
+ void ancs_notifications_handle_session_lost(void);
+ 
++/**
++ * @brief Whether the watch mirrors the iOS notification center.
++ *
++ * When it does, the whole notification center is stored on connection, and notifications
++ * removed from it while disconnected are dropped. Follows the notification dismissal sync
++ * preference.
++ */
++bool ancs_notifications_is_mirroring(void);
++
++/**
++ * @brief Drop stored iOS notifications that are no longer in the notification center.
++ *
++ * @param uids UIDs of every notification iOS told of since subscribing.
++ * @param count Number of UIDs.
++ */
++void ancs_notifications_handle_snapshot(const uint32_t *uids, size_t count);
++
+ /** @} */
+diff --git a/pebble/services/notifications/ancs/ancs_notifications.c b/pebble/services/notifications/ancs/ancs_notifications.c
+index cba3c467d..d41c79034 100644
+--- a/pebble/services/notifications/ancs/ancs_notifications.c
++++ b/pebble/services/notifications/ancs/ancs_notifications.c
+@@ -10,6 +10,7 @@
+ #include <pbl/services/blob_db/ios_notif_pref_db.h>
+ #include <pbl/services/blob_db/pin_db.h>
+ #include <pbl/services/blob_db/reminder_db.h>
++#include <pbl/services/notifications/alerts_preferences_private.h>
+ #include <pbl/services/notifications/ancs/ancs_filtering.h>
+ #include <pbl/services/notifications/ancs/ancs_item.h>
+ #include <pbl/services/notifications/ancs/ancs_notifications.h>
+@@ -49,7 +50,19 @@ static void prv_dismiss_notification(const TimelineItem *notification) {
+   }
+ }
+ 
++static void prv_remove_stored(const Uuid *id) {
++  notification_storage_remove(id);
++  notifications_handle_notification_removed((Uuid *)id);
++}
++
+ static void prv_handle_new_ancs_notif(TimelineItem *notification, bool alert) {
++  // After iOS restarts, UIDs start over: one stored under this UID is something else, gone.
++  Uuid stale_id;
++  if (ancs_notifications_is_mirroring() &&
++      notification_storage_find_ancs_notification_id(notification->header.ancs_uid, &stale_id)) {
++    prv_remove_stored(&stale_id);
++  }
++
+   uuid_generate(&notification->header.id);
+   if (alert) {
+     notifications_add_notification(notification);
+@@ -241,7 +254,7 @@ static bool prv_should_ignore_because_muted(const iOSNotifPrefs *app_notif_prefs
+   return ancs_filtering_is_muted(app_notif_prefs);
+ }
+ 
+-static bool prv_should_ignore_notification(uint32_t uid, time_t timestamp,
++static bool prv_should_ignore_notification(uint32_t uid, time_t timestamp, bool mirrored,
+                                            const struct pbl_bt_ancs_attr *const *notif_attributes,
+                                            iOSNotifPrefs *app_notif_prefs) {
+   const struct pbl_bt_ancs_attr *app_id = notif_attributes[ANCS_NOTIF_ATTR_APP_ID];
+@@ -291,8 +304,8 @@ static bool prv_should_ignore_notification(uint32_t uid, time_t timestamp,
+     return true;
+   }
+ 
+-  // filter out super-old notifications
+-  if (prv_should_ignore_because_stale(timestamp)) {
++  // filter out super-old notifications, unless mirroring what is in the notification center
++  if (!mirrored && prv_should_ignore_because_stale(timestamp)) {
+     return true;
+   }
+ 
+@@ -326,14 +339,19 @@ void ancs_notifications_handle_message(const struct pbl_bt_ancs_notif *notif, bo
+   }
+ 
+   const time_t timestamp = prv_get_timestamp_from_ancs_date(date, app_id);
++  const bool mirrored = is_recovered && ancs_notifications_is_mirroring();
+ 
+-  if (prv_should_ignore_notification(uid, timestamp, notif_attributes, app_notif_prefs)) {
++  if (prv_should_ignore_notification(uid, timestamp, mirrored, notif_attributes, app_notif_prefs)) {
+     goto cleanup;
+   }
+ 
++  // Recovered notifications from before the disconnection were already seen: they are only
++  // kept when mirroring, without alerting.
++  bool missed = true;
+   if (is_recovered) {
+     const bool has_valid_date = date && (ancs_notifications_util_parse_timestamp(date) != 0);
+-    if (prv_should_ignore_because_not_missed(has_valid_date, timestamp)) {
++    missed = !prv_should_ignore_because_not_missed(has_valid_date, timestamp);
++    if (!missed && !mirrored) {
+       PBL_LOG_DBG("Ignoring pre-existing ANCS notification: %" PRIu32, uid);
+       goto cleanup;
+     }
+@@ -385,7 +403,8 @@ void ancs_notifications_handle_message(const struct pbl_bt_ancs_notif *notif, bo
+     PBL_LOG_DBG("Updating ANCS notification: %" PRIu32, uid);
+     prv_handle_ancs_update(notification, &existing_header);
+   } else {
+-    const bool alert = !is_recovered || (timestamp >= (pbl_realtime() - RECOVERED_ALERT_MAX_AGE_S));
++    const bool alert =
++        !is_recovered || (missed && (timestamp >= (pbl_realtime() - RECOVERED_ALERT_MAX_AGE_S)));
+     PBL_LOG_DBG("New ANCS notification: %" PRIu32 " (recovered=%d, alert=%d)", uid, is_recovered,
+                 alert);
+     prv_handle_new_ancs_notif(notification, alert);
+@@ -456,3 +475,53 @@ void ancs_notifications_handle_access_denied(void) {
+   notifications_add_notification(item);
+   timeline_item_destroy(item);
+ }
++
++bool ancs_notifications_is_mirroring(void) {
++  return alerts_preferences_get_notification_dismissal_sync();
++}
++
++#define SNAPSHOT_REMOVE_BATCH 8
++
++typedef struct {
++  const uint32_t *uids;
++  size_t count;
++  Uuid gone[SNAPSHOT_REMOVE_BATCH];
++  size_t num_gone;
++} SnapshotContext;
++
++static bool prv_snapshot_has_uid(const SnapshotContext *ctx, uint32_t uid) {
++  for (size_t i = 0; i < ctx->count; i++) {
++    if (ctx->uids[i] == uid) {
++      return true;
++    }
++  }
++  return false;
++}
++
++static bool prv_find_gone_cb(void *data, SerializedTimelineItemHeader *header) {
++  SnapshotContext *ctx = data;
++  if (header->common.ancs_notif && !prv_snapshot_has_uid(ctx, header->common.ancs_uid)) {
++    ctx->gone[ctx->num_gone++] = header->common.id;
++  }
++  return ctx->num_gone < SNAPSHOT_REMOVE_BATCH;
++}
++
++void ancs_notifications_handle_snapshot(const uint32_t *uids, size_t count) {
++  SnapshotContext ctx = {
++    .uids = uids,
++    .count = count,
++  };
++  size_t num_removed = 0;
++  notification_storage_lock();
++  do {
++    // Removed ones are skipped by the next pass
++    ctx.num_gone = 0;
++    notification_storage_iterate(prv_find_gone_cb, &ctx);
++    for (size_t i = 0; i < ctx.num_gone; i++) {
++      prv_remove_stored(&ctx.gone[i]);
++    }
++    num_removed += ctx.num_gone;
++  } while (ctx.num_gone == SNAPSHOT_REMOVE_BATCH);
++  notification_storage_unlock();
++  PBL_LOG_DBG("ANCS snapshot of %zu, removed %zu gone from the phone", count, num_removed);
++}
+diff --git a/tests/fakes/fake_notification_storage.h b/tests/fakes/fake_notification_storage.h
+index 355cc2218..ed99537f6 100644
+--- a/tests/fakes/fake_notification_storage.h
++++ b/tests/fakes/fake_notification_storage.h
+@@ -1,6 +1,8 @@
+ /* SPDX-FileCopyrightText: 2024 Google LLC */
+ /* SPDX-License-Identifier: Apache-2.0 */
+ 
++#include <string.h>
++
+ #include <pbl/services/timeline/item.h>
+ #include <pbl/util/testing.h>
+ 
+@@ -11,6 +13,12 @@ static TimelineItem s_existing_ancs_notification = {
+   .header = (CommonTimelineItemHeader){.id = UUID_INVALID, .ancs_uid = 0}
+ };
+ 
++// Headers handed out by notification_storage_iterate()
++#define FAKE_NOTIFICATION_STORAGE_MAX_HEADERS 16
++static SerializedTimelineItemHeader s_iterate_headers[FAKE_NOTIFICATION_STORAGE_MAX_HEADERS];
++static bool s_iterate_header_removed[FAKE_NOTIFICATION_STORAGE_MAX_HEADERS];
++static int s_num_iterate_headers = 0;
++
+ extern PBL_T_STATIC bool prv_deep_copy_attributes_actions(AttributeList *attr_list,
+                                                           TimelineItemActionGroup *action_group,
+                                                           TimelineItem *item_out);
+@@ -18,6 +26,7 @@ extern PBL_T_STATIC bool prv_deep_copy_attributes_actions(AttributeList *attr_li
+ void fake_notification_storage_reset(void) {
+   s_notification_store_count = 0;
+   s_notification_remove_count = 0;
++  s_num_iterate_headers = 0;
+   s_existing_ancs_notification =
+       (TimelineItem){.header = (CommonTimelineItemHeader){.id = UUID_INVALID, .ancs_uid = 0}};
+ }
+@@ -39,6 +48,26 @@ void fake_notification_storage_set_existing_ancs_notification(Uuid *uuid, uint32
+       (TimelineItem){.header = (CommonTimelineItemHeader){.id = *uuid, .ancs_uid = ancs_uid}};
+ }
+ 
++void fake_notification_storage_add_header(const Uuid *id, uint32_t ancs_uid, bool ancs_notif) {
++  if (s_num_iterate_headers >= FAKE_NOTIFICATION_STORAGE_MAX_HEADERS) {
++    return;
++  }
++  s_iterate_headers[s_num_iterate_headers] = (SerializedTimelineItemHeader){
++    .common = {.id = *id, .ancs_uid = ancs_uid, .ancs_notif = ancs_notif},
++  };
++  s_iterate_header_removed[s_num_iterate_headers] = false;
++  s_num_iterate_headers++;
++}
++
++bool fake_notification_storage_is_removed(const Uuid *id) {
++  for (int i = 0; i < s_num_iterate_headers; i++) {
++    if (memcmp(&s_iterate_headers[i].common.id, id, sizeof(*id)) == 0) {
++      return s_iterate_header_removed[i];
++    }
++  }
++  return false;
++}
++
+ void notification_storage_init(void) {
+ }
+ 
+@@ -81,6 +110,21 @@ bool notification_storage_get_status(const Uuid *id, uint8_t *status) {
+ 
+ void notification_storage_remove(const Uuid *id) {
+   ++s_notification_remove_count;
++  for (int i = 0; i < s_num_iterate_headers; i++) {
++    if (memcmp(&s_iterate_headers[i].common.id, id, sizeof(*id)) == 0) {
++      s_iterate_header_removed[i] = true;
++    }
++  }
++}
++
++void notification_storage_iterate(bool (*iter_callback)(void *data,
++                                                        SerializedTimelineItemHeader *header),
++                                  void *data) {
++  for (int i = 0; i < s_num_iterate_headers; i++) {
++    if (!s_iterate_header_removed[i] && !iter_callback(data, &s_iterate_headers[i])) {
++      return;
++    }
++  }
+ }
+ 
+ bool notification_storage_find_ancs_notification_id(uint32_t ancs_uid, Uuid *uuid_out) {
+diff --git a/tests/pebble/services/notifications/test_ancs_notifications.c b/tests/pebble/services/notifications/test_ancs_notifications.c
+index a2da1e8b0..1dea19858 100644
+--- a/tests/pebble/services/notifications/test_ancs_notifications.c
++++ b/tests/pebble/services/notifications/test_ancs_notifications.c
+@@ -5,6 +5,7 @@
+ #include <pbl/services/blob_db/ios_notif_pref_db.h>
+ #include <pbl/services/notifications/alerts_preferences.h>
+ #include <pbl/services/notifications/ancs/ancs_notifications.h>
++#include <pbl/util/size.h>
+ 
+ #include <clar.h>
+ 
+@@ -30,6 +31,11 @@ bool ancs_filtering_is_muted(const iOSNotifPrefs *app_notif_prefs) {
+   return false;
+ }
+ 
++static bool s_dismissal_sync;
++bool alerts_preferences_get_notification_dismissal_sync(void) {
++  return s_dismissal_sync;
++}
++
+ bool ancs_filtering_matches_rules(const iOSNotifPrefs *app_notif_prefs,
+                                   const struct pbl_bt_ancs_attr *title,
+                                   const struct pbl_bt_ancs_attr *subtitle,
+@@ -52,6 +58,7 @@ uint64_t pbl_uptime_ticks(void) {
+ }
+ 
+ void test_ancs_notifications__initialize(void) {
++  s_dismissal_sync = false;
+   s_now = 1;
+   fake_notification_storage_reset();
+   fake_event_init();
+@@ -247,3 +254,29 @@ void test_ancs_notifications__handle_phone_call_removed(void) {
+   cl_assert_equal_i(event.phone.source, PhoneCallSource_ANCS);
+   cl_assert_equal_i(event.phone.call_identifier, uid);
+ }
++
++void test_ancs_notifications__mirroring_follows_dismissal_sync(void) {
++  cl_assert(!ancs_notifications_is_mirroring());
++  s_dismissal_sync = true;
++  cl_assert(ancs_notifications_is_mirroring());
++}
++
++// More gone than one removal batch: all of them go, only iOS ones, the rest stays.
++void test_ancs_notifications__snapshot_removes_every_gone_notification(void) {
++  const int num_ios = 12;
++  for (int i = 0; i < num_ios; i++) {
++    fake_notification_storage_add_header(&(Uuid){.byte0 = i + 1}, 100 + i, true);
++  }
++  const Uuid from_android = {.byte0 = 0x80};
++  fake_notification_storage_add_header(&from_android, 0, false);
++
++  const uint32_t still_there[] = {100, 105};
++  ancs_notifications_handle_snapshot(still_there, PBL_ARRAY_SIZE(still_there));
++
++  for (int i = 0; i < num_ios; i++) {
++    const bool kept = (i == 0) || (i == 5);
++    cl_assert_equal_b(fake_notification_storage_is_removed(&(Uuid){.byte0 = i + 1}), !kept);
++  }
++  cl_assert(!fake_notification_storage_is_removed(&from_android));
++  cl_assert_equal_i(fake_notification_storage_get_remove_count(), num_ios - 2);
++}
+diff --git a/tests/stubs/default/ancs_notifications.c b/tests/stubs/default/ancs_notifications.c
+index 1b6b2f461..07c603f23 100644
+--- a/tests/stubs/default/ancs_notifications.c
++++ b/tests/stubs/default/ancs_notifications.c
+@@ -13,3 +13,10 @@ PBL_WEAK bool ancs_notifications_is_bulk_action_mode_enabled(void) {
+ 
+ PBL_WEAK void ancs_notifications_handle_session_lost(void) {
+ }
++
++PBL_WEAK bool ancs_notifications_is_mirroring(void) {
++  return false;
++}
++
++PBL_WEAK void ancs_notifications_handle_snapshot(const uint32_t *uids, size_t count) {
++}
+-- 
+2.43.0
+

@@ -1,0 +1,53 @@
+From 3b2b4874ac5ca4721cefff2034d5256ca0582a1f Mon Sep 17 00:00:00 2001
+From: TomBolger <49487944+TomBolger@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 19:00:49 +0000
+Subject: [PATCH] Send the app name with Android notifications
+
+Add the AppName attribute to notifications sent to the watch, so the watch
+can stack notifications by app the way the phone does. iOS notifications
+already carry it.
+
+Assisted-by: LLM
+---
+ .../libpebblecommon/notification/LibPebbleNotification.kt    | 5 +++++
+ .../notification/processor/BasicNotificationProcessor.kt     | 1 +
+ 2 files changed, 6 insertions(+)
+
+diff --git a/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/LibPebbleNotification.kt b/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/LibPebbleNotification.kt
+index 081f5aa..acddd99 100644
+--- a/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/LibPebbleNotification.kt
++++ b/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/LibPebbleNotification.kt
+@@ -31,6 +31,8 @@ data class LibPebbleNotification(
+     val title: String?,
+     val body: String?,
+     val sender: String? = null,
++    /** Name of the app that posted it, so the watch can stack notifications by app. */
++    val appName: String? = null,
+     val icon: TimelineIcon,
+     val actions: List<LibPebbleNotificationAction>,
+     val people: List<ContactEntity>,
+@@ -130,6 +132,9 @@ data class LibPebbleNotification(
+             sender?.let {
+                 sender { it }
+             }
++            appName?.takeIf { it.isNotBlank() }?.let {
++                appName { it }
++            }
+             color?.let {
+                 backgroundColor { it.toPebbleColor() }
+             }
+diff --git a/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/processor/BasicNotificationProcessor.kt b/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/processor/BasicNotificationProcessor.kt
+index fc96ddf..2bdf095 100644
+--- a/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/processor/BasicNotificationProcessor.kt
++++ b/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/notification/processor/BasicNotificationProcessor.kt
+@@ -92,6 +92,7 @@ class BasicNotificationProcessor(
+             title = title,
+             body = body,
+             sender = sbn.extractSender(),
++            appName = app.name,
+             icon = icon,
+             // Clamp to postTime so messaging apps that set `when` to thread-start time
+             // don't get filtered out by BlobDB's `onlyInsertAfter` sync threshold (MOB-7284).
+-- 
+2.43.0
+

@@ -1,0 +1,361 @@
+From 99cd607600ba8bd3c0e75ec75cded2b99eb0b464 Mon Sep 17 00:00:00 2001
+From: TomBolger <49487944+TomBolger@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 19:00:31 +0000
+Subject: [PATCH 2/5] comm/ble/ancs: drop notifications removed from iOS while
+ disconnected
+
+A notification removed from the iOS notification center while the watch
+was away stayed in its history: removals only arrive while connected.
+
+When the notification center is mirrored, collect the UIDs iOS tells of for
+10 s after subscribing to the Notification Source, which is when iOS
+re-sends its whole notification center, and then have the stored iOS
+notifications it no longer has dropped. Pre-existing notifications are also
+fetched on the first connection after boot, so that the history starts
+with what is on the phone.
+
+The snapshot is given up, keeping every stored notification, if more UIDs
+come than it holds, if a notification event was dropped on the way to
+KernelMain, or if the session ends first.
+
+Assisted-by: LLM
+---
+ pebble/comm/ble/kernel_le_client/ancs/ancs.c  |  84 ++++++++++++++-
+ .../fake_kernel_services_notifications.c      |   7 ++
+ .../fake_kernel_services_notifications.h      |   3 +
+ tests/pebble/comm/test_ancs.c                 | 101 ++++++++++++++++++
+ 4 files changed, 193 insertions(+), 2 deletions(-)
+
+diff --git a/pebble/comm/ble/kernel_le_client/ancs/ancs.c b/pebble/comm/ble/kernel_le_client/ancs/ancs.c
+index 31e5d38b8..085d8049c 100644
+--- a/pebble/comm/ble/kernel_le_client/ancs/ancs.c
++++ b/pebble/comm/ble/kernel_le_client/ancs/ancs.c
+@@ -149,6 +149,12 @@ typedef struct ANCSClient {
+   uint8_t consecutive_busy_alive_checks;
+   // Consecutive alive checks whose Control Point write iOS rejected.
+   uint8_t consecutive_rejected_alive_checks;
++  //! UIDs the phone told of since subscribing to the Notification Source, when mirroring it.
++  uint32_t *snapshot_uids;
++  uint16_t snapshot_count;
++  //! Some UIDs did not fit or were dropped: the snapshot can't tell what's gone.
++  bool snapshot_incomplete;
++  EventedTimerID snapshot_timer;
+ } ANCSClient;
+ 
+ static ANCSClient *s_ancs_client;
+@@ -618,7 +624,8 @@ static void prv_is_ancs_alive_fn(struct pbl_work *work) {
+ // -----------------------------------------------------------------------------
+ //! iOS re-sends the whole notification center as pre-existing right after (re)subscribing. Those
+ //! are only handed over as recovered (missed while disconnected) for a bit after reconnection.
+-//! Without a previous session to compare against, they are dropped.
++//! Without a previous session to compare against, they are dropped, unless the notification
++//! center is mirrored.
+ #define POST_CONNECTION_IGNORE_TICKS (10 * PBL_TICK_HZ)
+ static uint64_t s_connected_ticks;
+ static bool s_connected_ticks_valid;
+@@ -784,6 +791,69 @@ static bool prv_handle_notif_attrs(ClientEvent *event) {
+   return true;
+ }
+ 
++// -----------------------------------------------------------------------------
++//! Snapshot of the notification center
++//!
++//! On subscribing to the Notification Source, iOS tells of every notification in its notification
++//! center. When mirroring it, the UIDs it told of are collected for a while, then stored
++//! notifications that were removed from the phone in the meantime are dropped.
++
++#define SNAPSHOT_TIME_MS  (10 * PBL_MSEC_PER_SEC)
++#define SNAPSHOT_MAX_UIDS 128
++
++//! A notification from the phone was dropped before reaching KernelMain.
++static atomic_bool s_snapshot_dropped_notification;
++
++static void prv_snapshot_stop(void) {
++  if (s_ancs_client->snapshot_timer != EVENTED_TIMER_INVALID_ID) {
++    evented_timer_cancel(s_ancs_client->snapshot_timer);
++    s_ancs_client->snapshot_timer = EVENTED_TIMER_INVALID_ID;
++  }
++  pbl_free(s_ancs_client->snapshot_uids);
++  s_ancs_client->snapshot_uids = nullptr;
++  s_ancs_client->snapshot_count = 0;
++}
++
++PBL_T_STATIC void prv_snapshot_done(void *unused) {
++  if (!s_ancs_client) {
++    return;
++  }
++  s_ancs_client->snapshot_timer = EVENTED_TIMER_INVALID_ID;
++  if (s_ancs_client->snapshot_incomplete || atomic_load(&s_snapshot_dropped_notification)) {
++    PBL_LOG_WRN("Incomplete ANCS snapshot, keeping stored notifications");
++  } else if (s_ancs_client->snapshot_uids) {
++    ancs_notifications_handle_snapshot(s_ancs_client->snapshot_uids, s_ancs_client->snapshot_count);
++  }
++  prv_snapshot_stop();
++}
++
++static void prv_snapshot_start(void) {
++  prv_snapshot_stop();
++  if (!ancs_notifications_is_mirroring()) {
++    return;
++  }
++  s_ancs_client->snapshot_uids = pbl_malloc(SNAPSHOT_MAX_UIDS * sizeof(uint32_t));
++  if (!s_ancs_client->snapshot_uids) {
++    PBL_LOG_WRN("No memory for an ANCS snapshot");
++    return;
++  }
++  s_ancs_client->snapshot_incomplete = false;
++  atomic_store(&s_snapshot_dropped_notification, false);
++  s_ancs_client->snapshot_timer =
++      evented_timer_register(SNAPSHOT_TIME_MS, false, prv_snapshot_done, nullptr);
++}
++
++static void prv_snapshot_add(uint32_t uid) {
++  if (!s_ancs_client->snapshot_uids) {
++    return;
++  }
++  if (s_ancs_client->snapshot_count >= SNAPSHOT_MAX_UIDS) {
++    s_ancs_client->snapshot_incomplete = true;
++    return;
++  }
++  s_ancs_client->snapshot_uids[s_ancs_client->snapshot_count++] = uid;
++}
++
+ // -----------------------------------------------------------------------------
+ // Subscriptions and the Notification Source
+ 
+@@ -808,6 +878,8 @@ static void prv_handle_subscribed(enum pbl_bt_ancs_source source, int error) {
+       prv_ancs_is_alive_start_tracking();
+       prv_start_post_connection_ignore_window();
+       s_session_active = true;
++    } else if (source == PBL_BT_ANCS_SOURCE_NOTIFICATION) {
++      prv_snapshot_start();
+     }
+   } else {
+     PBL_LOG_ERR("Failed to subscribe source: %u (error=%d)", source, error);
+@@ -816,6 +888,7 @@ static void prv_handle_subscribed(enum pbl_bt_ancs_source source, int error) {
+ 
+ static void prv_invalidate_all_references(void) {
+   s_ancs_client->discovered = false;
++  prv_snapshot_stop();
+ 
+   prv_reset_and_flush();
+   prv_put_ancs_disconnected_event();
+@@ -861,8 +934,9 @@ static void prv_handle_notification(const struct pbl_bt_ancs_notif *notif) {
+       // By skipping the pre-existing check we will re-receive all the notifications
+       // we got in the past 2 hours. To get past this ignore notifications for the first couple
+       // seconds after connecting
++      prv_snapshot_add(notif->uid);
+       if (prv_just_connected() && (notif->flags & PBL_BT_ANCS_FLAG_PRE_EXISTING)) {
+-        if (s_had_session) {
++        if (s_had_session || ancs_notifications_is_mirroring()) {
+           PBL_LOG_DBG("PreExisting ANCS notification after reconnecting");
+           prv_notif_queue_push_attr_request(notif, true);
+         } else {
+@@ -876,6 +950,7 @@ static void prv_handle_notification(const struct pbl_bt_ancs_notif *notif) {
+       break;
+     case PBL_BT_ANCS_EVENT_MODIFIED:
+       PBL_LOG_DBG("Modified ANCS notification!");
++      prv_snapshot_add(notif->uid);
+       prv_notif_queue_push_attr_request(notif, false);
+       break;
+     case PBL_BT_ANCS_EVENT_REMOVED:
+@@ -1008,6 +1083,7 @@ static void prv_put_client_event(const ClientEvent *template,
+   if (atomic_fetch_add(&s_num_client_events, 1) >= CLIENT_EVENTS_MAX &&
+       template->type == ClientEventNotification) {
+     atomic_fetch_sub(&s_num_client_events, 1);
++    atomic_store(&s_snapshot_dropped_notification, true);
+     PBL_LOG_WRN("Dropping ANCS notification");
+     return;
+   }
+@@ -1023,6 +1099,9 @@ static void prv_put_client_event(const ClientEvent *template,
+   ClientEvent *event = pbl_malloc(sizeof(*event) + data_size);
+   if (event == nullptr) {
+     atomic_fetch_sub(&s_num_client_events, 1);
++    if (template->type == ClientEventNotification) {
++      atomic_store(&s_snapshot_dropped_notification, true);
++    }
+     PBL_LOG_WRN("Dropping ANCS event %d: out of memory", template->type);
+     return;
+   }
+@@ -1129,6 +1208,7 @@ void ancs_destroy(void) {
+   ++s_session;
+   prv_ancs_is_alive_stop_timer();
+   prv_op_timeout_stop();
++  prv_snapshot_stop();
+ 
+   ancs_app_name_storage_deinit();
+ 
+diff --git a/tests/fakes/fake_kernel_services_notifications.c b/tests/fakes/fake_kernel_services_notifications.c
+index 00fb70628..0db0b3b1b 100644
+--- a/tests/fakes/fake_kernel_services_notifications.c
++++ b/tests/fakes/fake_kernel_services_notifications.c
+@@ -7,6 +7,7 @@
+ 
+ static uint32_t s_ancs_count = 0;
+ static uint32_t s_acted_upon_count = 0;
++static uint32_t s_alert_count = 0;
+ 
+ void notifications_handle_notification_added(Uuid *id) {
+   ++s_ancs_count;
+@@ -28,11 +29,13 @@ void notifications_handle_notification_action_result(
+ void notifications_add_notification(TimelineItem *notification) {
+   notification_storage_store(notification);
+   ++s_ancs_count;
++  ++s_alert_count;
+ }
+ 
+ void fake_kernel_services_notifications_reset(void) {
+   s_ancs_count = 0;
+   s_acted_upon_count = 0;
++  s_alert_count = 0;
+ }
+ 
+ uint32_t fake_kernel_services_notifications_ancs_notifications_count(void) {
+@@ -42,3 +45,7 @@ uint32_t fake_kernel_services_notifications_ancs_notifications_count(void) {
+ uint32_t fake_kernel_services_notifications_acted_upon_count(void) {
+   return s_acted_upon_count;
+ }
++
++uint32_t fake_kernel_services_notifications_alert_count(void) {
++  return s_alert_count;
++}
+diff --git a/tests/fakes/fake_kernel_services_notifications.h b/tests/fakes/fake_kernel_services_notifications.h
+index 5316a25c9..95e082aa2 100644
+--- a/tests/fakes/fake_kernel_services_notifications.h
++++ b/tests/fakes/fake_kernel_services_notifications.h
+@@ -22,3 +22,6 @@ uint32_t fake_kernel_services_notifications_ancs_notifications_count(void);
+ 
+ //! @return Number of times notifications_handle_notification_acted_upon() was called.
+ uint32_t fake_kernel_services_notifications_acted_upon_count(void);
++
++//! Notifications added with an alert, by notifications_add_notification()
++uint32_t fake_kernel_services_notifications_alert_count(void);
+diff --git a/tests/pebble/comm/test_ancs.c b/tests/pebble/comm/test_ancs.c
+index 4584731fb..b37710f30 100644
+--- a/tests/pebble/comm/test_ancs.c
++++ b/tests/pebble/comm/test_ancs.c
+@@ -25,6 +25,11 @@ PebblePhoneCaller *phone_call_util_create_caller(const char *number, const char
+   return nullptr;
+ }
+ 
++static bool s_dismissal_sync;
++bool alerts_preferences_get_notification_dismissal_sync(void) {
++  return s_dismissal_sync;
++}
++
+ // Fakes
+ ///////////////////////////////////////////////////////////
+ 
+@@ -323,6 +328,7 @@ static int prv_handle_write(uint8_t chr, const uint8_t *buffer, uint16_t length)
+ #define TEST_SIZE  (FILESYSTEM_FILE_TEST_SPACE_END - FILESYSTEM_FILE_TEST_SPACE_BEGIN)
+ 
+ void test_ancs__initialize(void) {
++  s_dismissal_sync = false;
+   s_block_event_callback = false;
+   s_num_requested_notif_attributes = 0;
+   s_num_requested_app_attributes = 0;
+@@ -865,6 +871,101 @@ void test_ancs__pre_existing_window_ends_after_10_s(void) {
+   cl_assert_equal_i(fake_notification_storage_get_store_count(), 1);
+ }
+ 
++extern void prv_snapshot_done(void *unused);
++
++//! The snapshot is taken until its timer fires, by prv_snapshot_done().
++static void prv_subscribe_notification_source(void) {
++  s_block_event_callback = true;
++  fake_gattc_service_subscribed(ChrNotificationSource, true, 0);
++}
++
++// Mirroring, the notification center is stored on the first connection too, without alerting.
++void test_ancs__mirror_stores_pre_existing_on_first_connection(void) {
++  s_dismissal_sync = true;
++  pbl_realtime_set(COMPLETE_DICT_TIME + 3 * 60 * 60);
++  prv_subscribe_data_source();
++  prv_subscribe_notification_source();
++  prv_send_pre_existing_complete_dict();
++
++  cl_assert_equal_i(fake_notification_storage_get_store_count(), 1);
++  cl_assert_equal_i(fake_kernel_services_notifications_alert_count(), 0);
++}
++
++// Mirroring, the ones seen before the disconnection are kept, without alerting.
++void test_ancs__mirror_stores_pre_existing_from_before_disconnection(void) {
++  s_dismissal_sync = true;
++  prv_reconnect(COMPLETE_DICT_TIME + 10 * 60, COMPLETE_DICT_TIME + 20 * 60);
++  prv_send_pre_existing_complete_dict();
++
++  cl_assert_equal_i(fake_notification_storage_get_store_count(), 1);
++  cl_assert_equal_i(fake_kernel_services_notifications_alert_count(), 0);
++}
++
++// Notifications removed from the phone while disconnected leave the watch, the others stay.
++void test_ancs__mirror_snapshot_drops_notifications_gone_from_phone(void) {
++  const uint32_t complete_dict_uid =
++      ((GetNotificationAttributesMsg *)s_complete_dict)->notification_uid;
++  const Uuid still_there = {0x01};
++  const Uuid gone = {0x02};
++  const Uuid from_android = {0x03};
++  fake_notification_storage_add_header(&still_there, complete_dict_uid, true);
++  fake_notification_storage_add_header(&gone, complete_dict_uid + 1, true);
++  fake_notification_storage_add_header(&from_android, 0, false);
++
++  s_dismissal_sync = true;
++  prv_subscribe_data_source();
++  prv_subscribe_notification_source();
++  prv_send_pre_existing_complete_dict();
++  prv_snapshot_done(nullptr);
++
++  cl_assert(!fake_notification_storage_is_removed(&still_there));
++  cl_assert(fake_notification_storage_is_removed(&gone));
++  cl_assert(!fake_notification_storage_is_removed(&from_android));
++}
++
++// A notification center left empty clears the iOS notifications from the watch.
++void test_ancs__mirror_empty_snapshot_drops_all_ios_notifications(void) {
++  const Uuid gone = {0x02};
++  const Uuid from_android = {0x03};
++  fake_notification_storage_add_header(&gone, 7, true);
++  fake_notification_storage_add_header(&from_android, 0, false);
++
++  s_dismissal_sync = true;
++  prv_subscribe_data_source();
++  prv_subscribe_notification_source();
++  prv_snapshot_done(nullptr);
++
++  cl_assert(fake_notification_storage_is_removed(&gone));
++  cl_assert(!fake_notification_storage_is_removed(&from_android));
++}
++
++// Without mirroring, nothing is dropped on reconnection.
++void test_ancs__no_snapshot_without_mirroring(void) {
++  const Uuid gone = {0x02};
++  fake_notification_storage_add_header(&gone, 7, true);
++
++  prv_subscribe_data_source();
++  prv_subscribe_notification_source();
++  prv_snapshot_done(nullptr);
++
++  cl_assert(!fake_notification_storage_is_removed(&gone));
++}
++
++// The snapshot ends with the session that took it.
++void test_ancs__snapshot_dropped_on_disconnection(void) {
++  const Uuid gone = {0x02};
++  fake_notification_storage_add_header(&gone, 7, true);
++
++  s_dismissal_sync = true;
++  prv_subscribe_data_source();
++  prv_subscribe_notification_source();
++  ancs_handle_services_changed();
++  fake_gattc_service_discovered(-ENOENT);
++  prv_snapshot_done(nullptr);
++
++  cl_assert(!fake_notification_storage_is_removed(&gone));
++}
++
+ // No Longer Supported
+ // void test_ancs__should_handle_response_with_multiple_notifications(void) {
+ //
+-- 
+2.43.0
+

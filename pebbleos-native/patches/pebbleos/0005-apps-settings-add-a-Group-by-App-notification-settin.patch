@@ -1,0 +1,53 @@
+From 4dd526aa18e972bc61319fa1f5c9ea702bac286c Mon Sep 17 00:00:00 2001
+From: TomBolger <49487944+TomBolger@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 19:00:31 +0000
+Subject: [PATCH 5/5] apps/settings: add a Group by App notification setting
+
+Toggle stacking notifications by app from Settings > Notifications, next
+to Group by Sender.
+
+Assisted-by: LLM
+---
+ pebble/apps/system/settings/notifications.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/pebble/apps/system/settings/notifications.c b/pebble/apps/system/settings/notifications.c
+index 0faa537ec..49ba4bb88 100644
+--- a/pebble/apps/system/settings/notifications.c
++++ b/pebble/apps/system/settings/notifications.c
+@@ -38,6 +38,7 @@ enum NotificationsItem {
+ #endif
+   NotificationsItemVibeDelay,
+   NotificationsItemBacklight,
++  NotificationsItemGroupByApp,
+   NotificationsItemGroupBySender,
+   NotificationsItemStatusBarStyle,
+   NotificationsItem_Count,
+@@ -380,6 +381,13 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
+                                                                  : pbl_i18n_noop("Off");
+       break;
+     }
++    case NotificationsItemGroupByApp: {
++      /// Notification settings item for stacking notifications by app, as the phone does
++      title = pbl_i18n_noop("Group by App");
++      subtitle = alerts_preferences_get_notification_group_by_app() ? pbl_i18n_noop("On")
++                                                                    : pbl_i18n_noop("Off");
++      break;
++    }
+     case NotificationsItemGroupBySender: {
+       /// Notification settings item for grouping notifications by sender
+       title = pbl_i18n_noop("Group by Sender");
+@@ -433,6 +441,10 @@ static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
+       alerts_preferences_set_notification_backlight(
+           !alerts_preferences_get_notification_backlight());
+       break;
++    case NotificationsItemGroupByApp:
++      alerts_preferences_set_notification_group_by_app(
++          !alerts_preferences_get_notification_group_by_app());
++      break;
+     case NotificationsItemGroupBySender:
+       prv_notification_grouping_range_menu_push(data);
+       break;
+-- 
+2.43.0
+
