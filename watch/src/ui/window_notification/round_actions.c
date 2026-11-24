@@ -2,6 +2,7 @@
 #include "../theme.h"
 
 #include "card.h"
+#include "detail_window.h"
 #include "touch_gesture.h"
 
 #if PBL_ROUND
@@ -218,6 +219,8 @@ static void layer_update(Layer* l, GContext* ctx)
 
 // ------------------------------------------------------------------------------------------------ motion
 
+static void apply_content_shift(void);
+
 static void destroy_layer(void)
 {
     if (glide != NULL)
@@ -231,6 +234,7 @@ static void destroy_layer(void)
         layer_destroy(layer);
         layer = NULL;
     }
+    apply_content_shift();
     touch_gesture_reset(&touch);
     const RoundActionsCallbacks* c = callbacks;
     if (c != NULL && c->closed != NULL)
@@ -239,10 +243,19 @@ static void destroy_layer(void)
     }
 }
 
+/** The card slides out to the left exactly as fast as the actions come in from the right. */
+static void apply_content_shift(void)
+{
+    int32_t shift = layer != NULL ? PBL_DISPLAY_WIDTH * eased(progress) / 1000 : 0;
+    shift = shift < 0 ? 0 : (shift > PBL_DISPLAY_WIDTH ? PBL_DISPLAY_WIDTH : shift);
+    detail_window_set_content_shift((int16_t)-shift);
+}
+
 static void motion_update(Animation* anim, const AnimationProgress p)
 {
     (void)anim;
     progress = motion_from + (motion_to - motion_from) * (int32_t)p / ANIMATION_NORMALIZED_MAX;
+    apply_content_shift();
     if (layer != NULL)
     {
         layer_mark_dirty(layer);
@@ -259,6 +272,7 @@ static void motion_stopped(Animation* anim, const bool finished, void* context)
     }
     motion = NULL;
     progress = motion_to;
+    apply_content_shift();
     if (closing)
     {
         closing = false;
@@ -298,6 +312,7 @@ static void run_motion(const int32_t to)
     // No animation: jump to the end.
     progress = to;
     motion_to = to;
+    apply_content_shift();
     if (closing)
     {
         closing = false;

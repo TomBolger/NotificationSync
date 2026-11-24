@@ -1388,6 +1388,20 @@ bool detail_window_is_animating(void)
     return animation != NULL;
 }
 
+void detail_window_set_content_shift(const int16_t dx)
+{
+    if (card_layer == NULL)
+    {
+        return;
+    }
+    GRect frame = layer_get_frame(card_layer);
+    if (frame.origin.x != dx)
+    {
+        frame.origin.x = dx;
+        layer_set_frame(card_layer, frame);
+    }
+}
+
 int16_t detail_window_banner_bottom(void)
 {
     if (window == NULL || current_bucket == 0)

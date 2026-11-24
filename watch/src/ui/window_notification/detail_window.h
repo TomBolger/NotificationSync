@@ -36,6 +36,9 @@ void detail_window_open_actions(void);
 
 bool detail_window_is_animating(void);
 
+/** Slides the card sideways by dx pixels (0 puts it back); the round action menu pushes it aside. */
+void detail_window_set_content_shift(int16_t dx);
+
 /** Screen y of the lower edge of the current card's banner (negative when scrolled out of sight). */
 int16_t detail_window_banner_bottom(void);
 
